@@ -634,6 +634,60 @@
 
         /* === Selection === */
         ::selection { background: var(--accent-subtle); }
+        /* ==================== Context Menu ==================== */
+        .ctx-menu {
+            position: fixed;
+            z-index: 9999;
+            min-width: 160px;
+            background: var(--bg-secondary);
+            backdrop-filter: var(--blur);
+            -webkit-backdrop-filter: var(--blur);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-sm);
+            box-shadow: var(--shadow-lg);
+            padding: 4px 0;
+            animation: ctxFadeIn 0.12s ease;
+        }
+        @keyframes ctxFadeIn {
+            from { opacity: 0; transform: scale(0.96); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .ctx-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 14px;
+            font-size: 13px;
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: background var(--transition);
+            user-select: none;
+        }
+        .ctx-item:hover {
+            background: var(--bg-active);
+        }
+        .ctx-item.disabled {
+            color: var(--text-muted);
+            cursor: default;
+            pointer-events: none;
+        }
+        .ctx-item.danger {
+            color: var(--danger);
+        }
+        .ctx-item.danger:hover {
+            background: var(--danger-subtle);
+        }
+        .ctx-separator {
+            height: 1px;
+            background: var(--border);
+            margin: 4px 0;
+        }
+        .ctx-shortcut {
+            margin-left: auto;
+            font-size: 11px;
+            color: var(--text-muted);
+            font-family: 'SF Mono', 'Cascadia Code', monospace;
+        }
     </style>
 </head>
 <body>
@@ -990,7 +1044,10 @@
         </div>
     </div>
 
-    <!-- ==================== Toast Container ==================== -->
+    <!-- ==================== Context Menu ==================== -->
+<div class="ctx-menu" id="ctx-menu" style="display:none;"></div>
+
+<!-- ==================== Toast Container ==================== -->
     <div class="toast-container" id="toast-container"></div>
 
     <script>
@@ -1058,7 +1115,7 @@
             return;
         }
         tbody.innerHTML = upstreamsCache.map(u => `
-            <tr>
+            <tr data-id="${u.id}">
                 <td style="color:var(--text-primary);font-weight:500;">${esc(u.provider_name)}</td>
                 <td style="font-family:'SF Mono','Cascadia Code',monospace;font-size:12px;">${esc(u.base_url)}</td>
                 <td><span class="badge badge-blue">${esc(u.selected_model || '-')}</span></td>
@@ -1298,7 +1355,7 @@
             return;
         }
         tbody.innerHTML = poolsCache.map(p => `
-            <tr>
+            <tr data-id="${p.id}">
                 <td style="color:var(--text-primary);font-weight:500;font-family:'SF Mono','Cascadia Code',monospace;">${esc(p.name)}</td>
                 <td>${esc(p.display_name)}</td>
                 <td><span class="badge badge-blue">${p.upstream_count} 个上游</span></td>
@@ -1708,6 +1765,120 @@ else if (statusFilter === '5') args.statusCode = 500;
             btn.textContent = '一键检测';
         }
     }
+
+    // ================================================================
+    // Context Menu
+    // ================================================================
+    const ctxMenu = document.getElementById('ctx-menu');
+    let ctxMenuHideTimer = null;
+
+    function showContextMenu(x, y, items) {
+        ctxMenu.innerHTML = items.map((item, i) => {
+            if (item.separator) return '<div class="ctx-separator"></div>';
+            const cls = item.danger ? 'ctx-item danger' : 'ctx-item';
+            const disabled = item.disabled ? ' disabled' : '';
+            const shortcut = item.shortcut ? `<span class="ctx-shortcut">${item.shortcut}</span>` : '';
+            return `<div class="${cls}${disabled}" data-idx="${i}">${item.label}${shortcut}</div>`;
+        }).join('');
+
+        ctxMenu.style.display = 'block';
+        // Clamp position so menu stays within viewport
+        const rect = ctxMenu.getBoundingClientRect();
+        const maxX = window.innerWidth - rect.width - 4;
+        const maxY = window.innerHeight - rect.height - 4;
+        ctxMenu.style.left = Math.min(x, maxX) + 'px';
+        ctxMenu.style.top = Math.min(y, maxY) + 'px';
+
+        ctxMenu.querySelectorAll('.ctx-item:not(.disabled)').forEach(el => {
+            const idx = parseInt(el.dataset.idx);
+            el.addEventListener('click', () => {
+                hideContextMenu();
+                if (items[idx].action) items[idx].action();
+            });
+        });
+    }
+
+    function hideContextMenu() {
+        ctxMenu.style.display = 'none';
+    }
+
+    // Hide on click outside, scroll, or Escape
+    document.addEventListener('click', hideContextMenu);
+    document.addEventListener('scroll', hideContextMenu, true);
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') hideContextMenu();
+    });
+    ctxMenu.addEventListener('contextmenu', e => {
+        e.preventDefault();
+        hideContextMenu();
+    });
+
+    // ── Text input / textarea context menu ──────────────────────
+    document.addEventListener('contextmenu', e => {
+        const target = e.target;
+        const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
+
+        if (isInput && target.type !== 'checkbox' && target.type !== 'hidden') {
+            e.preventDefault();
+            const hasSelection = target.selectionStart !== target.selectionEnd;
+            const hasValue = target.value.length > 0;
+
+            showContextMenu(e.clientX, e.clientY, [
+                { label: '剪切', shortcut: 'Ctrl+X', disabled: !hasSelection, action: () => { document.execCommand('cut'); } },
+                { label: '复制', shortcut: 'Ctrl+C', disabled: !hasSelection, action: () => { document.execCommand('copy'); } },
+                { label: '粘贴', shortcut: 'Ctrl+V', action: async () => {
+                    try {
+                        const text = await navigator.clipboard.readText();
+                        const start = target.selectionStart;
+                        const end = target.selectionEnd;
+                        target.value = target.value.substring(0, start) + text + target.value.substring(end);
+                        target.selectionStart = target.selectionEnd = start + text.length;
+                        target.dispatchEvent(new Event('input', { bubbles: true }));
+                    } catch (err) { /* clipboard may be blocked */ }
+                }},
+                { separator: true },
+                { label: '全选', shortcut: 'Ctrl+A', disabled: !hasValue, action: () => { target.select(); } },
+            ]);
+            return;
+        }
+
+        // ── Upstream table row context menu ──────────────────────
+        const upstreamRow = target.closest('#upstream-tbody tr[data-id]');
+        if (upstreamRow) {
+            e.preventDefault();
+            const id = upstreamRow.dataset.id;
+            const u = upstreamsCache.find(x => x.id === id);
+            if (!u) return;
+            showContextMenu(e.clientX, e.clientY, [
+                { label: '编辑', action: () => openEditModal(id) },
+                { label: u.enabled ? '禁用' : '启用', action: () => toggleUpstream(id, !u.enabled) },
+                { separator: true },
+                { label: '复制供应商名称', action: () => { navigator.clipboard.writeText(u.provider_name); toast('已复制', 'success'); } },
+                { label: '复制 Base URL', action: () => { navigator.clipboard.writeText(u.base_url); toast('已复制', 'success'); } },
+                { separator: true },
+                { label: '删除', danger: true, action: () => openDeleteModal(id) },
+            ]);
+            return;
+        }
+
+        // ── Pool table row context menu ─────────────────────────
+        const poolRow = target.closest('#pool-tbody tr[data-id]');
+        if (poolRow) {
+            e.preventDefault();
+            const id = poolRow.dataset.id;
+            const p = poolsCache.find(x => x.id === id);
+            if (!p) return;
+            showContextMenu(e.clientX, e.clientY, [
+                { label: '编辑', action: () => openEditPoolModal(id) },
+                { separator: true },
+                { label: '复制模型名称', action: () => { navigator.clipboard.writeText(p.name); toast('已复制', 'success'); } },
+                { label: '复制显示名称', action: () => { navigator.clipboard.writeText(p.display_name); toast('已复制', 'success'); } },
+                { separator: true },
+                { label: '删除', danger: true, action: () => openPoolDeleteModal(id) },
+            ]);
+            return;
+        }
+    });
 
     // ================================================================
     // Init
