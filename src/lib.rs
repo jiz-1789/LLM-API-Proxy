@@ -74,11 +74,12 @@ pub fn initialize_backend() -> anyhow::Result<AppState> {
     let listen_port = settings.listen_port;
     let db_arc = Arc::new(db);
     let proxy_client = Arc::new(proxy::failover::UpstreamClient::new());
+    let crypto_for_gw = Arc::new(crypto::KeyManager::initialize(&data_dir)?);
 
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
         rt.block_on(async move {
-            let router = gateway::create_router(db_arc.clone(), proxy_client);
+            let router = gateway::create_router(db_arc.clone(), proxy_client, crypto_for_gw);
             let addr = format!("{}:{}", listen_addr, listen_port);
             tracing::info!("Gateway server listening on {}", addr);
             let listener = tokio::net::TcpListener::bind(&addr)

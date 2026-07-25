@@ -10,15 +10,25 @@ use axum::{
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
+use std::time::Instant;
 use tracing::{info, warn};
 
+use crate::crypto::KeyManager;
 use crate::db::Database;
 use crate::pool::thinking;
 use crate::proxy::failover::UpstreamClient;
 
 /// Build the API Gateway router.
-pub fn create_router(db: Arc<Database>, proxy_client: Arc<UpstreamClient>) -> Router {
-    let state = GatewayState { db, proxy_client };
+pub fn create_router(
+    db: Arc<Database>,
+    proxy_client: Arc<UpstreamClient>,
+    crypto: Arc<KeyManager>,
+) -> Router {
+    let state = GatewayState {
+        db,
+        proxy_client,
+        crypto,
+    };
 
     Router::new()
         // OpenAI-compatible endpoints
@@ -33,6 +43,7 @@ pub fn create_router(db: Arc<Database>, proxy_client: Arc<UpstreamClient>) -> Ro
 struct GatewayState {
     db: Arc<Database>,
     proxy_client: Arc<UpstreamClient>,
+    crypto: Arc<KeyManager>,
 }
 
 /// GET /api/health — Returns gateway status.
@@ -75,6 +86,8 @@ async fn handle_chat_completions(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> impl IntoResponse {
+    let start_time = Instant::now();
+
     // Authenticate Gateway Key
     let _api_key = match auth::validate_api_key(&headers, &state.db) {
         Ok(key) => key,
@@ -92,11 +105,8 @@ async fn handle_chat_completions(
         }
     };
 
-    info!(
-        "Received chat completion request for model={}, stream={}",
-        model,
-        body.get("stream").and_then(|s| s.as_bool()).unwrap_or(false)
-    );
+    let is_stream = body.get("stream").and_then(|s| s.as_bool()).unwrap_or(false);
+    info!("Received chat completion request for model={}, stream={}", model, is_stream);
 
     // Find matching pool by model name
     let pool = match state.db.get_pool_by_name(&model) {
@@ -117,9 +127,9 @@ async fn handle_chat_completions(
         }
     };
 
-    // Get upstreams for this pool
-    let upstreams = match state.db.get_pool_upstreams(&pool.id) {
-        Ok(upstreams) => upstreams,
+    // Get upstreams for this pool (ordered by sort_order)
+    let pool_upstreams = match state.db.get_pool_upstreams(&pool.id) {
+        Ok(u) => u,
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -129,50 +139,115 @@ async fn handle_chat_completions(
         }
     };
 
-    if upstreams.is_empty() {
+    if pool_upstreams.is_empty() {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "pool has no available upstreams" })),
+            Json(json!({ "error": "pool has no associated upstreams" })),
         )
             .into_response();
     }
 
-    // Inject thinking mode if enabled
+    // Build a mutable request body; replace model with upstream-specific model later
     let mut request_body = body.clone();
-    let upstream_vendor = upstreams
+
+    // Inject thinking mode if enabled for this pool
+    let upstream_vendor = pool_upstreams
         .first()
         .map(|u| u.provider_name.as_str())
         .unwrap_or("");
-    if let Some(thinking_param) =
-        thinking::get_thinking_param(upstream_vendor, pool.thinking_enabled)
-    {
+    if let Some(thinking_param) = thinking::get_thinking_param(upstream_vendor, pool.thinking_enabled) {
         thinking::merge_thinking_params(&mut request_body, &Some(thinking_param));
     }
 
-    // Try each upstream in order (failover)
-    let mut last_error: Option<String> = None;
-    let mut failed_upstreams = Vec::new();
+    // Generate a request ID for logging
+    let request_id = format!(
+        "req_{:x}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .subsec_nanos()
+    );
 
-    for upstream in &upstreams {
+    // Try each upstream in order (failover chain)
+    let mut last_error: Option<String> = None;
+    let mut failed_upstreams_json = Vec::new();
+
+    for pu in &pool_upstreams {
+        // Look up full upstream record to get base_url and encrypted api_key
+        let upstream = match state.db.get_upstream_by_id(&pu.upstream_id) {
+            Ok(Some(u)) => u,
+            Ok(None) => {
+                warn!("Pool upstream {} references missing upstream {}", pool.name, pu.upstream_id);
+                continue;
+            }
+            Err(e) => {
+                warn!("Failed to load upstream {}: {}", pu.upstream_id, e);
+                continue;
+            }
+        };
+
+        if !upstream.enabled {
+            continue;
+        }
+
+        // Decrypt the API key
+        let api_key = match state.crypto.decrypt_api_key(&upstream.api_key_encrypted) {
+            Ok(k) => k,
+            Err(e) => {
+                warn!("Failed to decrypt API key for {}: {}", upstream.provider_name, e);
+                failed_upstreams_json.push(json!({
+                    "provider": upstream.provider_name,
+                    "error": "key decryption failed"
+                }));
+                continue;
+            }
+        };
+
+        // Override model in request body with the pool-specific model for this upstream
+        let target_model = if !pu.model.is_empty() {
+            &pu.model
+        } else {
+            &upstream.selected_model
+        };
+        if let Some(obj) = request_body.as_object_mut() {
+            obj.insert("model".to_string(), Value::String(target_model.to_string()));
+        }
+
+        // Forward the request
         match state
             .proxy_client
-            .forward_request("", "", "", &request_body)
+            .forward_request(&upstream.base_url, &api_key, target_model, &request_body)
             .await
         {
             Ok(response) => {
-                // Replace model name in response
+                let elapsed = start_time.elapsed().as_millis() as i32;
+
+                // Replace model name in response with the pool's display name
                 let mut resp_body = response.body;
                 if let Some(obj) = resp_body.as_object_mut() {
-                    obj.insert(
-                        "model".to_string(),
-                        Value::String(pool.display_name.clone()),
-                    );
+                    obj.insert("model".to_string(), Value::String(pool.display_name.clone()));
                 }
+
+                // Log successful request
+                let log_id = format!("log_{:x}", elapsed as u32 ^ request_id.len() as u32);
+                let _ = state.db.insert_request_log(
+                    &log_id,
+                    &request_id,
+                    Some(&pool.name),
+                    Some(&upstream.id),
+                    &serde_json::to_string(&failed_upstreams_json).unwrap_or_default(),
+                    "POST",
+                    "/v1/chat/completions",
+                    response.status_code,
+                    elapsed,
+                    is_stream,
+                );
+
                 return (StatusCode::OK, Json(resp_body)).into_response();
             }
             Err(e) => {
                 warn!("Upstream {} failed: {}", upstream.provider_name, e);
-                failed_upstreams.push(json!({
+                failed_upstreams_json.push(json!({
                     "provider": upstream.provider_name,
                     "error": e.to_string()
                 }));
@@ -181,12 +256,27 @@ async fn handle_chat_completions(
         }
     }
 
-    // All upstreams exhausted
+    // All upstreams exhausted — log the failure
+    let elapsed = start_time.elapsed().as_millis() as i32;
+    let log_id = format!("log_fail_{:x}", elapsed as u32);
+    let _ = state.db.insert_request_log(
+        &log_id,
+        &request_id,
+        Some(&pool.name),
+        None,
+        &serde_json::to_string(&failed_upstreams_json).unwrap_or_default(),
+        "POST",
+        "/v1/chat/completions",
+        502,
+        elapsed,
+        is_stream,
+    );
+
     (
         StatusCode::BAD_GATEWAY,
         Json(json!({
             "error": "all upstreams failed",
-            "details": failed_upstreams,
+            "details": failed_upstreams_json,
             "last_error": last_error
         })),
     )
