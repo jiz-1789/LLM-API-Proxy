@@ -96,14 +96,6 @@ commands::fetch_upstream_models_by_id,
                 })
                 .build(app)?;
 
-            #[cfg(debug_assertions)]
-            {
-                // Open DevTools in debug mode for frontend development
-                if let Some(window) = app.get_webview_window("main") {
-                    window.open_devtools();
-                }
-            }
-
             Ok(())
         })
         // Respect user's minimize-to-tray preference on window close
