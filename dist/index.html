@@ -618,6 +618,37 @@
             border-color: var(--border-strong);
         }
 
+        /* === Window controls === */
+        .win-controls {
+            display: flex;
+            align-items: center;
+            gap: 0;
+            -webkit-app-region: no-drag;
+            margin-left: 4px;
+        }
+        .win-btn {
+            width: 36px;
+            height: 32px;
+            border: none;
+            background: transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: var(--radius-sm);
+            transition: all var(--transition);
+            font-size: 14px;
+        }
+        .win-btn:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+        .win-btn.close:hover {
+            background: var(--danger);
+            color: #fff;
+        }
+
         /* === Scrollbar === */
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
@@ -691,6 +722,17 @@
         <div style="display:flex;align-items:center;gap:12px;-webkit-app-region:no-drag;">
             <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn">亮色模式</button>
             <span class="ver">v0.1.0</span>
+            <div class="win-controls">
+                <button class="win-btn" onclick="winMinimize()" title="最小化">
+                    <svg width="12" height="12" viewBox="0 0 12 12"><rect y="5.5" width="12" height="1" fill="currentColor"/></svg>
+                </button>
+                <button class="win-btn" onclick="winToggleMax()" title="最大化/还原">
+                    <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+                </button>
+                <button class="win-btn close" onclick="winClose()" title="关闭">
+                    <svg width="12" height="12" viewBox="0 0 12 12"><path d="M1,1 L11,11 M11,1 L1,11" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+                </button>
+            </div>
         </div>
     </div>
 
@@ -727,6 +769,16 @@
                         <div class="card-label">今日请求</div>
                         <div class="card-value" id="dash-req-count">0</div>
                         <div class="card-sub">已转发总数</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-label">今日成功</div>
+                        <div class="card-value" id="dash-success-count" style="color:var(--success);">0</div>
+                        <div class="card-sub">2xx 响应</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-label">今日错误</div>
+                        <div class="card-value" id="dash-error-count" style="color:var(--danger);">0</div>
+                        <div class="card-sub">4xx / 5xx 响应</div>
                     </div>
                 </div>
                 <div class="section-title">网关配置</div>
@@ -800,17 +852,17 @@
                 <div class="section-title">请求日志</div>
                 <div class="filter-bar">
                     <label>模型池</label>
-                    <select class="form-select" id="log-filter-pool" onchange="loadLogs()">
+                    <select class="form-select" id="log-filter-pool" onchange="loadLogs(true)">
                         <option value="">全部</option>
                     </select>
                     <label>状态码</label>
-                    <select class="form-select" id="log-filter-status" onchange="loadLogs()">
+                    <select class="form-select" id="log-filter-status" onchange="loadLogs(true)">
                         <option value="">全部</option>
                         <option value="200">2xx 成功</option>
                         <option value="4">4xx 客户端错误</option>
                         <option value="5">5xx 服务端错误</option>
                     </select>
-                    <button class="btn btn-ghost btn-sm" onclick="loadLogs()">刷新</button>
+                    <button class="btn btn-ghost btn-sm" onclick="loadLogs(true)">刷新</button>
                 </div>
                 <div class="table-wrap">
                     <table>
@@ -830,6 +882,7 @@
                         </tbody>
                     </table>
                 </div>
+                <div id="log-pagination" style="display:flex;align-items:center;justify-content:center;gap:12px;padding:12px 0;"></div>
             </div>
 
             <!-- ==================== Settings ==================== -->
@@ -1049,33 +1102,61 @@
     // ================================================================
     // Tauri IPC
     // ================================================================
-    const { invoke } = window.__TAURI__?.core || {};
+const { invoke } = window.__TAURI__?.core || {};
+const win = window.__TAURI__?.window;
 
-    async function cmd(name, args) {
-        if (!invoke) {
-            console.warn('Tauri IPC not available (running outside Tauri?)');
-            return null;
-        }
-        return invoke(name, args);
-    }
+async function cmd(name, args) {
+if (!invoke) {
+console.warn('Tauri IPC not available (running outside Tauri?)');
+return null;
+}
+return invoke(name, args);
+}
+
+// ================================================================
+// Window Controls
+// ================================================================
+function winMinimize() {
+win?.getCurrentWindow()?.minimize();
+}
+function winToggleMax() {
+win?.getCurrentWindow()?.toggleMaximize();
+}
+function winClose() {
+// Close triggers the on_window_event handler which respects minimize-to-tray
+win?.getCurrentWindow()?.close();
+}
 
     // ================================================================
     // Navigation
     // ================================================================
-    document.querySelectorAll('.nav-item').forEach(item => {
-        item.addEventListener('click', () => {
-            document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-            item.classList.add('active');
-            const page = item.dataset.page;
-            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-            document.getElementById('page-' + page)?.classList.add('active');
-            if (page === 'upstreams') loadUpstreams();
-            if (page === 'pools') loadPools();
-            if (page === 'logs') { populatePoolFilter(); loadLogs(); }
-            if (page === 'dashboard') refreshDashboard();
-            if (page === 'settings') loadSettings();
-        });
-    });
+document.querySelectorAll('.nav-item').forEach(item => {
+item.addEventListener('click', () => {
+document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+item.classList.add('active');
+const page = item.dataset.page;
+document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+document.getElementById('page-' + page)?.classList.add('active');
+
+// Stop dashboard timer when leaving dashboard
+if (page !== 'dashboard' && dashboardTimer) {
+clearInterval(dashboardTimer);
+dashboardTimer = null;
+}
+// Start dashboard timer when entering dashboard
+if (page === 'dashboard') {
+if (!dashboardTimer) {
+refreshDashboard();
+dashboardTimer = setInterval(refreshDashboard, 30000);
+}
+}
+if (page === 'upstreams') loadUpstreams();
+if (page === 'pools') loadPools();
+if (page === 'logs') { populatePoolFilter(); loadLogs(true); }
+if (page === 'settings') loadSettings();
+if (page === 'health') runHealthCheck();
+});
+});
 
     // ================================================================
     // Toast
@@ -1522,40 +1603,69 @@
     // ================================================================
     // Request Logs (with filters)
     // ================================================================
-    async function loadLogs() {
-        try {
-            const poolFilter = document.getElementById('log-filter-pool')?.value || '';
-            const statusFilter = document.getElementById('log-filter-status')?.value || '';
-            const args = { limit: 50 };
+async function loadLogs(resetPage) {
+try {
+if (resetPage) logCurrentPage = 0;
+const poolFilter = document.getElementById('log-filter-pool')?.value || '';
+const statusFilter = document.getElementById('log-filter-status')?.value || '';
+const pageLimit = 20;
+const args = { limit: pageLimit, offset: logCurrentPage * pageLimit };
 if (poolFilter) args.poolName = poolFilter;
 if (statusFilter === '200') args.statusCode = 200;
 else if (statusFilter === '4') args.statusCode = 400;
 else if (statusFilter === '5') args.statusCode = 500;
 
-            const logs = await cmd('get_request_logs', args) || [];
-            const tbody = document.getElementById('logs-tbody');
-            if (logs.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" class="empty-state">暂无请求记录</td></tr>';
-                return;
-            }
-            tbody.innerHTML = logs.map(l => {
-                const codeBadge = l.status_code >= 200 && l.status_code < 300
-                    ? `<span class="badge badge-green">${l.status_code}</span>`
-                    : `<span class="badge badge-red">${l.status_code}</span>`;
-                return `<tr>
-                    <td style="font-size:12px;">${esc(l.created_at)}</td>
-                    <td>${esc(l.pool_name || '-')}</td>
-                    <td style="font-family:'SF Mono','Cascadia Code',monospace;font-size:11px;">${esc(l.upstream_id ? l.upstream_id.substring(0,12)+'...' : '-')}</td>
-                    <td>${esc(l.method)}</td>
-                    <td>${codeBadge}</td>
-                    <td>${l.response_time_ms}ms</td>
-                    <td>${l.is_streaming ? '是' : '否'}</td>
-                </tr>`;
-            }).join('');
-        } catch (e) {
-            toast('加载日志失败: ' + e, 'error');
-        }
-    }
+const logs = await cmd('get_request_logs', args) || [];
+const tbody = document.getElementById('logs-tbody');
+if (logs.length === 0 && logCurrentPage === 0) {
+tbody.innerHTML = '<tr><td colspan="7" class="empty-state">暂无请求记录</td></tr>';
+updateLogPagination(0, pageLimit, false);
+return;
+}
+tbody.innerHTML = logs.map(l => {
+const codeBadge = l.status_code >= 200 && l.status_code < 300
+? `<span class="badge badge-green">${l.status_code}</span>`
+: `<span class="badge badge-red">${l.status_code}</span>`;
+return `<tr>
+<td style="font-size:12px;">${esc(l.created_at)}</td>
+<td>${esc(l.pool_name || '-')}</td>
+<td style="font-family:'SF Mono','Cascadia Code',monospace;font-size:11px;">${esc(l.upstream_id ? l.upstream_id.substring(0,12)+'...' : '-')}</td>
+<td>${esc(l.method)}</td>
+<td>${codeBadge}</td>
+<td>${l.response_time_ms}ms</td>
+<td>${l.is_streaming ? '是' : '否'}</td>
+</tr>`;
+}).join('');
+updateLogPagination(logCurrentPage, pageLimit, logs.length === pageLimit);
+} catch (e) {
+toast('加载日志失败: ' + e, 'error');
+}
+}
+
+let logCurrentPage = 0;
+
+function updateLogPagination(page, limit, hasNext) {
+const container = document.getElementById('log-pagination');
+if (!container) return;
+const start = page * limit + 1;
+const end = hasNext ? (page + 1) * limit : null;
+container.innerHTML = `
+<button class="btn btn-ghost btn-sm" ${page === 0 ? 'disabled' : ''} onclick="logPrevPage()">上一页</button>
+<span style="font-size:12px;color:var(--text-muted);">${start}${end ? '-' + end : ''}条</span>
+<button class="btn btn-ghost btn-sm" ${!hasNext ? 'disabled' : ''} onclick="logNextPage()">下一页</button>
+`;
+}
+
+function logNextPage() {
+logCurrentPage++;
+loadLogs(false);
+}
+function logPrevPage() {
+if (logCurrentPage > 0) {
+logCurrentPage--;
+loadLogs(false);
+}
+}
 
     async function populatePoolFilter() {
         try {
@@ -1584,6 +1694,8 @@ else if (statusFilter === '5') args.statusCode = 500;
                 document.getElementById('dash-upstream-count').textContent = stats.upstream_count;
                 document.getElementById('dash-pool-count').textContent = stats.pool_count;
                 document.getElementById('dash-req-count').textContent = stats.today_request_count;
+                document.getElementById('dash-success-count').textContent = stats.today_success_count;
+                document.getElementById('dash-error-count').textContent = stats.today_error_count;
             }
             if (gwInfo) {
                 const addr = gwInfo.listen_address + ':' + gwInfo.listen_port;
@@ -1651,14 +1763,11 @@ else if (statusFilter === '5') args.statusCode = 500;
         });
     }
 
-    function generateApiKey() {
-        const chars = 'abcdef0123456789';
-        let key = 'sk-gw-';
-        for (let i = 0; i < 32; i++) {
-            key += chars[Math.floor(Math.random() * chars.length)];
-        }
-        return key;
-    }
+function generateApiKey() {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return 'sk-gw-' + Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
     function regenerateApiKey() {
         document.getElementById('set-apikey').value = generateApiKey();
@@ -1880,8 +1989,8 @@ else if (statusFilter === '5') args.statusCode = 500;
     // ================================================================
     (async function init() {
         await loadTheme();
-        await refreshDashboard();
-        await populatePoolFilter();
+        // Dashboard is the default active page — start its timer
+        refreshDashboard();
         dashboardTimer = setInterval(refreshDashboard, 30000);
     })();
     </script>

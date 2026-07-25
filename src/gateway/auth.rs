@@ -27,9 +27,21 @@ pub fn validate_api_key(
         .map_err(|e| json!({ "error": format!("failed to load API key: {}", e) }))?
         .unwrap_or_default();
 
-    if !expected_key.is_empty() && provided_key == expected_key {
+    if !expected_key.is_empty() && constant_time_eq(provided_key.as_bytes(), expected_key.as_bytes()) {
         Ok(provided_key.to_string())
     } else {
         Err(json!({ "error": "invalid API key" }))
     }
+}
+
+/// Constant-time comparison to prevent timing side-channel attacks.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut result: u8 = 0;
+    for (x, y) in a.iter().zip(b.iter()) {
+        result |= x ^ y;
+    }
+    result == 0
 }
