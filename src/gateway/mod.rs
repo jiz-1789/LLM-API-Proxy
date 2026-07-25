@@ -11,7 +11,8 @@ use axum::{
 };
 use bytes::Bytes;
 use serde_json::{json, Value};
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio_util::io::StreamReader;
@@ -19,8 +20,12 @@ use tracing::{info, warn};
 
 use crate::crypto::KeyManager;
 use crate::db::Database;
+use crate::pool::circuit_breaker::CircuitBreaker;
 use crate::pool::thinking;
 use crate::proxy::failover::UpstreamClient;
+
+/// Per-pool round-robin counters (pool_id → next index).
+type RoundRobinCounters = Arc<Mutex<HashMap<String, usize>>>;
 
 /// Build the API Gateway router.
 pub fn create_router(
@@ -32,6 +37,8 @@ pub fn create_router(
         db,
         proxy_client,
         crypto,
+        circuit_breaker: Arc::new(CircuitBreaker::new()),
+        rr_counters: Arc::new(Mutex::new(HashMap::new())),
     };
 
     Router::new()
@@ -48,6 +55,8 @@ struct GatewayState {
     db: Arc<Database>,
     proxy_client: Arc<UpstreamClient>,
     crypto: Arc<KeyManager>,
+    circuit_breaker: Arc<CircuitBreaker>,
+    rr_counters: RoundRobinCounters,
 }
 
 /// GET /api/health — Returns gateway status.
@@ -85,6 +94,18 @@ async fn handle_models(State(state): State<GatewayState>) -> impl IntoResponse {
 }
 
 /// POST /v1/chat/completions — Forward to upstream pool with round-robin + failover.
+///
+/// Routing logic:
+/// 1. Round-robin: If `round_robin_strategy == "round_robin"`, rotate the
+///    starting upstream per request. Otherwise always start from index 0.
+/// 2. Circuit breaker: Each upstream is checked against the circuit breaker
+///    (threshold & duration from pool config). Open circuits are skipped.
+/// 3. Failover: If `failover_enabled` is true, subsequent upstreams are tried
+///    on failure. Otherwise only the selected upstream is attempted.
+/// 4. Thinking mode: Injected **per-upstream** based on each upstream's
+///    `provider_name`, not the first upstream's. A client may override with
+///    `"reasoning": false` to disable thinking entirely.
+/// 5. Timeout: Uses `pool.timeout_seconds` for non-streaming requests.
 async fn handle_chat_completions(
     State(state): State<GatewayState>,
     headers: HeaderMap,
@@ -110,7 +131,10 @@ async fn handle_chat_completions(
     };
 
     let is_stream = body.get("stream").and_then(|s| s.as_bool()).unwrap_or(false);
-    info!("Received chat completion request for model={}, stream={}", model, is_stream);
+    info!(
+        "Received chat completion request for model={}, stream={}",
+        model, is_stream
+    );
 
     // Find matching pool by model name
     let pool = match state.db.get_pool_by_name(&model) {
@@ -151,17 +175,33 @@ async fn handle_chat_completions(
             .into_response();
     }
 
-    // Build a mutable request body; replace model with upstream-specific model later
-    let mut request_body = body.clone();
+    // ── Pre-request configuration ──────────────────────────────────────
 
-    // Inject thinking mode if enabled for this pool
-    let upstream_vendor = pool_upstreams
-        .first()
-        .map(|u| u.provider_name.as_str())
-        .unwrap_or("");
-    if let Some(thinking_param) = thinking::get_thinking_param(upstream_vendor, pool.thinking_enabled) {
-        thinking::merge_thinking_params(&mut request_body, &Some(thinking_param));
-    }
+    // Check if client explicitly disabled reasoning/thinking
+    let client_reasoning_disabled =
+        body.get("reasoning").and_then(|v| v.as_bool()) == Some(false);
+
+    // Pool-level timeout for non-streaming requests
+    let timeout_secs = if pool.timeout_seconds > 0 {
+        pool.timeout_seconds as u64
+    } else {
+        60
+    };
+
+    // Determine round-robin starting index
+    let n = pool_upstreams.len();
+    let start_idx = if pool.round_robin_strategy == "round_robin" {
+        let mut counters = state.rr_counters.lock().unwrap();
+        let counter = counters.entry(pool.id.clone()).or_insert(0);
+        let idx = *counter % n;
+        *counter = (*counter + 1) % n;
+        idx
+    } else {
+        0 // sequential: always start from first upstream
+    };
+
+    // Number of upstreams to try
+    let max_attempts = if pool.failover_enabled { n } else { 1 };
 
     // Generate a request ID for logging
     let request_id = format!(
@@ -172,16 +212,24 @@ async fn handle_chat_completions(
             .subsec_nanos()
     );
 
-    // Try each upstream in order (failover chain)
+    // ── Failover loop ──────────────────────────────────────────────────
+
     let mut last_error: Option<String> = None;
     let mut failed_upstreams_json: Vec<Value> = Vec::new();
+    let mut attempted_any = false;
 
-    for pu in &pool_upstreams {
+    for attempt in 0..max_attempts {
+        let idx = (start_idx + attempt) % n;
+        let pu = &pool_upstreams[idx];
+
         // Look up full upstream record to get base_url and encrypted api_key
         let upstream = match state.db.get_upstream_by_id(&pu.upstream_id) {
             Ok(Some(u)) => u,
             Ok(None) => {
-                warn!("Pool upstream {} references missing upstream {}", pool.name, pu.upstream_id);
+                warn!(
+                    "Pool upstream {} references missing upstream {}",
+                    pool.name, pu.upstream_id
+                );
                 continue;
             }
             Err(e) => {
@@ -194,11 +242,37 @@ async fn handle_chat_completions(
             continue;
         }
 
+        // Ensure circuit breaker is registered with pool-specific config
+        state.circuit_breaker.ensure_registered(
+            &upstream.id,
+            pool.circuit_breaker_threshold as u32,
+            pool.circuit_breaker_duration_seconds as u64,
+        );
+
+        // Check circuit breaker — skip if open
+        if !state.circuit_breaker.allow_request(&upstream.id) {
+            warn!(
+                "Upstream {} circuit open, skipping (failures={})",
+                upstream.provider_name,
+                state.circuit_breaker.get_failure_count(&upstream.id)
+            );
+            failed_upstreams_json.push(json!({
+                "provider": upstream.provider_name,
+                "error": "circuit breaker open"
+            }));
+            continue;
+        }
+
+        attempted_any = true;
+
         // Decrypt the API key
         let api_key = match state.crypto.decrypt_api_key(&upstream.api_key_encrypted) {
             Ok(k) => k,
             Err(e) => {
-                warn!("Failed to decrypt API key for {}: {}", upstream.provider_name, e);
+                warn!(
+                    "Failed to decrypt API key for {}: {}",
+                    upstream.provider_name, e
+                );
                 failed_upstreams_json.push(json!({
                     "provider": upstream.provider_name,
                     "error": "key decryption failed"
@@ -207,7 +281,12 @@ async fn handle_chat_completions(
             }
         };
 
-        // Override model in request body with the pool-specific model for this upstream
+        // Build a fresh request body for this upstream attempt.
+        // We clone from the original `body` each time to avoid stale
+        // thinking params or model overrides from a previous iteration.
+        let mut request_body = body.clone();
+
+        // Override model with the pool-specific model for this upstream
         let target_model = if !pu.model.is_empty() {
             &pu.model
         } else {
@@ -217,21 +296,37 @@ async fn handle_chat_completions(
             obj.insert("model".to_string(), Value::String(target_model.to_string()));
         }
 
+        // Inject thinking params **per-upstream** based on this upstream's
+        // provider_name. Skip if the client explicitly set reasoning=false.
+        if !client_reasoning_disabled && pool.thinking_enabled {
+            if let Some(thinking_param) =
+                thinking::get_thinking_param(&upstream.provider_name, true)
+            {
+                thinking::merge_thinking_params(&mut request_body, &Some(thinking_param));
+            }
+        }
+
         // ── SSE streaming path ──────────────────────────────────────
         if is_stream {
             match state
                 .proxy_client
-                .forward_stream_request(&upstream.base_url, &api_key, target_model, &request_body)
+                .forward_stream_request(
+                    &upstream.base_url,
+                    &api_key,
+                    target_model,
+                    &request_body,
+                )
                 .await
             {
                 Ok(upstream_response) => {
+                    // Record success for circuit breaker
+                    state.circuit_breaker.record_success(&upstream.id);
+
                     let elapsed = start_time.elapsed().as_millis() as i32;
 
                     // Log successful stream start
-                    let log_id = format!(
-                        "log_{:x}",
-                        elapsed as u32 ^ request_id.len() as u32
-                    );
+                    let log_id =
+                        format!("log_{:x}", elapsed as u32 ^ request_id.len() as u32);
                     let _ = state.db.insert_request_log(
                         &log_id,
                         &request_id,
@@ -253,14 +348,14 @@ async fn handle_chat_completions(
                     // Build byte stream from upstream response
                     let byte_stream = upstream_response.bytes_stream();
                     let display_name = pool.display_name.clone();
-                    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, std::convert::Infallible>>(64);
+                    let (tx, rx) =
+                        tokio::sync::mpsc::channel::<Result<Bytes, std::convert::Infallible>>(64);
 
                     // Spawn a task to read lines, replace model, and forward chunks
                     tokio::spawn(async move {
                         use tokio_stream::StreamExt;
-                        let mapped_stream = byte_stream.map(|result| {
-                            result.map_err(|e| std::io::Error::other(e))
-                        });
+                        let mapped_stream = byte_stream
+                            .map(|result| result.map_err(|e| std::io::Error::other(e)));
                         let stream_reader = StreamReader::new(mapped_stream);
                         let reader = BufReader::new(stream_reader);
                         let mut lines = reader.lines();
@@ -273,7 +368,7 @@ async fn handle_chat_completions(
                                     stream::replace_model_in_sse_chunk(trimmed, &display_name)
                                 }
                             } else if line.is_empty() || line.starts_with(':') {
-                                // Skip blank separators and SSE comments (we add our own \n\n)
+                                // Skip blank separators and SSE comments
                                 continue;
                             } else {
                                 format!("{}\n\n", line)
@@ -299,31 +394,46 @@ async fn handle_chat_completions(
                 }
                 Err(e) => {
                     warn!("Stream upstream {} failed: {}", upstream.provider_name, e);
+                    state.circuit_breaker.record_failure(&upstream.id);
                     failed_upstreams_json.push(json!({
                         "provider": upstream.provider_name,
                         "error": e.to_string()
                     }));
                     last_error = Some(e.to_string());
+                    continue;
                 }
             }
         } else {
             // ── Non-streaming path ──────────────────────────────────
             match state
                 .proxy_client
-                .forward_request(&upstream.base_url, &api_key, target_model, &request_body)
+                .forward_request(
+                    &upstream.base_url,
+                    &api_key,
+                    target_model,
+                    &request_body,
+                    timeout_secs,
+                )
                 .await
             {
                 Ok(response) => {
+                    // Record success for circuit breaker
+                    state.circuit_breaker.record_success(&upstream.id);
+
                     let elapsed = start_time.elapsed().as_millis() as i32;
 
                     // Replace model name in response with the pool's display name
                     let mut resp_body = response.body;
                     if let Some(obj) = resp_body.as_object_mut() {
-                        obj.insert("model".to_string(), Value::String(pool.display_name.clone()));
+                        obj.insert(
+                            "model".to_string(),
+                            Value::String(pool.display_name.clone()),
+                        );
                     }
 
                     // Log successful request
-                    let log_id = format!("log_{:x}", elapsed as u32 ^ request_id.len() as u32);
+                    let log_id =
+                        format!("log_{:x}", elapsed as u32 ^ request_id.len() as u32);
                     let _ = state.db.insert_request_log(
                         &log_id,
                         &request_id,
@@ -341,11 +451,13 @@ async fn handle_chat_completions(
                 }
                 Err(e) => {
                     warn!("Upstream {} failed: {}", upstream.provider_name, e);
+                    state.circuit_breaker.record_failure(&upstream.id);
                     failed_upstreams_json.push(json!({
                         "provider": upstream.provider_name,
                         "error": e.to_string()
                     }));
                     last_error = Some(e.to_string());
+                    continue;
                 }
             }
         }
@@ -367,10 +479,24 @@ async fn handle_chat_completions(
         is_stream,
     );
 
+    // If we never actually attempted any upstream (all were disabled or
+    // circuit-broken), return 503 instead of 502.
+    let status = if !attempted_any {
+        StatusCode::SERVICE_UNAVAILABLE
+    } else {
+        StatusCode::BAD_GATEWAY
+    };
+
+    let error_msg = if !attempted_any {
+        "all upstreams are disabled or circuit-broken"
+    } else {
+        "all upstreams failed"
+    };
+
     (
-        StatusCode::BAD_GATEWAY,
+        status,
         Json(json!({
-            "error": "all upstreams failed",
+            "error": error_msg,
             "details": failed_upstreams_json,
             "last_error": last_error
         })),

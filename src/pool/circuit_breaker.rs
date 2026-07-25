@@ -27,6 +27,22 @@ impl CircuitBreaker {
         Self { state: Arc::new(Mutex::new(HashMap::new())) }
     }
 
+    /// Register an upstream with the circuit breaker if it hasn't been
+    /// registered yet. Does NOT reset existing state — safe to call on every
+    /// request.
+    pub fn ensure_registered(&self, upstream_id: &str, threshold: u32, duration_secs: u64) {
+        let mut states = self.state.lock().unwrap();
+        if !states.contains_key(upstream_id) {
+            states.insert(upstream_id.to_string(), CBState {
+                failure_count: 0,
+                last_failure_time: None,
+                state: State::Closed,
+                threshold,
+                duration_secs,
+            });
+        }
+    }
+
     pub fn register(&self, upstream_id: &str, threshold: u32, duration_secs: u64) {
         let mut states = self.state.lock().unwrap();
         states.insert(upstream_id.to_string(), CBState {

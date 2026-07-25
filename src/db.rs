@@ -943,7 +943,7 @@ mod tests {
         let id = sample_upstream_id();
         let encrypted_key = b"encrypted_key_bytes";
 
-        db.create_upstream(&id, "OpenAI", "http://api.openai.com", encrypted_key, "gpt-4", true, "[]", "test remark").unwrap();
+        db.create_upstream(&id, "OpenAI", "http://api.openai.com", encrypted_key, "gpt-4", "[]", true, "test remark").unwrap();
 
         let upstreams = db.get_upstreams().unwrap();
         assert_eq!(upstreams.len(), 1);
@@ -962,7 +962,7 @@ mod tests {
     fn test_get_upstream_by_id() {
         let db = test_db();
         let id = sample_upstream_id();
-        db.create_upstream(&id, "DeepSeek", "http://api.deepseek.com", b"key", "deepseek-v3", true, "[]", "").unwrap();
+        db.create_upstream(&id, "DeepSeek", "http://api.deepseek.com", b"key", "deepseek-v3", "[]", true, "").unwrap();
 
         let found = db.get_upstream_by_id(&id).unwrap();
         assert!(found.is_some());
@@ -976,9 +976,9 @@ mod tests {
     fn test_update_upstream() {
         let db = test_db();
         let id = sample_upstream_id();
-        db.create_upstream(&id, "OpenAI", "http://old.url", b"old_key", "gpt-3.5", true, "[]", "").unwrap();
+        db.create_upstream(&id, "OpenAI", "http://old.url", b"old_key", "gpt-3.5", "[]", true, "").unwrap();
 
-        db.update_upstream(&id, "OpenAI-v2", "http://new.url", b"new_key", "gpt-4", false, "[]", "updated").unwrap();
+        db.update_upstream(&id, "OpenAI-v2", "http://new.url", b"new_key", "gpt-4", "[]", false, "updated").unwrap();
 
         let u = db.get_upstream_by_id(&id).unwrap().unwrap();
         assert_eq!(u.provider_name, "OpenAI-v2");
@@ -992,7 +992,7 @@ mod tests {
     #[test]
     fn test_update_nonexistent_upstream_returns_not_found() {
         let db = test_db();
-        let result = db.update_upstream("no-such-id", "X", "http://x", b"k", "m", true, "[]", "");
+        let result = db.update_upstream("no-such-id", "X", "http://x", b"k", "m", "[]", true, "");
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), AppError::NotFound(_)));
     }
@@ -1001,7 +1001,7 @@ mod tests {
     fn test_delete_upstream() {
         let db = test_db();
         let id = sample_upstream_id();
-        db.create_upstream(&id, "Test", "http://test", b"k", "m", true, "[]", "").unwrap();
+        db.create_upstream(&id, "Test", "http://test", b"k", "m", "[]", true, "").unwrap();
         assert_eq!(db.count_upstreams().unwrap(), 1);
 
         db.delete_upstream(&id).unwrap();
@@ -1012,7 +1012,7 @@ mod tests {
     fn test_toggle_upstream() {
         let db = test_db();
         let id = sample_upstream_id();
-        db.create_upstream(&id, "Test", "http://test", b"k", "m", true, "[]", "").unwrap();
+        db.create_upstream(&id, "Test", "http://test", b"k", "m", "[]", true, "").unwrap();
 
         db.toggle_upstream(&id, false).unwrap();
         let u = db.get_upstream_by_id(&id).unwrap().unwrap();
@@ -1027,7 +1027,7 @@ mod tests {
     fn test_update_upstream_status() {
         let db = test_db();
         let id = sample_upstream_id();
-        db.create_upstream(&id, "Test", "http://test", b"k", "m", true, "[]", "").unwrap();
+        db.create_upstream(&id, "Test", "http://test", b"k", "m", "[]", true, "").unwrap();
 
         db.update_upstream_status(&id, "degraded", 5, Some("2026-07-25T10:00:00".to_string())).unwrap();
         let u = db.get_upstream_by_id(&id).unwrap().unwrap();
@@ -1042,9 +1042,9 @@ mod tests {
         let id1 = sample_upstream_id();
         let id2 = sample_upstream_id();
         let id3 = sample_upstream_id();
-        db.create_upstream(&id1, "A", "http://a", b"k", "m", true, "[]", "").unwrap();
-        db.create_upstream(&id2, "B", "http://b", b"k", "m", true, "[]", "").unwrap();
-        db.create_upstream(&id3, "C", "http://c", b"k", "m", true, "[]", "").unwrap();
+        db.create_upstream(&id1, "A", "http://a", b"k", "m", "[]", true, "").unwrap();
+        db.create_upstream(&id2, "B", "http://b", b"k", "m", "[]", true, "").unwrap();
+        db.create_upstream(&id3, "C", "http://c", b"k", "m", "[]", true, "").unwrap();
 
         let result = db.get_upstreams_by_ids(&[id1.clone(), id3.clone()]).unwrap();
         assert_eq!(result.len(), 2);
@@ -1062,7 +1062,7 @@ mod tests {
         let db = test_db();
         let ids: Vec<String> = (0..5).map(|_| sample_upstream_id()).collect();
         for (i, id) in ids.iter().enumerate() {
-            db.create_upstream(id, &format!("Up{}", i), "http://test", b"k", "m", true, "[]", "").unwrap();
+            db.create_upstream(id, &format!("Up{}", i), "http://test", b"k", "m", "[]", true, "").unwrap();
         }
         assert_eq!(db.count_upstreams().unwrap(), 5);
 
@@ -1152,8 +1152,8 @@ mod tests {
         let u2 = sample_upstream_id();
 
         db.create_pool(&pool_id, "pool1", "Pool 1", 5, false).unwrap();
-        db.create_upstream(&u1, "ProviderA", "http://a", b"k", "m", true, "[]", "").unwrap();
-        db.create_upstream(&u2, "ProviderB", "http://b", b"k", "m", true, "[]", "").unwrap();
+        db.create_upstream(&u1, "ProviderA", "http://a", b"k", "m", "[]", true, "").unwrap();
+        db.create_upstream(&u2, "ProviderB", "http://b", b"k", "m", "[]", true, "").unwrap();
 
         db.add_upstream_to_pool(&pool_id, &u1, 0, "").unwrap();
         db.add_upstream_to_pool(&pool_id, &u2, 1, "").unwrap();
@@ -1174,7 +1174,7 @@ mod tests {
         let u1 = sample_upstream_id();
 
         db.create_pool(&pool_id, "pool1", "Pool 1", 5, false).unwrap();
-        db.create_upstream(&u1, "Provider", "http://x", b"k", "m", true, "[]", "").unwrap();
+        db.create_upstream(&u1, "Provider", "http://x", b"k", "m", "[]", true, "").unwrap();
         db.add_upstream_to_pool(&pool_id, &u1, 0, "").unwrap();
         assert_eq!(db.get_pool_upstreams(&pool_id).unwrap().len(), 1);
 
@@ -1191,9 +1191,9 @@ mod tests {
         let u3 = sample_upstream_id();
 
         db.create_pool(&pool_id, "pool1", "Pool 1", 5, false).unwrap();
-        db.create_upstream(&u1, "A", "http://a", b"k", "m", true, "[]", "").unwrap();
-        db.create_upstream(&u2, "B", "http://b", b"k", "m", true, "[]", "").unwrap();
-        db.create_upstream(&u3, "C", "http://c", b"k", "m", true, "[]", "").unwrap();
+        db.create_upstream(&u1, "A", "http://a", b"k", "m", "[]", true, "").unwrap();
+        db.create_upstream(&u2, "B", "http://b", b"k", "m", "[]", true, "").unwrap();
+        db.create_upstream(&u3, "C", "http://c", b"k", "m", "[]", true, "").unwrap();
 
         db.add_upstream_to_pool(&pool_id, &u1, 0, "").unwrap();
         db.add_upstream_to_pool(&pool_id, &u2, 1, "").unwrap();
@@ -1218,7 +1218,7 @@ mod tests {
         let u1 = sample_upstream_id();
 
         db.create_pool(&pool_id, "pool1", "Pool 1", 5, false).unwrap();
-        db.create_upstream(&u1, "Provider", "http://x", b"k", "m", true, "[]", "").unwrap();
+        db.create_upstream(&u1, "Provider", "http://x", b"k", "m", "[]", true, "").unwrap();
         db.add_upstream_to_pool(&pool_id, &u1, 0, "").unwrap();
 
         db.delete_pool(&pool_id).unwrap();
@@ -1234,7 +1234,7 @@ mod tests {
         let u1 = sample_upstream_id();
 
         db.create_pool(&pool_id, "pool1", "Pool 1", 5, false).unwrap();
-        db.create_upstream(&u1, "Provider", "http://x", b"k", "m", true, "[]", "").unwrap();
+        db.create_upstream(&u1, "Provider", "http://x", b"k", "m", "[]", true, "").unwrap();
         db.add_upstream_to_pool(&pool_id, &u1, 0, "").unwrap();
 
         db.delete_upstream(&u1).unwrap();
@@ -1392,7 +1392,7 @@ mod tests {
         let id = sample_upstream_id();
         assert!(!db.upstream_exists(&id).unwrap());
 
-        db.create_upstream(&id, "Test", "http://t", b"k", "m", true, "[]", "").unwrap();
+        db.create_upstream(&id, "Test", "http://t", b"k", "m", "[]", true, "").unwrap();
         assert!(db.upstream_exists(&id).unwrap());
     }
 
@@ -1410,17 +1410,17 @@ mod tests {
     fn test_count_upstreams() {
         let db = test_db();
         assert_eq!(db.count_upstreams().unwrap(), 0);
-        db.create_upstream(&sample_upstream_id(), "A", "http://a", b"k", "m", true, "[]", "").unwrap();
-        db.create_upstream(&sample_upstream_id(), "B", "http://b", b"k", "m", false, "[]", "").unwrap();
+        db.create_upstream(&sample_upstream_id(), "A", "http://a", b"k", "m", "[]", true, "").unwrap();
+        db.create_upstream(&sample_upstream_id(), "B", "http://b", b"k", "m", "[]", false, "").unwrap();
         assert_eq!(db.count_upstreams().unwrap(), 2);
     }
 
     #[test]
     fn test_count_active_upstreams() {
         let db = test_db();
-        db.create_upstream(&sample_upstream_id(), "A", "http://a", b"k", "m", true, "[]", "").unwrap();
-        db.create_upstream(&sample_upstream_id(), "B", "http://b", b"k", "m", false, "[]", "").unwrap();
-        db.create_upstream(&sample_upstream_id(), "C", "http://c", b"k", "m", true, "[]", "").unwrap();
+        db.create_upstream(&sample_upstream_id(), "A", "http://a", b"k", "m", "[]", true, "").unwrap();
+        db.create_upstream(&sample_upstream_id(), "B", "http://b", b"k", "m", "[]", false, "").unwrap();
+        db.create_upstream(&sample_upstream_id(), "C", "http://c", b"k", "m", "[]", true, "").unwrap();
 
         assert_eq!(db.count_active_upstreams().unwrap(), 2);
     }
@@ -1436,8 +1436,8 @@ mod tests {
     #[test]
     fn test_get_stats() {
         let db = test_db();
-        db.create_upstream(&sample_upstream_id(), "A", "http://a", b"k", "m", true, "[]", "").unwrap();
-        db.create_upstream(&sample_upstream_id(), "B", "http://b", b"k", "m", false, "[]", "").unwrap();
+        db.create_upstream(&sample_upstream_id(), "A", "http://a", b"k", "m", "[]", true, "").unwrap();
+        db.create_upstream(&sample_upstream_id(), "B", "http://b", b"k", "m", "[]", false, "").unwrap();
         db.create_pool(&sample_pool_id(), "pool1", "Pool 1", 5, false).unwrap();
 
         let stats = db.get_stats().unwrap();
@@ -1450,7 +1450,7 @@ mod tests {
     fn test_get_upstream_status_summary() {
         let db = test_db();
         let id = sample_upstream_id();
-        db.create_upstream(&id, "TestProvider", "http://t", b"k", "m", true, "[]", "").unwrap();
+        db.create_upstream(&id, "TestProvider", "http://t", b"k", "m", "[]", true, "").unwrap();
         db.update_upstream_status(&id, "degraded", 3, Some("2026-07-25T10:00:00".to_string())).unwrap();
 
         let summary = db.get_upstream_status_summary().unwrap();
@@ -1468,8 +1468,8 @@ mod tests {
         let id2 = sample_upstream_id();
 
         db.with_transaction(|| {
-            db.create_upstream(&id1, "Tx1", "http://1", b"k", "m", true, "[]", "")?;
-            db.create_upstream(&id2, "Tx2", "http://2", b"k", "m", true, "[]", "")?;
+            db.create_upstream(&id1, "Tx1", "http://1", b"k", "m", "[]", true, "")?;
+            db.create_upstream(&id2, "Tx2", "http://2", b"k", "m", "[]", true, "")?;
             Ok(())
         }).unwrap();
 
@@ -1482,7 +1482,7 @@ mod tests {
         let id = sample_upstream_id();
 
         let result = db.with_transaction(|| {
-            db.create_upstream(&id, "Tx1", "http://1", b"k", "m", true, "[]", "")?;
+            db.create_upstream(&id, "Tx1", "http://1", b"k", "m", "[]", true, "")?;
             // Simulate an error
             Err(AppError::Internal("simulated failure".to_string()))
         });
@@ -1509,7 +1509,7 @@ mod tests {
         let encrypted = km.encrypt_api_key(plaintext_key).unwrap();
 
         // Store encrypted key in database
-        db.create_upstream(&id, "Encrypted", "http://test", &encrypted, "model", true, "[]", "").unwrap();
+        db.create_upstream(&id, "Encrypted", "http://test", &encrypted, "model", "[]", true, "").unwrap();
 
         // Retrieve and decrypt
         let upstream = db.get_upstream_by_id(&id).unwrap().unwrap();
@@ -1527,7 +1527,7 @@ mod tests {
         // Create 20 upstreams
         for i in 0..20 {
             let id = sample_upstream_id();
-            db.create_upstream(&id, &format!("Provider-{}", i), &format!("http://p{}.test", i), b"k", "m", i % 2 == 0, "").unwrap();
+            db.create_upstream(&id, &format!("Provider-{}", i), &format!("http://p{}.test", i), b"k", "m", "", i % 2 == 0, "").unwrap();
             upstream_ids.push(id);
         }
         assert_eq!(db.count_upstreams().unwrap(), 20);

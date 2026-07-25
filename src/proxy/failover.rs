@@ -26,6 +26,7 @@ impl UpstreamClient {
         api_key: &str,
         _model: &str,
         body: &Value,
+        timeout_secs: u64,
     ) -> Result<Response, AppError> {
         let url = format!("{}/v1/chat/completions", base_url.trim_end_matches('/'));
         debug!("Forwarding request to upstream: {}", url);
@@ -34,7 +35,7 @@ impl UpstreamClient {
             .post(&url)
             .header("Authorization", format!("Bearer {}", api_key))
             .header("Content-Type", "application/json")
-            .timeout(std::time::Duration::from_secs(60))
+            .timeout(std::time::Duration::from_secs(timeout_secs))
             .json(body)
             .send()
             .await
