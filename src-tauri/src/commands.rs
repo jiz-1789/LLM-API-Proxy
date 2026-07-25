@@ -234,10 +234,9 @@ pub async fn fetch_upstream_models(
         .map_err(|e| format!("请求上游失败: {}", e))?;
 
     if !resp.status().is_success() {
-        return Err(format!(
-            "上游返回错误状态: {}",
-            resp.status()
-        ));
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("上游返回错误状态: {} — {}", status, body));
     }
 
     let body: serde_json::Value = resp
@@ -252,6 +251,75 @@ pub async fn fetch_upstream_models(
         .map(|arr| {
             arr.iter()
                 .filter_map(|item| item.get("id").and_then(|v| v.as_str()).map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(models)
+}
+
+/// Fetch available models from an upstream by its ID.
+/// Uses the stored (encrypted) API key, decrypted at runtime.
+/// This allows fetching models when editing an existing upstream
+/// without re-entering the API key.
+#[tauri::command]
+pub async fn fetch_upstream_models_by_id(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    let upstream = state
+        .db
+        .get_upstream_by_id(&id)
+        .map_err(|e| format!("数据库查询失败: {}", e))?
+        .ok_or_else(|| "上游不存在".to_string())?;
+
+    if upstream.api_key_encrypted.is_empty() {
+        return Err("该上游未配置 API Key".to_string());
+    }
+
+    let api_key = state
+        .crypto
+        .decrypt_api_key(&upstream.api_key_encrypted)
+        .map_err(|e| format!("API Key 解密失败: {}", e))?;
+
+    let url = format!(
+        "{}/v1/models",
+        upstream.base_url.trim_end_matches('/')
+    );
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
+
+    let resp = client
+        .get(&url)
+        .bearer_auth(&api_key)
+        .send()
+        .await
+        .map_err(|e| format!("请求上游失败: {}", e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("上游返回错误状态: {} — {}", status, body));
+    }
+
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("解析响应失败: {}", e))?;
+
+    let models: Vec<String> = body
+        .get("data")
+        .and_then(|d| d.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|item| {
+                    item.get("id")
+                        .and_then(|v| v.as_str())
+                        .map(String::from)
+                })
                 .collect()
         })
         .unwrap_or_default();

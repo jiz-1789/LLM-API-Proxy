@@ -28,6 +28,7 @@ pub fn run() {
             commands::delete_upstream,
             commands::toggle_upstream,
             commands::fetch_upstream_models,
+commands::fetch_upstream_models_by_id,
             commands::list_pools,
             commands::get_pool,
             commands::create_pool,
