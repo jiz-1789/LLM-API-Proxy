@@ -1,8 +1,6 @@
-use crate::config::GatewaySettings;
 use aes_gcm::aead::{AeadInPlace, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
-use rand::Rng;
-use rusqlite::params;
+use rand::rngs::OsRng;
 use std::path::{Path, PathBuf};
 use tracing::{error, info, warn};
 
@@ -38,7 +36,7 @@ impl KeyManager {
             bytes.to_vec()
         } else {
             info!("Generating new Master Key at {:?}", master_key_path);
-            let mut rng = rand::rng();
+            let mut rng = OsRng;
             let mut key = vec![0u8; 32];
             rng.fill(&mut key[..]);
 
@@ -99,7 +97,7 @@ impl KeyManager {
             .map_err(|e| format!("AES key setup failed: {}", e))?;
 
         let mut nonce_bytes = [0u8; 12];
-        rand::rngs::OsRng.fill(&mut nonce_bytes);
+        OsRng.fill(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
         let mut buffer = plaintext.as_bytes().to_vec();
@@ -120,11 +118,6 @@ impl KeyManager {
     /// Get the path to the Master Key file.
     pub fn master_key_path(&self) -> &Path {
         &self.master_key_path
-    }
-
-    /// Returns the Gateway settings (current implementation)
-    pub fn gateway_settings() -> GatewaySettings {
-        GatewaySettings::default()
     }
 }
 

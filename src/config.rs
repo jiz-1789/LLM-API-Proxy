@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::path::PathBuf;
+use tracing::{info, warn};
 
 /// Gateway configuration loaded from settings table or defaults.
 #[derive(Debug, Clone, Serialize, Deserialize)]
