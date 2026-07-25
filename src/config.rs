@@ -23,7 +23,7 @@ impl Default for GatewaySettings {
         Self {
             listen_address: "127.0.0.1".to_string(),
             listen_port: 47339,
-            api_key: "sk-gateway-key".to_string(),
+            api_key: String::new(),
             gui_port: 1420,
             log_level: "info".to_string(),
             gateway_enabled: true,

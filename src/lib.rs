@@ -9,6 +9,7 @@ pub mod pool;
 pub mod proxy;
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Shared application state available to all components.
 #[derive(Clone)]
@@ -16,19 +17,43 @@ pub struct AppState {
     pub settings: Arc<config::GatewaySettings>,
     pub db: Arc<db::Database>,
     pub crypto: Arc<crypto::KeyManager>,
+    /// Signal to trigger graceful shutdown of the gateway server.
+    shutdown: Arc<tokio::sync::Notify>,
+    /// Cached minimize-to-tray preference (avoids DB reads in window event handlers).
+    minimize_to_tray: Arc<AtomicBool>,
 }
 
 impl AppState {
     pub fn new(
         settings: config::GatewaySettings,
-        db: db::Database,
-        crypto: crypto::KeyManager,
+        db: Arc<db::Database>,
+        crypto: Arc<crypto::KeyManager>,
+        shutdown: Arc<tokio::sync::Notify>,
+        minimize_to_tray: bool,
     ) -> Self {
         Self {
             settings: Arc::new(settings),
-            db: Arc::new(db),
-            crypto: Arc::new(crypto),
+            db,
+            crypto,
+            shutdown,
+            minimize_to_tray: Arc::new(AtomicBool::new(minimize_to_tray)),
         }
+    }
+
+    /// Signal the gateway server to shut down gracefully and release the port.
+    pub fn shutdown(&self) {
+        tracing::info!("Shutting down gateway server...");
+        self.shutdown.notify_one();
+    }
+
+    /// Get the cached minimize-to-tray preference.
+    pub fn get_minimize_to_tray(&self) -> bool {
+        self.minimize_to_tray.load(Ordering::SeqCst)
+    }
+
+    /// Update the cached minimize-to-tray preference.
+    pub fn set_minimize_to_tray(&self, value: bool) {
+        self.minimize_to_tray.store(value, Ordering::SeqCst);
     }
 }
 
@@ -60,46 +85,64 @@ pub fn initialize_backend() -> anyhow::Result<AppState> {
     db.initialize()?;
     tracing::info!("Database initialized");
 
-    // Initialize crypto key manager
-    let _crypto = crypto::KeyManager::initialize(&data_dir)?;
+    // Initialize crypto key manager (once, shared everywhere)
+    let crypto = Arc::new(crypto::KeyManager::initialize(&data_dir)?);
     tracing::info!("Crypto key manager ready");
 
-    // Load or create default settings
+    // Load or create default settings, then persist defaults
     let settings = load_settings(&db);
     db.save_setting("listen_port", &settings.listen_port.to_string())?;
     db.save_setting("listen_address", &settings.listen_address)?;
+    db.save_setting("gateway_api_key", &settings.api_key)?;
+
+    // Wrap in Arc shared by both gateway server and Tauri commands
+    let db_arc = Arc::new(db);
+
+    // Load minimize-to-tray from the shared connection (not a separate one)
+    let minimize = load_minimize_to_tray(&db_arc);
+
+    // Shutdown signal for the gateway server
+    let shutdown = Arc::new(tokio::sync::Notify::new());
+    let shutdown_for_server = shutdown.clone();
+    let db_for_gw = db_arc.clone();
 
     // Start HTTP gateway server on a background thread
     let listen_addr = settings.listen_address.clone();
     let listen_port = settings.listen_port;
-    let db_arc = Arc::new(db);
     let proxy_client = Arc::new(proxy::failover::UpstreamClient::new());
-    let crypto_for_gw = Arc::new(crypto::KeyManager::initialize(&data_dir)?);
+    let crypto_for_gw = crypto.clone();
 
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
         rt.block_on(async move {
-            let router = gateway::create_router(db_arc.clone(), proxy_client, crypto_for_gw);
+            let router = gateway::create_router(db_for_gw, proxy_client, crypto_for_gw);
             let addr = format!("{}:{}", listen_addr, listen_port);
             tracing::info!("Gateway server listening on {}", addr);
             let listener = tokio::net::TcpListener::bind(&addr)
                 .await
                 .expect("failed to bind gateway port");
             axum::serve(listener, router)
+                .with_graceful_shutdown(async move {
+                    shutdown_for_server.notified().await;
+                    tracing::info!("Gateway server received shutdown signal");
+                })
                 .await
                 .expect("gateway server error");
+            tracing::info!("Gateway server stopped, port released");
         });
     });
 
-    // Re-extract db from Arc for AppState (we need the inner db)
-    // Since Arc<Database> doesn't easily give us Database back, we'll
-    // reconstruct it. For now, we open a second connection for AppState.
-    // In a future refactor, AppState should hold Arc<Database> directly.
-    let db2 = db::Database::open(&config::GatewaySettings::db_path())?;
-
-    let crypto2 = crypto::KeyManager::initialize(&data_dir)?;
-    let state = AppState::new(settings, db2, crypto2);
+    // Share the SAME database connection for both gateway and Tauri commands
+    let state = AppState::new(settings, db_arc.clone(), crypto, shutdown, minimize);
     Ok(state)
+}
+
+/// Generate a random API key in the format `sk-gw-<32 hex chars>`.
+fn generate_api_key() -> String {
+    format!(
+        "sk-gw-{}",
+        uuid::Uuid::new_v4().to_string().replace('-', "")
+    )
 }
 
 /// Load gateway settings from the database, falling back to defaults.
@@ -119,7 +162,7 @@ fn load_settings(db: &db::Database) -> config::GatewaySettings {
         .get_setting("gateway_api_key")
         .ok()
         .flatten()
-        .unwrap_or_else(|| "sk-gateway-key".to_string());
+        .unwrap_or_else(generate_api_key);
     let log_level = db
         .get_setting("log_level")
         .ok()
@@ -133,4 +176,13 @@ fn load_settings(db: &db::Database) -> config::GatewaySettings {
         log_level,
         ..Default::default()
     }
+}
+
+/// Load minimize-to-tray setting from the database, falling back to true (default).
+pub fn load_minimize_to_tray(db: &db::Database) -> bool {
+    db.get_setting("minimize_to_tray")
+        .ok()
+        .flatten()
+        .map(|v| v == "true")
+        .unwrap_or(true)
 }

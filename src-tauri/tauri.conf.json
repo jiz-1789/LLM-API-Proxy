@@ -8,6 +8,7 @@
     "beforeDevCommand": "node dev-server.js"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "LLM-API-Proxy",
@@ -20,11 +21,6 @@
     ],
     "security": {
       "csp": null
-    },
-    "trayIcon": {
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": true,
-      "tooltip": "LLM-API-Proxy"
     }
   },
   "bundle": {

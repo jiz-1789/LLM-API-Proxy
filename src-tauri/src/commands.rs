@@ -86,15 +86,10 @@ fn to_vo(u: &llm_api_proxy_lib::db::Upstream) -> UpstreamVO {
 /// Generate a unique ID for a new upstream record.
 fn generate_id() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
+    let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos();
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    format!("up_{:x}{:08x}", secs, nanos)
+        .unwrap_or_default();
+    format!("up_{:x}{:08x}", now.as_secs(), now.subsec_nanos())
 }
 
 // ============================================================================
@@ -341,15 +336,10 @@ fn pool_to_vo(p: &llm_api_proxy_lib::db::Pool, upstream_count: usize) -> PoolVO 
 /// Generate a unique ID for a pool.
 fn generate_pool_id() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
+    let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos();
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    format!("pool_{:x}{:08x}", secs, nanos)
+        .unwrap_or_default();
+    format!("pool_{:x}{:08x}", now.as_secs(), now.subsec_nanos())
 }
 
 /// List all pools with their upstream counts.
@@ -539,4 +529,193 @@ pub fn get_request_logs(
         offset: offset.unwrap_or(0),
     };
     state.db.get_recent_logs(&filter).map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// Health Check Commands
+// ============================================================================
+
+/// Result of a health check for a single upstream.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthCheckResult {
+    pub upstream_id: String,
+    pub provider_name: String,
+    pub status: String, // "ok", "timeout", "error"
+    pub latency_ms: Option<u64>,
+    pub message: Option<String>,
+}
+
+/// Internal helper: test connectivity to an upstream.
+async fn do_health_check(base_url: &str, api_key: &str) -> HealthCheckResult {
+    let url = format!("{}/v1/models", base_url.trim_end_matches('/'));
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return HealthCheckResult {
+                upstream_id: String::new(),
+                provider_name: String::new(),
+                status: "error".to_string(),
+                latency_ms: None,
+                message: Some(format!("创建 HTTP 客户端失败: {}", e)),
+            };
+        }
+    };
+
+    let start = std::time::Instant::now();
+    let result = client.get(&url).bearer_auth(api_key).send().await;
+    let elapsed = start.elapsed().as_millis() as u64;
+
+    match result {
+        Ok(resp) if resp.status().is_success() => HealthCheckResult {
+            upstream_id: String::new(),
+            provider_name: String::new(),
+            status: "ok".to_string(),
+            latency_ms: Some(elapsed),
+            message: None,
+        },
+        Ok(resp) => HealthCheckResult {
+            upstream_id: String::new(),
+            provider_name: String::new(),
+            status: "error".to_string(),
+            latency_ms: Some(elapsed),
+            message: Some(format!("HTTP {}", resp.status())),
+        },
+        Err(e) if e.is_timeout() => HealthCheckResult {
+            upstream_id: String::new(),
+            provider_name: String::new(),
+            status: "timeout".to_string(),
+            latency_ms: Some(elapsed),
+            message: Some("连接超时".to_string()),
+        },
+        Err(e) => HealthCheckResult {
+            upstream_id: String::new(),
+            provider_name: String::new(),
+            status: "error".to_string(),
+            latency_ms: None,
+            message: Some(e.to_string()),
+        },
+    }
+}
+
+/// Test connectivity to a single upstream by sending a minimal request.
+#[tauri::command]
+pub async fn check_upstream_health(
+    base_url: String,
+    api_key: String,
+) -> Result<HealthCheckResult, String> {
+    Ok(do_health_check(&base_url, &api_key).await)
+}
+
+/// Test connectivity to all upstreams in parallel.
+#[tauri::command]
+pub async fn check_all_upstreams_health(
+    state: State<'_, AppState>,
+) -> Result<Vec<HealthCheckResult>, String> {
+    let upstreams = state.db.get_upstreams().map_err(|e| e.to_string())?;
+
+    let mut handles = Vec::new();
+    for u in upstreams {
+        let api_key = state
+            .crypto
+            .decrypt_api_key(&u.api_key_encrypted)
+            .unwrap_or_default();
+        let base_url = u.base_url.clone();
+        let upstream_id = u.id.clone();
+        let provider_name = u.provider_name.clone();
+
+        handles.push(tokio::spawn(async move {
+            let mut result = do_health_check(&base_url, &api_key).await;
+            result.upstream_id = upstream_id;
+            result.provider_name = provider_name;
+            result
+        }));
+    }
+
+    let mut results = Vec::new();
+    for handle in handles {
+        if let Ok(result) = handle.await {
+            results.push(result);
+        }
+    }
+
+    Ok(results)
+}
+
+// ============================================================================
+// Settings Commands
+// ============================================================================
+
+/// Settings data for the frontend settings page.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SettingsVO {
+    pub listen_address: String,
+    pub listen_port: u16,
+    pub api_key: String,
+    pub log_level: String,
+    pub theme: String,
+    #[serde(default = "default_true")]
+    pub minimize_to_tray: bool,
+}
+
+/// Get current gateway settings.
+#[tauri::command]
+pub fn get_settings(state: State<'_, AppState>) -> Result<SettingsVO, String> {
+    let db = &state.db;
+    Ok(SettingsVO {
+        listen_address: db.get_setting("listen_address").ok().flatten()
+            .unwrap_or_else(|| "127.0.0.1".to_string()),
+        listen_port: db.get_setting("listen_port").ok().flatten()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(47339),
+        api_key: db.get_setting("gateway_api_key").ok().flatten()
+            .unwrap_or_else(|| "sk-gateway-key".to_string()),
+        log_level: db.get_setting("log_level").ok().flatten()
+            .unwrap_or_else(|| "info".to_string()),
+        theme: db.get_setting("theme").ok().flatten()
+            .unwrap_or_else(|| "dark".to_string()),
+        minimize_to_tray: db.get_setting("minimize_to_tray").ok().flatten()
+            .map(|v| v == "true")
+            .unwrap_or(true),
+    })
+}
+
+/// Update gateway settings (persisted to database).
+/// Note: listen_address and listen_port changes require app restart to take effect.
+#[tauri::command]
+pub fn update_settings(req: SettingsVO, state: State<'_, AppState>) -> Result<(), String> {
+    // Update in-memory cache immediately, before any DB operations
+    state.set_minimize_to_tray(req.minimize_to_tray);
+    tracing::info!("AtomicBool cache updated: minimize_to_tray={}", req.minimize_to_tray);
+
+    let db = &state.db;
+    db.save_setting("listen_address", &req.listen_address).map_err(|e| e.to_string())?;
+    db.save_setting("listen_port", &req.listen_port.to_string()).map_err(|e| e.to_string())?;
+    db.save_setting("gateway_api_key", &req.api_key).map_err(|e| e.to_string())?;
+    db.save_setting("log_level", &req.log_level).map_err(|e| e.to_string())?;
+    db.save_setting("theme", &req.theme).map_err(|e| e.to_string())?;
+    db.save_setting("minimize_to_tray", &req.minimize_to_tray.to_string()).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Set minimize-to-tray preference immediately (updates in-memory cache + DB).
+/// Called directly when the toggle switch changes, independent of full settings save.
+#[tauri::command]
+pub fn set_minimize_to_tray(value: bool, state: State<'_, AppState>) -> Result<(), String> {
+    state.set_minimize_to_tray(value);
+    state.db.save_setting("minimize_to_tray", &value.to_string()).map_err(|e| e.to_string())?;
+    tracing::info!("minimize_to_tray={} saved", value);
+    Ok(())
+}
+
+/// Update only the theme setting, without overwriting other settings
+/// (such as minimize_to_tray). This avoids race conditions where
+/// toggleTheme calls update_settings with a stale minimize_to_tray value.
+#[tauri::command]
+pub fn set_theme(theme: String, state: State<'_, AppState>) -> Result<(), String> {
+    state.db.save_setting("theme", &theme).map_err(|e| e.to_string())?;
+    tracing::info!("theme={} saved", theme);
+    Ok(())
 }

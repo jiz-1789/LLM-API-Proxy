@@ -20,6 +20,21 @@
             --danger-hover: #dc2626;
             --warning: #f59e0b;
         }
+        [data-theme="light"] {
+            --bg-primary: #f8fafc;
+            --bg-secondary: #ffffff;
+            --bg-hover: #f1f5f9;
+            --border: #e2e8f0;
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-muted: #94a3b8;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --success: #16a34a;
+            --danger: #dc2626;
+            --danger-hover: #b91c1c;
+            --warning: #d97706;
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
@@ -98,18 +113,19 @@
         tr:hover td { background: rgba(255,255,255,0.02); }
 
         /* === Toggle switch === */
-        .toggle { position: relative; width: 36px; height: 20px; display: inline-block; }
-        .toggle input { opacity: 0; width: 0; height: 0; }
+        .toggle { position: relative; width: 44px; height: 24px; display: inline-block; flex-shrink: 0; }
+        .toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
         .toggle .slider {
-            position: absolute; inset: 0; background: #475569; border-radius: 20px;
-            cursor: pointer; transition: 0.2s;
+            position: absolute; inset: 0; background: var(--text-muted); border-radius: 24px;
+            cursor: pointer; transition: background 0.2s;
         }
         .toggle .slider::before {
-            content: ''; position: absolute; width: 14px; height: 14px;
-            left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: 0.2s;
+            content: ''; position: absolute; width: 18px; height: 18px;
+            left: 3px; top: 3px; background: #fff; border-radius: 50%;
+            transition: transform 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.2);
         }
         .toggle input:checked + .slider { background: var(--accent); }
-        .toggle input:checked + .slider::before { transform: translateX(16px); }
+        .toggle input:checked + .slider::before { transform: translateX(20px); }
 
         /* === Modal === */
         .modal-overlay {
@@ -174,12 +190,62 @@
         }
         .model-chip:hover { border-color: var(--accent); color: var(--accent); }
         .model-chip.selected { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+        /* === Light theme overrides === */
+        [data-theme="light"] .badge-green { background: #dcfce7; color: #166534; }
+        [data-theme="light"] .badge-blue { background: #dbeafe; color: #1e40af; }
+        [data-theme="light"] .badge-red { background: #fee2e2; color: #991b1b; }
+        [data-theme="light"] .badge-yellow { background: #fef3c7; color: #92400e; }
+        [data-theme="light"] .toast-success { background: #166534; }
+        [data-theme="light"] .toast-error { background: #991b1b; }
+        [data-theme="light"] .toast-info { background: #1e40af; }
+
+        /* === Health check cards === */
+        .health-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+        .health-card {
+            background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px;
+            padding: 14px; display: flex; align-items: center; gap: 12px;
+        }
+        .health-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+        .health-dot.ok { background: var(--success); box-shadow: 0 0 6px rgba(34,197,94,0.4); }
+        .health-dot.timeout { background: var(--warning); }
+        .health-dot.error { background: var(--danger); }
+        .health-dot.checking { background: var(--text-muted); animation: pulse 1s infinite; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+        .health-info { flex: 1; min-width: 0; }
+        .health-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+        .health-detail { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+        /* === Filter bar === */
+        .filter-bar { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; align-items: center; }
+        .filter-bar .form-input, .filter-bar .form-select { width: auto; min-width: 120px; padding: 6px 8px; font-size: 12px; }
+        .filter-bar label { font-size: 12px; color: var(--text-muted); }
+
+        /* === Settings sections === */
+        .settings-section { margin-bottom: 20px; }
+        .settings-section .section-title { font-size: 14px; margin-bottom: 10px; }
+        .settings-form { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
+        .settings-row { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+        .settings-row:last-child { margin-bottom: 0; }
+        .settings-row > label { font-size: 13px; color: var(--text-secondary); min-width: 100px; }
+        .settings-row .form-input, .settings-row .form-select { flex: 1; }
+
+        /* === Theme toggle in titlebar === */
+        .theme-toggle {
+            background: transparent; border: 1px solid var(--border); border-radius: 6px;
+            padding: 4px 10px; cursor: pointer; color: var(--text-secondary); font-size: 12px;
+            transition: all 0.15s; -webkit-app-region: no-drag;
+        }
+        .theme-toggle:hover { background: var(--bg-hover); color: var(--text-primary); }
     </style>
 </head>
 <body>
     <div class="titlebar">
         <h1><span class="status-dot"></span>LLM-API-Proxy</h1>
-        <span class="ver">v0.1.0</span>
+        <div style="display:flex;align-items:center;gap:10px;-webkit-app-region:no-drag;">
+            <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn">亮色模式</button>
+            <span class="ver">v0.1.0</span>
+        </div>
     </div>
 
     <div class="container">
@@ -286,6 +352,20 @@
             <!-- ==================== Logs ==================== -->
             <div class="page" id="page-logs">
                 <div class="section-title">请求日志</div>
+                <div class="filter-bar">
+                    <label>模型池</label>
+                    <select class="form-select" id="log-filter-pool" onchange="loadLogs()">
+                        <option value="">全部</option>
+                    </select>
+                    <label>状态码</label>
+                    <select class="form-select" id="log-filter-status" onchange="loadLogs()">
+                        <option value="">全部</option>
+                        <option value="200">2xx 成功</option>
+                        <option value="4">4xx 客户端错误</option>
+                        <option value="5">5xx 服务端错误</option>
+                    </select>
+                    <button class="btn btn-ghost btn-sm" onclick="loadLogs()">刷新</button>
+                </div>
                 <div class="table-wrap">
                     <table>
                         <thead>
@@ -308,14 +388,75 @@
 
             <!-- ==================== Settings ==================== -->
             <div class="page" id="page-settings">
-                <div class="section-title">设置</div>
-                <div class="empty-state">设置页面将在 M5 里程碑中实现。</div>
+                <div class="section-title">系统设置</div>
+                <div class="settings-form">
+                    <div class="settings-section">
+                        <div class="section-title">接入信息</div>
+                        <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">客户端使用以下地址和密钥连接网关，兼容 OpenAI API 格式。</p>
+                        <div class="settings-row">
+                            <label>API 地址</label>
+                            <div style="flex:1;display:flex;gap:8px;align-items:center;">
+                                <code id="set-url" style="flex:1;padding:8px 12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;font-size:13px;color:var(--text-primary);font-family:'Cascadia Code',monospace;">http://127.0.0.1:47339/v1</code>
+                                <button class="btn btn-ghost btn-sm" onclick="copyText('set-url')">复制</button>
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <label>API Key</label>
+                            <div style="flex:1;display:flex;gap:8px;align-items:center;">
+                                <input class="form-input" id="set-apikey" style="flex:1;font-family:'Cascadia Code',monospace;font-size:13px;" value="sk-gw-...">
+                                <button class="btn btn-ghost btn-sm" onclick="copyInput('set-apikey')">复制</button>
+                                <button class="btn btn-ghost btn-sm" onclick="regenerateApiKey()">重新生成</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <div class="section-title">显示与日志</div>
+                        <div class="settings-row">
+                            <label>日志级别</label>
+                            <select class="form-select" id="set-loglevel" style="max-width:160px;">
+                                <option value="trace">trace</option>
+                                <option value="debug">debug</option>
+                                <option value="info">info</option>
+                                <option value="warn">warn</option>
+                                <option value="error">error</option>
+                            </select>
+                        </div>
+                        <div class="settings-row">
+                            <label>界面主题</label>
+                            <select class="form-select" id="set-theme" style="max-width:160px;">
+                                <option value="dark">暗色</option>
+                                <option value="light">亮色</option>
+                            </select>
+                        </div>
+                        <div class="settings-row">
+                            <label>关闭窗口时</label>
+                            <div style="display:flex;align-items:center;gap:10px;">
+                                <label class="toggle">
+                                    <input type="checkbox" id="set-minimize" checked>
+                                    <span class="slider"></span>
+                                </label>
+                                <span style="font-size:12px;color:var(--text-muted);" id="minimize-label">最小化到系统托盘</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px;">
+                        <button class="btn btn-primary" id="btn-save-settings" onclick="saveSettings()">保存设置</button>
+                    </div>
+                </div>
             </div>
 
             <!-- ==================== Health ==================== -->
             <div class="page" id="page-health">
-                <div class="section-title">健康检查</div>
-                <div class="empty-state">健康检查功能将在 M5 里程碑中实现。</div>
+                <div class="section-title">
+                    健康检查
+                    <button class="btn btn-primary btn-sm" onclick="runHealthCheck()" id="btn-health-check">一键检测</button>
+                </div>
+                <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">
+                    向所有上游服务商发送测试请求，检查 API 连通性和响应延迟。
+                </p>
+                <div class="health-grid" id="health-grid">
+                    <div class="empty-state" style="grid-column:1/-1;">点击「一键检测」开始检查上游连通性</div>
+                </div>
             </div>
         </div>
     </div>
@@ -481,8 +622,9 @@
             document.getElementById('page-' + page)?.classList.add('active');
             if (page === 'upstreams') loadUpstreams();
             if (page === 'pools') loadPools();
-            if (page === 'logs') loadLogs();
+            if (page === 'logs') { populatePoolFilter(); loadLogs(); }
             if (page === 'dashboard') refreshDashboard();
+            if (page === 'settings') loadSettings();
         });
     });
 
@@ -916,11 +1058,19 @@
     }
 
     // ================================================================
-    // Request Logs
+    // Request Logs (with filters)
     // ================================================================
     async function loadLogs() {
         try {
-            const logs = await cmd('get_request_logs', { limit: 50 }) || [];
+            const poolFilter = document.getElementById('log-filter-pool')?.value || '';
+            const statusFilter = document.getElementById('log-filter-status')?.value || '';
+            const args = { limit: 50 };
+            if (poolFilter) args.pool_name = poolFilter;
+            if (statusFilter === '200') args.status_code = 200;
+            else if (statusFilter === '4') args.status_code = 400;
+            else if (statusFilter === '5') args.status_code = 500;
+
+            const logs = await cmd('get_request_logs', args) || [];
             const tbody = document.getElementById('logs-tbody');
             if (logs.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="7" class="empty-state">暂无请求记录</td></tr>';
@@ -945,9 +1095,23 @@
         }
     }
 
+    async function populatePoolFilter() {
+        try {
+            const pools = await cmd('list_pools') || [];
+            const select = document.getElementById('log-filter-pool');
+            if (!select) return;
+            const current = select.value;
+            select.innerHTML = '<option value="">全部</option>' +
+                pools.map(p => `<option value="${esc(p.name)}">${esc(p.display_name || p.name)}</option>`).join('');
+            select.value = current;
+        } catch (e) { /* ignore */ }
+    }
+
     // ================================================================
     // Dashboard
     // ================================================================
+    let dashboardTimer = null;
+
     async function refreshDashboard() {
         try {
             const [stats, gwInfo] = await Promise.all([
@@ -969,9 +1133,186 @@
     }
 
     // ================================================================
+    // Theme Switching
+    // ================================================================
+    let currentTheme = 'dark';
+
+    function applyTheme(theme) {
+        currentTheme = theme;
+        document.documentElement.setAttribute('data-theme', theme);
+        const btn = document.getElementById('theme-btn');
+        if (btn) btn.textContent = theme === 'dark' ? '亮色模式' : '暗色模式';
+    }
+
+    async function toggleTheme() {
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        applyTheme(newTheme);
+        // Persist theme immediately using set_theme (only updates theme,
+        // does NOT overwrite other settings like minimize_to_tray)
+        try {
+            await cmd('set_theme', { theme: newTheme });
+        } catch (e) { /* best effort */ }
+    }
+
+    async function loadTheme() {
+        try {
+            const settings = await cmd('get_settings');
+            if (settings?.theme) applyTheme(settings.theme);
+        } catch (e) { /* default dark */ }
+    }
+
+    // ================================================================
+    // Settings Page
+    // ================================================================
+    function copyText(elementId) {
+        const el = document.getElementById(elementId);
+        if (!el) return;
+        const text = el.textContent;
+        doCopy(text);
+    }
+
+    function copyInput(elementId) {
+        const el = document.getElementById(elementId);
+        if (!el) return;
+        doCopy(el.value);
+    }
+
+    function doCopy(text) {
+        navigator.clipboard.writeText(text).then(() => {
+            toast('已复制到剪贴板', 'success');
+        }).catch(() => {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            toast('已复制到剪贴板', 'success');
+        });
+    }
+
+    function generateApiKey() {
+        const chars = 'abcdef0123456789';
+        let key = 'sk-gw-';
+        for (let i = 0; i < 32; i++) {
+            key += chars[Math.floor(Math.random() * chars.length)];
+        }
+        return key;
+    }
+
+    function regenerateApiKey() {
+        document.getElementById('set-apikey').value = generateApiKey();
+        toast('已生成新密钥，点击「保存设置」生效', 'info');
+    }
+
+    async function loadSettings() {
+        try {
+            const s = await cmd('get_settings');
+            if (!s) return;
+            const url = 'http://' + s.listen_address + ':' + s.listen_port + '/v1';
+            document.getElementById('set-url').textContent = url;
+            document.getElementById('set-apikey').value = s.api_key;
+            document.getElementById('set-loglevel').value = s.log_level;
+            document.getElementById('set-theme').value = s.theme;
+            const minimizeCb = document.getElementById('set-minimize');
+            minimizeCb.checked = s.minimize_to_tray !== false;
+            updateMinimizeLabel();
+        } catch (e) {
+            toast('加载设置失败: ' + e, 'error');
+        }
+    }
+
+    function updateMinimizeLabel() {
+        const checked = document.getElementById('set-minimize').checked;
+        document.getElementById('minimize-label').textContent =
+            checked ? '最小化到系统托盘' : '直接退出程序';
+    }
+    document.getElementById('set-minimize')?.addEventListener('change', async () => {
+        updateMinimizeLabel();
+        const checked = document.getElementById('set-minimize').checked;
+        try {
+            await cmd('set_minimize_to_tray', { value: checked });
+            console.log('minimize_to_tray saved:', checked);
+        } catch (e) {
+            console.error('Failed to save minimize_to_tray:', e);
+            toast('保存关闭行为设置失败: ' + e, 'error');
+        }
+    });
+
+    async function saveSettings() {
+        const btn = document.getElementById('btn-save-settings');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> 保存中...';
+        try {
+            const current = await cmd('get_settings') || {};
+            const req = {
+                listen_address: current.listen_address || '127.0.0.1',
+                listen_port: current.listen_port || 47339,
+                api_key: document.getElementById('set-apikey').value.trim() || current.api_key || generateApiKey(),
+                log_level: document.getElementById('set-loglevel').value,
+                theme: document.getElementById('set-theme').value,
+                minimize_to_tray: document.getElementById('set-minimize').checked,
+            };
+            await cmd('update_settings', { req });
+            applyTheme(req.theme);
+            toast('设置已保存', 'success');
+        } catch (e) {
+            toast('保存失败: ' + e, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '保存设置';
+        }
+    }
+
+    // ================================================================
+    // Health Check
+    // ================================================================
+    async function runHealthCheck() {
+        const btn = document.getElementById('btn-health-check');
+        const grid = document.getElementById('health-grid');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> 检测中...';
+        grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;">正在检测所有上游连通性...</div>';
+
+        try {
+            const results = await cmd('check_all_upstreams_health') || [];
+            if (results.length === 0) {
+                grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;">暂无上游，请先添加上游服务</div>';
+                return;
+            }
+            grid.innerHTML = results.map(r => {
+                const statusLabel = { ok: '正常', timeout: '超时', error: '异常' };
+                const latencyText = r.latency_ms != null ? `${r.latency_ms}ms` : '-';
+                return `
+                <div class="health-card">
+                    <div class="health-dot ${r.status}"></div>
+                    <div class="health-info">
+                        <div class="health-name">${esc(r.provider_name)}</div>
+                        <div class="health-detail">
+                            ${statusLabel[r.status] || r.status} · ${latencyText}
+                            ${r.message ? ' · ' + esc(r.message) : ''}
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+        } catch (e) {
+            grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;color:var(--danger);">检测失败: ${esc(e)}</div>`;
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '一键检测';
+        }
+    }
+
+    // ================================================================
     // Init
     // ================================================================
-    refreshDashboard();
+    (async function init() {
+        await loadTheme();
+        await refreshDashboard();
+        await populatePoolFilter();
+        // Auto-refresh dashboard every 30 seconds
+        dashboardTimer = setInterval(refreshDashboard, 30000);
+    })();
     </script>
 </body>
 </html>

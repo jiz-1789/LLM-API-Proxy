@@ -15,10 +15,6 @@ name = "LLM-API-Proxy"
 path = "main.rs"
 
 [dependencies]
-# Tauri (needed for run_tauri_app binary entry)
-tauri = { version = "2.11", features = ["tray-icon"] }
-tauri-plugin-log = "2"
-
 # Workspace deps
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
