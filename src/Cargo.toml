@@ -21,6 +21,8 @@ tauri-plugin-log = "2"
 
 # Workspace deps
 tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
 axum = { workspace = true }
 tower-http = { workspace = true }
 reqwest = { workspace = true }
@@ -36,6 +38,7 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+bytes = { workspace = true }
 log = "0.4"
 
 [dev-dependencies]

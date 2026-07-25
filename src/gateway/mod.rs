@@ -2,15 +2,19 @@ pub mod auth;
 pub mod stream;
 
 use axum::{
+    body::Body,
     extract::State,
     http::{HeaderMap, StatusCode},
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
+use bytes::Bytes;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Instant;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio_util::io::StreamReader;
 use tracing::{info, warn};
 
 use crate::crypto::KeyManager;
@@ -170,7 +174,7 @@ async fn handle_chat_completions(
 
     // Try each upstream in order (failover chain)
     let mut last_error: Option<String> = None;
-    let mut failed_upstreams_json = Vec::new();
+    let mut failed_upstreams_json: Vec<Value> = Vec::new();
 
     for pu in &pool_upstreams {
         // Look up full upstream record to get base_url and encrypted api_key
@@ -213,45 +217,136 @@ async fn handle_chat_completions(
             obj.insert("model".to_string(), Value::String(target_model.to_string()));
         }
 
-        // Forward the request
-        match state
-            .proxy_client
-            .forward_request(&upstream.base_url, &api_key, target_model, &request_body)
-            .await
-        {
-            Ok(response) => {
-                let elapsed = start_time.elapsed().as_millis() as i32;
+        // ── SSE streaming path ──────────────────────────────────────
+        if is_stream {
+            match state
+                .proxy_client
+                .forward_stream_request(&upstream.base_url, &api_key, target_model, &request_body)
+                .await
+            {
+                Ok(upstream_response) => {
+                    let elapsed = start_time.elapsed().as_millis() as i32;
 
-                // Replace model name in response with the pool's display name
-                let mut resp_body = response.body;
-                if let Some(obj) = resp_body.as_object_mut() {
-                    obj.insert("model".to_string(), Value::String(pool.display_name.clone()));
+                    // Log successful stream start
+                    let log_id = format!(
+                        "log_{:x}",
+                        elapsed as u32 ^ request_id.len() as u32
+                    );
+                    let _ = state.db.insert_request_log(
+                        &log_id,
+                        &request_id,
+                        Some(&pool.name),
+                        Some(&upstream.id),
+                        &serde_json::to_string(&failed_upstreams_json).unwrap_or_default(),
+                        "POST",
+                        "/v1/chat/completions",
+                        upstream_response.status().as_u16() as i32,
+                        elapsed,
+                        true,
+                    );
+
+                    info!(
+                        "Streaming from {} (model={}) for pool={}",
+                        upstream.provider_name, target_model, pool.display_name
+                    );
+
+                    // Build byte stream from upstream response
+                    let byte_stream = upstream_response.bytes_stream();
+                    let display_name = pool.display_name.clone();
+                    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, std::convert::Infallible>>(64);
+
+                    // Spawn a task to read lines, replace model, and forward chunks
+                    tokio::spawn(async move {
+                        use tokio_stream::StreamExt;
+                        let mapped_stream = byte_stream.map(|result| {
+                            result.map_err(|e| std::io::Error::other(e))
+                        });
+                        let stream_reader = StreamReader::new(mapped_stream);
+                        let reader = BufReader::new(stream_reader);
+                        let mut lines = reader.lines();
+                        while let Ok(Some(line)) = lines.next_line().await {
+                            let output = if let Some(json_str) = line.strip_prefix("data: ") {
+                                let trimmed = json_str.trim();
+                                if trimmed == "[DONE]" {
+                                    "data: [DONE]\n\n".to_string()
+                                } else {
+                                    stream::replace_model_in_sse_chunk(trimmed, &display_name)
+                                }
+                            } else if line.is_empty() || line.starts_with(':') {
+                                // Skip blank separators and SSE comments (we add our own \n\n)
+                                continue;
+                            } else {
+                                format!("{}\n\n", line)
+                            };
+                            if tx.send(Ok(Bytes::from(output))).await.is_err() {
+                                break; // client disconnected
+                            }
+                        }
+                    });
+
+                    // Build streaming SSE response
+                    let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+                    let body = Body::from_stream(stream);
+
+                    return Response::builder()
+                        .status(StatusCode::OK)
+                        .header("Content-Type", "text/event-stream")
+                        .header("Cache-Control", "no-cache")
+                        .header("Connection", "keep-alive")
+                        .body(body)
+                        .unwrap()
+                        .into_response();
                 }
-
-                // Log successful request
-                let log_id = format!("log_{:x}", elapsed as u32 ^ request_id.len() as u32);
-                let _ = state.db.insert_request_log(
-                    &log_id,
-                    &request_id,
-                    Some(&pool.name),
-                    Some(&upstream.id),
-                    &serde_json::to_string(&failed_upstreams_json).unwrap_or_default(),
-                    "POST",
-                    "/v1/chat/completions",
-                    response.status_code,
-                    elapsed,
-                    is_stream,
-                );
-
-                return (StatusCode::OK, Json(resp_body)).into_response();
+                Err(e) => {
+                    warn!("Stream upstream {} failed: {}", upstream.provider_name, e);
+                    failed_upstreams_json.push(json!({
+                        "provider": upstream.provider_name,
+                        "error": e.to_string()
+                    }));
+                    last_error = Some(e.to_string());
+                }
             }
-            Err(e) => {
-                warn!("Upstream {} failed: {}", upstream.provider_name, e);
-                failed_upstreams_json.push(json!({
-                    "provider": upstream.provider_name,
-                    "error": e.to_string()
-                }));
-                last_error = Some(e.to_string());
+        } else {
+            // ── Non-streaming path ──────────────────────────────────
+            match state
+                .proxy_client
+                .forward_request(&upstream.base_url, &api_key, target_model, &request_body)
+                .await
+            {
+                Ok(response) => {
+                    let elapsed = start_time.elapsed().as_millis() as i32;
+
+                    // Replace model name in response with the pool's display name
+                    let mut resp_body = response.body;
+                    if let Some(obj) = resp_body.as_object_mut() {
+                        obj.insert("model".to_string(), Value::String(pool.display_name.clone()));
+                    }
+
+                    // Log successful request
+                    let log_id = format!("log_{:x}", elapsed as u32 ^ request_id.len() as u32);
+                    let _ = state.db.insert_request_log(
+                        &log_id,
+                        &request_id,
+                        Some(&pool.name),
+                        Some(&upstream.id),
+                        &serde_json::to_string(&failed_upstreams_json).unwrap_or_default(),
+                        "POST",
+                        "/v1/chat/completions",
+                        response.status_code,
+                        elapsed,
+                        false,
+                    );
+
+                    return (StatusCode::OK, Json(resp_body)).into_response();
+                }
+                Err(e) => {
+                    warn!("Upstream {} failed: {}", upstream.provider_name, e);
+                    failed_upstreams_json.push(json!({
+                        "provider": upstream.provider_name,
+                        "error": e.to_string()
+                    }));
+                    last_error = Some(e.to_string());
+                }
             }
         }
     }

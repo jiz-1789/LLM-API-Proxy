@@ -13,6 +13,8 @@ license = "MIT"
 [workspace.dependencies]
 # Async runtime
 tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+tokio-util = { version = "0.7", features = ["io"] }
 
 # HTTP server (API Gateway + Management API)
 axum = { version = "0.8", features = ["ws"] }
@@ -20,6 +22,9 @@ tower-http = { version = "0.6", features = ["cors", "compression-gzip"] }
 
 # HTTP client (forward to upstream providers)
 reqwest = { version = "0.12", features = ["json", "stream"] }
+
+# Byte buffers
+bytes = "1"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
