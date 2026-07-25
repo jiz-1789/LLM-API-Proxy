@@ -1250,7 +1250,7 @@
                 models = await cmd('fetch_upstream_models_by_id', { id: edit_id });
             } else {
                 // New upstream or re-typed key — use direct fetch
-                models = await cmd('fetch_upstream_models', { base_url: base_url, api_key: api_key });
+                models = await cmd('fetch_upstream_models', { baseUrl: base_url, apiKey: api_key });
             }
             if (!models || models.length === 0) {
                 toast('未获取到模型列表', 'info');
@@ -1330,7 +1330,7 @@
         try {
             const p = await cmd('get_pool', { id });
             if (!p) return;
-            const poolUpstreams = await cmd('get_pool_upstreams', { pool_id: id }) || [];
+            const poolUpstreams = await cmd('get_pool_upstreams', { poolId: id }) || [];
 
             document.getElementById('pool-modal-title').textContent = '编辑模型池';
             document.getElementById('pool-edit-id').value = p.id;
@@ -1419,12 +1419,12 @@
                 await cmd('update_pool', {
                     id, req: { display_name, max_concurrency, thinking_enabled, circuit_breaker_threshold, circuit_breaker_duration_seconds }
                 });
-                const currentUpstreams = await cmd('get_pool_upstreams', { pool_id: id }) || [];
+                const currentUpstreams = await cmd('get_pool_upstreams', { poolId: id }) || [];
                 for (const u of currentUpstreams) {
-                    await cmd('remove_upstream_from_pool', { pool_id: id, upstream_id: u.upstream_id });
+                    await cmd('remove_upstream_from_pool', { poolId: id, upstreamId: u.upstream_id });
                 }
                 for (const entry of upstreams) {
-                    await cmd('add_upstream_to_pool', { pool_id: id, upstream_id: entry.upstream_id, model: entry.model });
+                    await cmd('add_upstream_to_pool', { poolId: id, upstreamId: entry.upstream_id, model: entry.model });
                 }
                 toast('模型池已更新', 'success');
             } else {
@@ -1475,10 +1475,10 @@
             const poolFilter = document.getElementById('log-filter-pool')?.value || '';
             const statusFilter = document.getElementById('log-filter-status')?.value || '';
             const args = { limit: 50 };
-            if (poolFilter) args.pool_name = poolFilter;
-            if (statusFilter === '200') args.status_code = 200;
-            else if (statusFilter === '4') args.status_code = 400;
-            else if (statusFilter === '5') args.status_code = 500;
+if (poolFilter) args.poolName = poolFilter;
+if (statusFilter === '200') args.statusCode = 200;
+else if (statusFilter === '4') args.statusCode = 400;
+else if (statusFilter === '5') args.statusCode = 500;
 
             const logs = await cmd('get_request_logs', args) || [];
             const tbody = document.getElementById('logs-tbody');
