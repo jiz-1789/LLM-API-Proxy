@@ -1,6 +1,6 @@
 # Build artifacts
 target/
-dist/
+dist/node_modules/
 src-tauri/target/
 Cargo.lock
 

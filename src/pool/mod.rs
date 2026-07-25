@@ -2,8 +2,6 @@ pub mod circuit_breaker;
 pub mod round_robin;
 pub mod thinking;
 
-use tracing::{debug, warn};
-
 /// Trait for pool-level routing decisions.
 pub trait PoolRouter {
     /// Select the next upstream to use for a given pool.
@@ -18,14 +16,12 @@ pub trait PoolRouter {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::pool::round_robin::RoundRobinRouter;
 
     #[test]
     fn test_round_robin_selects_sequentially() {
-        let mut router = RoundRobinRouter::new();
+        let router = RoundRobinRouter::new();
         let pool = "test-pool";
-
         router.add_upstreams(pool, vec!["upstream-a".to_string(), "upstream-b".to_string(), "upstream-c".to_string()]);
 
         assert_eq!(router.select_upstream(pool), Some("upstream-a".to_string()));
@@ -36,9 +32,8 @@ mod tests {
 
     #[test]
     fn test_round_robin_skips_disabled_upstreams() {
-        let mut router = RoundRobinRouter::new();
+        let router = RoundRobinRouter::new();
         let pool = "test-pool";
-
         router.add_upstreams(pool, vec!["upstream-a".to_string(), "upstream-b".to_string()]);
 
         // Simulate upstream-a being in circuit breaker

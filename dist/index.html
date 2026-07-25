@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM-API-Proxy</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #0f172a; color: #e2e8f0; min-height: 100vh;
+            display: flex; flex-direction: column;
+        }
+        .titlebar {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 12px 20px; background: #1e293b; border-bottom: 1px solid #334155;
+            -webkit-app-region: drag;
+        }
+        .titlebar h1 { font-size: 16px; font-weight: 600; color: #f1f5f9; }
+        .status-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: #22c55e; display: inline-block; margin-right: 8px;
+        }
+        .container {
+            flex: 1; display: flex; padding: 20px; gap: 20px;
+        }
+        .sidebar {
+            width: 200px; display: flex; flex-direction: column; gap: 4px;
+        }
+        .nav-item {
+            padding: 10px 16px; border-radius: 8px; cursor: pointer;
+            color: #94a3b8; font-size: 14px; transition: all 0.15s;
+        }
+        .nav-item:hover { background: #1e293b; color: #e2e8f0; }
+        .nav-item.active { background: #1e40af; color: #fff; }
+        .main { flex: 1; }
+        .cards {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px; margin-bottom: 24px;
+        }
+        .card {
+            background: #1e293b; border-radius: 12px; padding: 20px;
+            border: 1px solid #334155;
+        }
+        .card-label { font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
+        .card-value { font-size: 28px; font-weight: 700; margin-top: 4px; color: #f1f5f9; }
+        .card-sub { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+        .section-title { font-size: 18px; font-weight: 600; margin-bottom: 12px; }
+        .info-box {
+            background: #1e293b; border-radius: 12px; padding: 20px;
+            border: 1px solid #334155; margin-bottom: 16px;
+        }
+        .info-row {
+            display: flex; justify-content: space-between; padding: 8px 0;
+            border-bottom: 1px solid #334155; font-size: 14px;
+        }
+        .info-row:last-child { border-bottom: none; }
+        .info-key { color: #94a3b8; }
+        .info-val { color: #e2e8f0; font-family: monospace; }
+        .badge {
+            display: inline-block; padding: 2px 8px; border-radius: 4px;
+            font-size: 11px; font-weight: 600;
+        }
+        .badge-green { background: #166534; color: #4ade80; }
+        .badge-blue { background: #1e3a5f; color: #60a5fa; }
+        #log-output {
+            background: #0f172a; border: 1px solid #334155; border-radius: 8px;
+            padding: 12px; font-family: monospace; font-size: 12px;
+            color: #94a3b8; max-height: 200px; overflow-y: auto;
+            white-space: pre-wrap; line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <div class="titlebar">
+        <h1><span class="status-dot"></span>LLM-API-Proxy</h1>
+        <span style="font-size:12px;color:#64748b">v0.1.0</span>
+    </div>
+    <div class="container">
+        <div class="sidebar">
+            <div class="nav-item active">仪表盘</div>
+            <div class="nav-item">上游服务</div>
+            <div class="nav-item">模型池</div>
+            <div class="nav-item">请求日志</div>
+            <div class="nav-item">设置</div>
+            <div class="nav-item">健康检查</div>
+        </div>
+        <div class="main">
+            <div class="cards">
+                <div class="card">
+                    <div class="card-label">网关状态</div>
+                    <div class="card-value"><span class="badge badge-green">运行中</span></div>
+                    <div class="card-sub">127.0.0.1:47339</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">上游服务</div>
+                    <div class="card-value" id="upstream-count">0</div>
+                    <div class="card-sub">已配置的服务商</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">模型池</div>
+                    <div class="card-value" id="pool-count">0</div>
+                    <div class="card-sub">负载均衡分组</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">今日请求</div>
+                    <div class="card-value" id="request-count">0</div>
+                    <div class="card-sub">已转发总数</div>
+                </div>
+            </div>
+
+            <div class="section-title">网关配置</div>
+            <div class="info-box">
+                <div class="info-row">
+                    <span class="info-key">监听地址</span>
+                    <span class="info-val">127.0.0.1:47339</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-key">OpenAI 兼容地址</span>
+                    <span class="info-val">http://127.0.0.1:47339/v1</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-key">鉴权方式</span>
+                    <span class="info-val"><span class="badge badge-blue">Bearer Token</span></span>
+                </div>
+                <div class="info-row">
+                    <span class="info-key">日志级别</span>
+                    <span class="info-val">info</span>
+                </div>
+            </div>
+
+            <div class="section-title">最近活动</div>
+            <div id="log-output">网关已初始化，等待请求...</div>
+        </div>
+    </div>
+    <script>
+        // Tauri v2 IPC — available when loaded inside Tauri webview
+        const { invoke } = window.__TAURI__?.core || {};
+
+        // Sidebar navigation (placeholder)
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', () => {
+                document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+                item.classList.add('active');
+            });
+        });
+
+        // Health check
+        async function checkHealth() {
+            try {
+                const resp = await fetch('http://127.0.0.1:47339/api/health');
+                if (resp.ok) {
+                    const data = await resp.json();
+                    appendLog('[信息] 网关健康: ' + JSON.stringify(data));
+                }
+            } catch (e) {
+                // Gateway may not be running yet
+            }
+        }
+
+        function appendLog(msg) {
+            const el = document.getElementById('log-output');
+            const time = new Date().toLocaleTimeString();
+            el.textContent += '\n[' + time + '] ' + msg;
+            el.scrollTop = el.scrollHeight;
+        }
+
+        // Check health periodically
+        checkHealth();
+        setInterval(checkHealth, 30000);
+    </script>
+</body>
+</html>

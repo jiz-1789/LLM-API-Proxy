@@ -5,8 +5,7 @@
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build"
+    "beforeDevCommand": "node dev-server.js"
   },
   "app": {
     "windows": [
@@ -23,6 +22,7 @@
       "csp": null
     },
     "trayIcon": {
+      "iconPath": "icons/icon.png",
       "iconAsTemplate": true,
       "tooltip": "LLM-API-Proxy"
     }

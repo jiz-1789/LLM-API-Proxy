@@ -4,7 +4,7 @@ use serde_json::Value;
 pub fn replace_model_name(body: &mut Value, display_name: &str) {
     if let Some(obj) = body.as_object_mut() {
         if let Some(model_value) = obj.get("model") {
-            if let Some(model_str) = model_value.as_str() {
+            if let Some(_model_str) = model_value.as_str() {
                 obj.insert("model".to_string(), Value::String(display_name.to_string()));
             }
         }
@@ -15,7 +15,7 @@ pub fn replace_model_name(body: &mut Value, display_name: &str) {
         for choice in choices.iter_mut() {
             if let Some(msg) = choice.get_mut("message") {
                 if let Some(model_value) = msg.get("model") {
-                    if let Some(model_str) = model_value.as_str() {
+                    if let Some(_model_str) = model_value.as_str() {
                         msg.as_object_mut().unwrap().insert(
                             "model".to_string(),
                             Value::String(display_name.to_string()),

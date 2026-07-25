@@ -9,15 +9,12 @@ pub fn get_thinking_param(vendor: &str, enabled: bool) -> Option<serde_json::Val
     let vendor_lower = vendor.to_lowercase();
 
     match vendor_lower.as_str() {
-        // DeepSeek → "reasoning": true
         v if v.contains("deepseek") || v.contains("ds") => {
             Some(serde_json::json!({ "reasoning": true }))
         }
-        // OpenAI / GPT → "reasoning_effort": "high"
-        v if v.contains("openai") || v.contains("gpt") || v.contains("anthropic") => {
+        v if v.contains("openai") || v.contains("gpt") => {
             Some(serde_json::json!({ "reasoning_effort": "high" }))
         }
-        // Claude → thinking object
         v if v.contains("claude") || v.contains("anthropic") => {
             Some(serde_json::json!({ "thinking": { "type": "enabled" } }))
         }
@@ -73,9 +70,7 @@ mod tests {
             "messages": [{"role": "user", "content": "hello"}]
         });
         let params = Some(serde_json::json!({ "reasoning": true }));
-
         merge_thinking_params(&mut body, &params);
-
         assert_eq!(body["reasoning"], true);
         assert_eq!(body["model"], "test-model");
     }

@@ -1,9 +1,6 @@
-use axum::body::Body;
-use axum::http::{HeaderMap, StatusCode};
 use reqwest::Client;
 use serde_json::Value;
-use std::sync::{Arc, Mutex};
-use tracing::{debug, error, info, warn};
+use tracing::debug;
 
 use crate::error::AppError;
 
@@ -27,15 +24,13 @@ impl UpstreamClient {
         &self,
         base_url: &str,
         api_key: &str,
-        model: &str,
+        _model: &str,
         body: &Value,
     ) -> Result<Response, AppError> {
         let url = format!("{}/v1/chat/completions", base_url.trim_end_matches('/'));
-
         debug!("Forwarding request to upstream: {}", url);
 
-        let response = self
-            .http_client
+        let response = self.http_client
             .post(&url)
             .header("Authorization", format!("Bearer {}", api_key))
             .header("Content-Type", "application/json")
@@ -45,9 +40,7 @@ impl UpstreamClient {
             .map_err(|e| AppError::UpstreamFailed(format!("connection error: {}", e)))?;
 
         let status = response.status();
-        let body_bytes = response
-            .bytes()
-            .await
+        let body_bytes = response.bytes().await
             .map_err(|e| AppError::UpstreamFailed(format!("response body error: {}", e)))?;
 
         if !status.is_success() {
@@ -64,15 +57,14 @@ impl UpstreamClient {
 
         Ok(Response {
             status_code: status.as_u16() as i32,
-            headers: HeaderMap::new(),
+            headers: reqwest::header::HeaderMap::new(),
             body: json_body,
         })
     }
 
     /// Record a failure for circuit breaker tracking.
-    pub fn record_failure(&self, upstream_id: &str) {
+    pub fn record_failure(&self, _upstream_id: &str) {
         // This will be handled by the engine layer
-        // Placeholder for now, to be integrated later
     }
 }
 
@@ -86,6 +78,6 @@ impl Default for UpstreamClient {
 #[derive(Debug)]
 pub struct Response {
     pub status_code: i32,
-    pub headers: HeaderMap,
+    pub headers: reqwest::header::HeaderMap,
     pub body: Value,
 }

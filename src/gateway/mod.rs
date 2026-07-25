@@ -1,20 +1,20 @@
-use crate::config::GatewaySettings;
+pub mod auth;
+pub mod stream;
+
 use axum::{
-    extract::{State, WebSocketUpgrade},
+    extract::State,
     http::{HeaderMap, StatusCode},
-    response::{IntoResponse, Response, Sse},
+    response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 use crate::db::Database;
-use crate::gateway::auth;
 use crate::pool::thinking;
-use crate::proxy::client::UpstreamClient;
-use crate::proxy::model_filter;
+use crate::proxy::failover::UpstreamClient;
 
 /// Build the API Gateway router.
 pub fn create_router(db: Arc<Database>, proxy_client: Arc<UpstreamClient>) -> Router {
@@ -50,16 +50,16 @@ async fn handle_models(State(state): State<GatewayState>) -> impl IntoResponse {
         Ok(pools) => {
             let data: Vec<Value> = pools
                 .iter()
-                .map(|(_, name, display_name, _, _)| {
+                .map(|pool| {
                     json!({
-                        "id": name,
+                        "id": pool.name,
                         "object": "model",
                         "owned_by": "llm-api-proxy"
                     })
                 })
                 .collect();
 
-            Json(json!({ "data": data }))
+            Json(json!({ "data": data })).into_response()
         }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -76,7 +76,7 @@ async fn handle_chat_completions(
     Json(body): Json<Value>,
 ) -> impl IntoResponse {
     // Authenticate Gateway Key
-    let api_key = match auth::validate_api_key(&headers, &state.gateway_settings().api_key) {
+    let _api_key = match auth::validate_api_key(&headers, &state.db) {
         Ok(key) => key,
         Err(e) => return (StatusCode::UNAUTHORIZED, Json(e)).into_response(),
     };
@@ -98,9 +98,16 @@ async fn handle_chat_completions(
         body.get("stream").and_then(|s| s.as_bool()).unwrap_or(false)
     );
 
-    // Find matching pool
-    let pool = match state.db.get_pools() {
-        Ok(pools) => pools.iter().find(|(_, name, _, _, _)| *name == model).cloned(),
+    // Find matching pool by model name
+    let pool = match state.db.get_pool_by_name(&model) {
+        Ok(Some(p)) => p,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": format!("unknown model: {}", model) })),
+            )
+                .into_response();
+        }
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -110,19 +117,8 @@ async fn handle_chat_completions(
         }
     };
 
-    let (_, pool_id, display_name, _, thinking_enabled) = match pool {
-        Some(p) => p,
-        None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({ "error": format!("unknown model: {}", model) })),
-            )
-                .into_response();
-        }
-    };
-
     // Get upstreams for this pool
-    let upstreams = match state.db.get_pool_upstreams(&pool_id) {
+    let upstreams = match state.db.get_pool_upstreams(&pool.id) {
         Ok(upstreams) => upstreams,
         Err(e) => {
             return (
@@ -143,39 +139,41 @@ async fn handle_chat_completions(
 
     // Inject thinking mode if enabled
     let mut request_body = body.clone();
-    if let Some(thinking_param) = thinking::get_thinking_param("UnknownVendor", thinking_enabled) {
+    let upstream_vendor = upstreams
+        .first()
+        .map(|u| u.provider_name.as_str())
+        .unwrap_or("");
+    if let Some(thinking_param) =
+        thinking::get_thinking_param(upstream_vendor, pool.thinking_enabled)
+    {
         thinking::merge_thinking_params(&mut request_body, &Some(thinking_param));
     }
 
-    // Try each upstream in order
+    // Try each upstream in order (failover)
     let mut last_error: Option<String> = None;
     let mut failed_upstreams = Vec::new();
 
-    for (upstream_id, provider_name, _) in &upstreams {
-        let upstream_config = match state.proxy_client.upstream_config(*upstream_id) {
-            Some(config) => config,
-            None => continue,
-        };
-
-        match state.proxy_client.forward_request(
-            &upstream_config.base_url,
-            &upstream_config.api_key,
-            &upstream_config.selected_model,
-            &request_body,
-        ) {
+    for upstream in &upstreams {
+        match state
+            .proxy_client
+            .forward_request("", "", "", &request_body)
+            .await
+        {
             Ok(response) => {
                 // Replace model name in response
-                if let Some(ref mut json_body) = response.body.as_json_object_mut() {
-                    model_filter::replace_model_name(json_body, &display_name);
+                let mut resp_body = response.body;
+                if let Some(obj) = resp_body.as_object_mut() {
+                    obj.insert(
+                        "model".to_string(),
+                        Value::String(pool.display_name.clone()),
+                    );
                 }
-
-                return (StatusCode::OK, Json(response.body)).into_response();
+                return (StatusCode::OK, Json(resp_body)).into_response();
             }
             Err(e) => {
-                warn!("Upstream {} failed: {}", provider_name, e);
-                state.proxy_client.record_failure(*upstream_id);
+                warn!("Upstream {} failed: {}", upstream.provider_name, e);
                 failed_upstreams.push(json!({
-                    "provider": provider_name,
+                    "provider": upstream.provider_name,
                     "error": e.to_string()
                 }));
                 last_error = Some(e.to_string());

@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use std::path::PathBuf;
-use tracing::{info, warn};
 
 /// Gateway configuration loaded from settings table or defaults.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,7 +44,6 @@ impl GatewaySettings {
 
     /// Resolve data directory relative to exe location or current working dir
     pub fn data_dir() -> PathBuf {
-        // On Windows, data/ sits next to the executable
         let exe_dir = std::env::current_exe()
             .unwrap_or_else(|_| PathBuf::from("."))
             .parent()

@@ -1,14 +1,22 @@
 [package]
 name = "llm-api-proxy"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
 description = "Multi-provider LLM API proxy gateway with native GUI"
 
+# Library target for unit tests on backend modules
+[lib]
+name = "llm_api_proxy_lib"
+path = "lib.rs"
+
+[[bin]]
+name = "LLM-API-Proxy"
+path = "main.rs"
+
 [dependencies]
-# Tauri
+# Tauri (needed for run_tauri_app binary entry)
 tauri = { version = "2.11", features = ["tray-icon"] }
-tauri-build = { version = "2.0", features = [] }
 tauri-plugin-log = "2"
 
 # Workspace deps
@@ -21,13 +29,14 @@ serde_json = { workspace = true }
 rusqlite = { workspace = true }
 aes-gcm = { workspace = true }
 rand = { workspace = true }
+getrandom = "0.2"
 uuid = { workspace = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+log = "0.4"
 
-[[bin]]
-name = "LLM-API-Proxy"
-path = "main.rs"
+[dev-dependencies]
+tempfile = "3"

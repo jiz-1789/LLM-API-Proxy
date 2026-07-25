@@ -30,7 +30,7 @@ impl RoundRobinRouter {
             pool_id.to_string(),
             PoolState {
                 upstreams,
-                enabled: vec![true; 10], // placeholder, will be updated later
+                enabled: Vec::new(), // will be filled later
                 index: 0,
             },
         );
@@ -50,7 +50,7 @@ impl RoundRobinRouter {
 
         for i in 0..n {
             let idx = (start_idx + i) % n;
-            if state.enabled[idx] {
+            if state.enabled.get(idx).copied().unwrap_or(true) {
                 state.index = (idx + 1) % n;
                 return Some(state.upstreams[idx].clone());
             }
@@ -64,7 +64,43 @@ impl RoundRobinRouter {
         let mut states = self.state.lock().unwrap();
         if let Some(state) = states.get_mut(pool_id) {
             if let Some(pos) = state.upstreams.iter().position(|u| u == upstream_id) {
+                // Ensure enabled vec is long enough
+                while state.enabled.len() <= pos {
+                    state.enabled.push(true);
+                }
                 state.enabled[pos] = enabled;
+            }
+        }
+    }
+
+    /// Record a success for round-robin progression.
+    pub fn record_success(&self, _pool_id: &str, _upstream_id: &str) {
+        // Round-robin naturally advances on select_upstream
+    }
+
+    /// Record a failure for circuit breaker tracking.
+    pub fn record_failure(&self, pool_id: &str, upstream_id: &str, _error: &str) {
+        self.set_upstream_enabled(pool_id, upstream_id, false);
+    }
+
+    /// Re-enable an upstream (e.g. after cooldown).
+    pub fn reenable_upstream(&self, pool_id: &str, upstream_id: &str) {
+        self.set_upstream_enabled(pool_id, upstream_id, true);
+    }
+
+    /// Remove a pool and all its state.
+    pub fn remove_pool(&self, pool_id: &str) {
+        let mut states = self.state.lock().unwrap();
+        states.remove(pool_id);
+    }
+
+    /// Add a single upstream to an existing pool (if not already present).
+    pub fn add_upstream_to_pool(&self, pool_id: &str, upstream_id: &str) {
+        let mut states = self.state.lock().unwrap();
+        if let Some(state) = states.get_mut(pool_id) {
+            if !state.upstreams.contains(&upstream_id.to_string()) {
+                state.upstreams.push(upstream_id.to_string());
+                state.enabled.push(true);
             }
         }
     }
@@ -78,15 +114,7 @@ mod tests {
     fn test_round_robin_cycles_through_upstreams() {
         let router = RoundRobinRouter::new();
         let pool = "pool-1";
-
-        router.add_upstreams(
-            pool,
-            vec![
-                "a".to_string(),
-                "b".to_string(),
-                "c".to_string(),
-            ],
-        );
+        router.add_upstreams(pool, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
 
         assert_eq!(router.select_upstream(pool), Some("a".to_string()));
         assert_eq!(router.select_upstream(pool), Some("b".to_string()));
@@ -98,11 +126,7 @@ mod tests {
     fn test_skips_disabled_upstreams() {
         let router = RoundRobinRouter::new();
         let pool = "pool-2";
-
-        router.add_upstreams(
-            pool,
-            vec!["a".to_string(), "b".to_string(), "c".to_string()],
-        );
+        router.add_upstreams(pool, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
 
         // Disable "b"
         router.set_upstream_enabled(pool, "b", false);
