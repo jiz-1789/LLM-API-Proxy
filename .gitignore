@@ -1,0 +1,22 @@
+# Build artifacts
+target/
+dist/
+src-tauri/target/
+Cargo.lock
+
+# Runtime data (随 exe 移动，不提交)
+data/
+*.db
+master_key.bin
+logs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

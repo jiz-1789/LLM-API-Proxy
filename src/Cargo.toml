@@ -1,0 +1,33 @@
+[package]
+name = "llm-api-proxy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Multi-provider LLM API proxy gateway with native GUI"
+
+[dependencies]
+# Tauri
+tauri = { version = "2.11", features = ["tray-icon"] }
+tauri-build = { version = "2.0", features = [] }
+tauri-plugin-log = "2"
+
+# Workspace deps
+tokio = { workspace = true }
+axum = { workspace = true }
+tower-http = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rusqlite = { workspace = true }
+aes-gcm = { workspace = true }
+rand = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[[bin]]
+name = "LLM-API-Proxy"
+path = "main.rs"

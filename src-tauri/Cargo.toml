@@ -1,0 +1,20 @@
+[package]
+name = "llm-api-proxy-app"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77.2"
+description = "Multi-provider LLM API proxy gateway with native GUI"
+
+[lib]
+name = "app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.11", features = ["tray-icon"] }
+tauri-plugin-log = "2"
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
