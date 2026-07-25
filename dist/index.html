@@ -5,169 +5,973 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LLM-API-Proxy</title>
     <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-hover: #263348;
+            --border: #334155;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --success: #22c55e;
+            --danger: #ef4444;
+            --danger-hover: #dc2626;
+            --warning: #f59e0b;
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: #0f172a; color: #e2e8f0; min-height: 100vh;
-            display: flex; flex-direction: column;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+            background: var(--bg-primary); color: var(--text-primary);
+            min-height: 100vh; display: flex; flex-direction: column;
         }
+
+        /* === Titlebar === */
         .titlebar {
             display: flex; align-items: center; justify-content: space-between;
-            padding: 12px 20px; background: #1e293b; border-bottom: 1px solid #334155;
-            -webkit-app-region: drag;
+            padding: 10px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);
+            -webkit-app-region: drag; user-select: none;
         }
-        .titlebar h1 { font-size: 16px; font-weight: 600; color: #f1f5f9; }
-        .status-dot {
-            width: 8px; height: 8px; border-radius: 50%;
-            background: #22c55e; display: inline-block; margin-right: 8px;
-        }
-        .container {
-            flex: 1; display: flex; padding: 20px; gap: 20px;
-        }
+        .titlebar h1 { font-size: 15px; font-weight: 600; }
+        .titlebar .ver { font-size: 11px; color: var(--text-muted); }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); display: inline-block; margin-right: 8px; }
+
+        /* === Layout === */
+        .container { flex: 1; display: flex; overflow: hidden; }
         .sidebar {
-            width: 200px; display: flex; flex-direction: column; gap: 4px;
+            width: 180px; min-width: 180px; background: var(--bg-secondary);
+            border-right: 1px solid var(--border); padding: 12px 8px;
+            display: flex; flex-direction: column; gap: 2px;
         }
         .nav-item {
-            padding: 10px 16px; border-radius: 8px; cursor: pointer;
-            color: #94a3b8; font-size: 14px; transition: all 0.15s;
+            padding: 9px 14px; border-radius: 6px; cursor: pointer;
+            color: var(--text-secondary); font-size: 13px; transition: all 0.12s;
         }
-        .nav-item:hover { background: #1e293b; color: #e2e8f0; }
-        .nav-item.active { background: #1e40af; color: #fff; }
-        .main { flex: 1; }
-        .cards {
-            display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 16px; margin-bottom: 24px;
-        }
-        .card {
-            background: #1e293b; border-radius: 12px; padding: 20px;
-            border: 1px solid #334155;
-        }
-        .card-label { font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
-        .card-value { font-size: 28px; font-weight: 700; margin-top: 4px; color: #f1f5f9; }
-        .card-sub { font-size: 12px; color: #94a3b8; margin-top: 4px; }
-        .section-title { font-size: 18px; font-weight: 600; margin-bottom: 12px; }
-        .info-box {
-            background: #1e293b; border-radius: 12px; padding: 20px;
-            border: 1px solid #334155; margin-bottom: 16px;
-        }
-        .info-row {
-            display: flex; justify-content: space-between; padding: 8px 0;
-            border-bottom: 1px solid #334155; font-size: 14px;
-        }
+        .nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+        .nav-item.active { background: var(--accent); color: #fff; }
+        .main { flex: 1; padding: 20px 24px; overflow-y: auto; }
+
+        /* === Cards === */
+        .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 20px; }
+        .card { background: var(--bg-secondary); border-radius: 10px; padding: 16px; border: 1px solid var(--border); }
+        .card-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+        .card-value { font-size: 26px; font-weight: 700; margin-top: 4px; }
+        .card-sub { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+
+        /* === Section === */
+        .section-title { font-size: 16px; font-weight: 600; margin-bottom: 10px; display: flex; align-items: center; gap: 10px; }
+        .info-box { background: var(--bg-secondary); border-radius: 10px; padding: 16px; border: 1px solid var(--border); margin-bottom: 14px; }
+        .info-row { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
         .info-row:last-child { border-bottom: none; }
-        .info-key { color: #94a3b8; }
-        .info-val { color: #e2e8f0; font-family: monospace; }
-        .badge {
-            display: inline-block; padding: 2px 8px; border-radius: 4px;
-            font-size: 11px; font-weight: 600;
-        }
+        .info-key { color: var(--text-secondary); }
+        .info-val { color: var(--text-primary); font-family: "Cascadia Code", monospace; }
+
+        /* === Badge === */
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
         .badge-green { background: #166534; color: #4ade80; }
         .badge-blue { background: #1e3a5f; color: #60a5fa; }
-        #log-output {
-            background: #0f172a; border: 1px solid #334155; border-radius: 8px;
-            padding: 12px; font-family: monospace; font-size: 12px;
-            color: #94a3b8; max-height: 200px; overflow-y: auto;
-            white-space: pre-wrap; line-height: 1.6;
+        .badge-red { background: #7f1d1d; color: #fca5a5; }
+        .badge-yellow { background: #78350f; color: #fbbf24; }
+
+        /* === Buttons === */
+        .btn {
+            padding: 7px 14px; border-radius: 6px; border: none; cursor: pointer;
+            font-size: 13px; font-weight: 500; transition: all 0.12s; display: inline-flex;
+            align-items: center; gap: 6px;
         }
+        .btn-primary { background: var(--accent); color: #fff; }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-danger { background: var(--danger); color: #fff; }
+        .btn-danger:hover { background: var(--danger-hover); }
+        .btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border); }
+        .btn-ghost:hover { background: var(--bg-hover); color: var(--text-primary); }
+        .btn-sm { padding: 4px 10px; font-size: 12px; }
+
+        /* === Table === */
+        .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        thead { background: var(--bg-secondary); }
+        th { padding: 10px 12px; text-align: left; color: var(--text-muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--border); }
+        td { padding: 10px 12px; border-bottom: 1px solid var(--border); color: var(--text-secondary); }
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: rgba(255,255,255,0.02); }
+
+        /* === Toggle switch === */
+        .toggle { position: relative; width: 36px; height: 20px; display: inline-block; }
+        .toggle input { opacity: 0; width: 0; height: 0; }
+        .toggle .slider {
+            position: absolute; inset: 0; background: #475569; border-radius: 20px;
+            cursor: pointer; transition: 0.2s;
+        }
+        .toggle .slider::before {
+            content: ''; position: absolute; width: 14px; height: 14px;
+            left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: 0.2s;
+        }
+        .toggle input:checked + .slider { background: var(--accent); }
+        .toggle input:checked + .slider::before { transform: translateX(16px); }
+
+        /* === Modal === */
+        .modal-overlay {
+            display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+            z-index: 100; align-items: center; justify-content: center;
+        }
+        .modal-overlay.open { display: flex; }
+        .modal {
+            background: var(--bg-secondary); border-radius: 12px; border: 1px solid var(--border);
+            width: 520px; max-height: 80vh; overflow-y: auto; padding: 24px;
+        }
+        .modal-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
+        .form-group { margin-bottom: 14px; }
+        .form-label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; font-weight: 500; }
+        .form-input, .form-select, .form-textarea {
+            width: 100%; padding: 8px 10px; border-radius: 6px; font-size: 13px;
+            background: var(--bg-primary); color: var(--text-primary);
+            border: 1px solid var(--border); outline: none; transition: border 0.15s;
+        }
+        .form-input:focus, .form-select:focus, .form-textarea:focus { border-color: var(--accent); }
+        .form-textarea { resize: vertical; min-height: 60px; }
+        .form-row { display: flex; gap: 12px; }
+        .form-row .form-group { flex: 1; }
+        .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+        .form-hint { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+        /* === Toast === */
+        .toast-container { position: fixed; top: 16px; right: 16px; z-index: 200; display: flex; flex-direction: column; gap: 8px; }
+        .toast {
+            padding: 10px 16px; border-radius: 8px; font-size: 13px; color: #fff;
+            animation: slideIn 0.2s ease; min-width: 240px;
+        }
+        .toast-success { background: #166534; }
+        .toast-error { background: #7f1d1d; }
+        .toast-info { background: #1e3a5f; }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+        /* === Page === */
+        .page { display: none; }
+        .page.active { display: block; }
+
+        /* === Empty state === */
+        .empty-state { text-align: center; padding: 40px; color: var(--text-muted); font-size: 14px; }
+
+        /* === Log output === */
+        #log-output {
+            background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px;
+            padding: 10px; font-family: monospace; font-size: 12px; color: var(--text-secondary);
+            max-height: 180px; overflow-y: auto; white-space: pre-wrap; line-height: 1.5;
+        }
+
+        /* === Spinner === */
+        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.6s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* === Model chips === */
+        .model-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+        .model-chip {
+            padding: 3px 8px; border-radius: 4px; font-size: 11px;
+            background: var(--bg-primary); border: 1px solid var(--border);
+            cursor: pointer; color: var(--text-secondary); transition: all 0.1s;
+        }
+        .model-chip:hover { border-color: var(--accent); color: var(--accent); }
+        .model-chip.selected { background: var(--accent); color: #fff; border-color: var(--accent); }
     </style>
 </head>
 <body>
     <div class="titlebar">
         <h1><span class="status-dot"></span>LLM-API-Proxy</h1>
-        <span style="font-size:12px;color:#64748b">v0.1.0</span>
+        <span class="ver">v0.1.0</span>
     </div>
+
     <div class="container">
         <div class="sidebar">
-            <div class="nav-item active">仪表盘</div>
-            <div class="nav-item">上游服务</div>
-            <div class="nav-item">模型池</div>
-            <div class="nav-item">请求日志</div>
-            <div class="nav-item">设置</div>
-            <div class="nav-item">健康检查</div>
+            <div class="nav-item active" data-page="dashboard">仪表盘</div>
+            <div class="nav-item" data-page="upstreams">上游服务</div>
+            <div class="nav-item" data-page="pools">模型池</div>
+            <div class="nav-item" data-page="logs">请求日志</div>
+            <div class="nav-item" data-page="settings">设置</div>
+            <div class="nav-item" data-page="health">健康检查</div>
         </div>
+
         <div class="main">
-            <div class="cards">
-                <div class="card">
-                    <div class="card-label">网关状态</div>
-                    <div class="card-value"><span class="badge badge-green">运行中</span></div>
-                    <div class="card-sub">127.0.0.1:47339</div>
+            <!-- ==================== Dashboard ==================== -->
+            <div class="page active" id="page-dashboard">
+                <div class="cards">
+                    <div class="card">
+                        <div class="card-label">网关状态</div>
+                        <div class="card-value"><span class="badge badge-green">运行中</span></div>
+                        <div class="card-sub" id="gw-addr">127.0.0.1:47339</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-label">上游服务</div>
+                        <div class="card-value" id="dash-upstream-count">0</div>
+                        <div class="card-sub">已配置的服务商</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-label">模型池</div>
+                        <div class="card-value" id="dash-pool-count">0</div>
+                        <div class="card-sub">负载均衡分组</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-label">今日请求</div>
+                        <div class="card-value" id="dash-req-count">0</div>
+                        <div class="card-sub">已转发总数</div>
+                    </div>
                 </div>
-                <div class="card">
-                    <div class="card-label">上游服务</div>
-                    <div class="card-value" id="upstream-count">0</div>
-                    <div class="card-sub">已配置的服务商</div>
+                <div class="section-title">网关配置</div>
+                <div class="info-box">
+                    <div class="info-row"><span class="info-key">监听地址</span><span class="info-val" id="cfg-addr">127.0.0.1:47339</span></div>
+                    <div class="info-row"><span class="info-key">OpenAI 兼容地址</span><span class="info-val" id="cfg-openai">http://127.0.0.1:47339/v1</span></div>
+                    <div class="info-row"><span class="info-key">鉴权方式</span><span class="info-val"><span class="badge badge-blue">Bearer Token</span></span></div>
+                    <div class="info-row"><span class="info-key">日志级别</span><span class="info-val">info</span></div>
                 </div>
-                <div class="card">
-                    <div class="card-label">模型池</div>
-                    <div class="card-value" id="pool-count">0</div>
-                    <div class="card-sub">负载均衡分组</div>
+                <div class="section-title">最近活动</div>
+                <div id="log-output">网关已初始化，等待请求...</div>
+            </div>
+
+            <!-- ==================== Upstreams ==================== -->
+            <div class="page" id="page-upstreams">
+                <div class="section-title">
+                    上游服务管理
+                    <button class="btn btn-primary btn-sm" onclick="openCreateModal()">+ 新增上游</button>
                 </div>
-                <div class="card">
-                    <div class="card-label">今日请求</div>
-                    <div class="card-value" id="request-count">0</div>
-                    <div class="card-sub">已转发总数</div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>供应商</th>
+                                <th>Base URL</th>
+                                <th>模型</th>
+                                <th>API Key</th>
+                                <th>状态</th>
+                                <th>启用</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="upstream-tbody">
+                            <tr><td colspan="7" class="empty-state">加载中...</td></tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
-            <div class="section-title">网关配置</div>
-            <div class="info-box">
-                <div class="info-row">
-                    <span class="info-key">监听地址</span>
-                    <span class="info-val">127.0.0.1:47339</span>
+            <!-- ==================== Pools ==================== -->
+            <div class="page" id="page-pools">
+                <div class="section-title">
+                    模型池管理
+                    <button class="btn btn-primary btn-sm" onclick="openCreatePoolModal()">+ 新增模型池</button>
                 </div>
-                <div class="info-row">
-                    <span class="info-key">OpenAI 兼容地址</span>
-                    <span class="info-val">http://127.0.0.1:47339/v1</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-key">鉴权方式</span>
-                    <span class="info-val"><span class="badge badge-blue">Bearer Token</span></span>
-                </div>
-                <div class="info-row">
-                    <span class="info-key">日志级别</span>
-                    <span class="info-val">info</span>
+                <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">
+                    模型池将多个上游组合为一个 OpenAI 兼容端点，请求通过轮询自动分配。
+                </p>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>模型名称</th>
+                                <th>显示名</th>
+                                <th>上游数</th>
+                                <th>最大并发</th>
+                                <th>思考模式</th>
+                                <th>熔断阈值</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pool-tbody">
+                            <tr><td colspan="7" class="empty-state">加载中...</td></tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
-            <div class="section-title">最近活动</div>
-            <div id="log-output">网关已初始化，等待请求...</div>
+            <!-- ==================== Logs ==================== -->
+            <div class="page" id="page-logs">
+                <div class="section-title">请求日志</div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>时间</th>
+                                <th>模型池</th>
+                                <th>上游</th>
+                                <th>方法</th>
+                                <th>状态码</th>
+                                <th>耗时</th>
+                                <th>流式</th>
+                            </tr>
+                        </thead>
+                        <tbody id="logs-tbody">
+                            <tr><td colspan="7" class="empty-state">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ==================== Settings ==================== -->
+            <div class="page" id="page-settings">
+                <div class="section-title">设置</div>
+                <div class="empty-state">设置页面将在 M5 里程碑中实现。</div>
+            </div>
+
+            <!-- ==================== Health ==================== -->
+            <div class="page" id="page-health">
+                <div class="section-title">健康检查</div>
+                <div class="empty-state">健康检查功能将在 M5 里程碑中实现。</div>
+            </div>
         </div>
     </div>
-    <script>
-        // Tauri v2 IPC — available when loaded inside Tauri webview
-        const { invoke } = window.__TAURI__?.core || {};
 
-        // Sidebar navigation (placeholder)
-        document.querySelectorAll('.nav-item').forEach(item => {
-            item.addEventListener('click', () => {
-                document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-                item.classList.add('active');
-            });
+    <!-- ==================== Create/Edit Modal ==================== -->
+    <div class="modal-overlay" id="upstream-modal">
+        <div class="modal">
+            <div class="modal-title" id="modal-title">新增上游</div>
+            <input type="hidden" id="edit-id">
+            <div class="form-group">
+                <label class="form-label">供应商名称 *</label>
+                <input class="form-input" id="f-provider" placeholder="例如：OpenAI、DeepSeek、智谱">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Base URL *</label>
+                <input class="form-input" id="f-baseurl" placeholder="例如：https://api.openai.com">
+                <div class="form-hint">上游 API 的根地址，不需要加 /v1</div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">API Key *</label>
+                <input class="form-input" id="f-apikey" type="password" placeholder="输入 API Key">
+                <div class="form-hint">API Key 将以 AES-256-GCM 加密存储</div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">选择模型</label>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <input class="form-input" id="f-model" placeholder="输入或从下方选择模型" style="flex:1;">
+                    <button class="btn btn-ghost btn-sm" id="btn-fetch-models" onclick="fetchModels()">
+                        获取模型列表
+                    </button>
+                </div>
+                <div class="model-chips" id="model-chips"></div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">启用状态</label>
+                    <label class="toggle" style="margin-top:4px;">
+                        <input type="checkbox" id="f-enabled" checked>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">备注</label>
+                    <input class="form-input" id="f-remark" placeholder="可选备注">
+                </div>
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+                <button class="btn btn-primary" id="btn-save" onclick="saveUpstream()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== Delete Confirm Modal ==================== -->
+    <div class="modal-overlay" id="delete-modal">
+        <div class="modal" style="width:380px;">
+            <div class="modal-title">确认删除</div>
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px;">
+                确定要删除上游 "<span id="delete-name" style="color:var(--text-primary);font-weight:600;"></span>" 吗？<br>
+                此操作不可撤销，关联的号池绑定也会被移除。
+            </p>
+            <input type="hidden" id="delete-id">
+            <div class="form-actions">
+                <button class="btn btn-ghost" onclick="closeDeleteModal()">取消</button>
+                <button class="btn btn-danger" onclick="confirmDelete()">删除</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== Pool Create/Edit Modal ==================== -->
+    <div class="modal-overlay" id="pool-modal">
+        <div class="modal">
+            <div class="modal-title" id="pool-modal-title">新增模型池</div>
+            <input type="hidden" id="pool-edit-id">
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">模型名称 *</label>
+                    <input class="form-input" id="pf-name" placeholder="例如：gpt-4o">
+                    <div class="form-hint">客户端请求时使用的模型名</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">显示名称</label>
+                    <input class="form-input" id="pf-display" placeholder="例如：GPT-4o 主力池">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">最大并发</label>
+                    <input class="form-input" id="pf-concurrency" type="number" value="5" min="1" max="50">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">熔断阈值 (次)</label>
+                    <input class="form-input" id="pf-cb-threshold" type="number" value="3" min="1" max="20">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">熔断冷却 (秒)</label>
+                    <input class="form-input" id="pf-cb-duration" type="number" value="60" min="10" max="600">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">思考模式</label>
+                    <label class="toggle" style="margin-top:8px;">
+                        <input type="checkbox" id="pf-thinking">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">关联上游</label>
+                <div id="pool-upstream-checkboxes" style="max-height:140px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg-primary);">
+                    <span style="color:var(--text-muted);font-size:12px;">加载中...</span>
+                </div>
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-ghost" onclick="closePoolModal()">取消</button>
+                <button class="btn btn-primary" id="btn-save-pool" onclick="savePool()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== Pool Delete Confirm ==================== -->
+    <div class="modal-overlay" id="pool-delete-modal">
+        <div class="modal" style="width:380px;">
+            <div class="modal-title">确认删除模型池</div>
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px;">
+                确定要删除模型池 "<span id="pool-delete-name" style="color:var(--text-primary);font-weight:600;"></span>" 吗？
+            </p>
+            <input type="hidden" id="pool-delete-id">
+            <div class="form-actions">
+                <button class="btn btn-ghost" onclick="closePoolDeleteModal()">取消</button>
+                <button class="btn btn-danger" onclick="confirmPoolDelete()">删除</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== Toast Container ==================== -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script>
+    // ================================================================
+    // Tauri IPC
+    // ================================================================
+    const { invoke } = window.__TAURI__?.core || {};
+
+    async function cmd(name, args) {
+        if (!invoke) {
+            console.warn('Tauri IPC not available (running outside Tauri?)');
+            return null;
+        }
+        return invoke(name, args);
+    }
+
+    // ================================================================
+    // Navigation
+    // ================================================================
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.addEventListener('click', () => {
+            document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+            item.classList.add('active');
+            const page = item.dataset.page;
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.getElementById('page-' + page)?.classList.add('active');
+            if (page === 'upstreams') loadUpstreams();
+            if (page === 'pools') loadPools();
+            if (page === 'logs') loadLogs();
+            if (page === 'dashboard') refreshDashboard();
+        });
+    });
+
+    // ================================================================
+    // Toast
+    // ================================================================
+    function toast(msg, type = 'info') {
+        const el = document.createElement('div');
+        el.className = 'toast toast-' + type;
+        el.textContent = msg;
+        document.getElementById('toast-container').appendChild(el);
+        setTimeout(() => el.remove(), 3500);
+    }
+
+    // ================================================================
+    // Upstreams
+    // ================================================================
+    let upstreamsCache = [];
+
+    async function loadUpstreams() {
+        try {
+            const list = await cmd('list_upstreams');
+            upstreamsCache = list || [];
+            renderUpstreamTable();
+        } catch (e) {
+            toast('加载上游列表失败: ' + e, 'error');
+        }
+    }
+
+    function renderUpstreamTable() {
+        const tbody = document.getElementById('upstream-tbody');
+        if (upstreamsCache.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="empty-state">暂无上游，点击「+ 新增上游」添加</td></tr>';
+            return;
+        }
+        tbody.innerHTML = upstreamsCache.map(u => `
+            <tr>
+                <td style="color:var(--text-primary);font-weight:500;">${esc(u.provider_name)}</td>
+                <td style="font-family:monospace;font-size:12px;">${esc(u.base_url)}</td>
+                <td><span class="badge badge-blue">${esc(u.selected_model || '-')}</span></td>
+                <td style="font-family:monospace;font-size:12px;color:var(--text-muted);">${esc(u.api_key_masked)}</td>
+                <td>${statusBadge(u.status)}</td>
+                <td>
+                    <label class="toggle">
+                        <input type="checkbox" ${u.enabled ? 'checked' : ''} onchange="toggleUpstream('${u.id}', this.checked)">
+                        <span class="slider"></span>
+                    </label>
+                </td>
+                <td>
+                    <button class="btn btn-ghost btn-sm" onclick="openEditModal('${u.id}')">编辑</button>
+                    <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="openDeleteModal('${u.id}')">删除</button>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    function statusBadge(status) {
+        const map = { healthy: ['badge-green', '正常'], degraded: ['badge-yellow', '降级'], down: ['badge-red', '离线'] };
+        const [cls, label] = map[status] || ['badge-blue', status];
+        return `<span class="badge ${cls}">${label}</span>`;
+    }
+
+    function esc(s) {
+        const d = document.createElement('div');
+        d.textContent = s || '';
+        return d.innerHTML;
+    }
+
+    // ================================================================
+    // Create / Edit Modal
+    // ================================================================
+    function openCreateModal() {
+        document.getElementById('modal-title').textContent = '新增上游';
+        document.getElementById('edit-id').value = '';
+        document.getElementById('f-provider').value = '';
+        document.getElementById('f-baseurl').value = '';
+        document.getElementById('f-apikey').value = '';
+        document.getElementById('f-apikey').placeholder = '输入 API Key';
+        document.getElementById('f-model').value = '';
+        document.getElementById('f-enabled').checked = true;
+        document.getElementById('f-remark').value = '';
+        document.getElementById('model-chips').innerHTML = '';
+        document.getElementById('upstream-modal').classList.add('open');
+    }
+
+    async function openEditModal(id) {
+        try {
+            const u = await cmd('get_upstream', { id });
+            if (!u) return;
+            document.getElementById('modal-title').textContent = '编辑上游';
+            document.getElementById('edit-id').value = u.id;
+            document.getElementById('f-provider').value = u.provider_name;
+            document.getElementById('f-baseurl').value = u.base_url;
+            document.getElementById('f-apikey').value = u.api_key_masked;
+            document.getElementById('f-apikey').placeholder = '留空保持原 Key';
+            document.getElementById('f-model').value = u.selected_model;
+            document.getElementById('f-enabled').checked = u.enabled;
+            document.getElementById('f-remark').value = u.remark;
+            // Show available models as pre-selected chips
+            const container = document.getElementById('model-chips');
+            const models = u.available_models || [];
+            container.innerHTML = models.map(m =>
+                `<span class="model-chip selected" onclick="selectModel(this, '${esc(m)}')">${esc(m)}</span>`
+            ).join('');
+            document.getElementById('upstream-modal').classList.add('open');
+        } catch (e) {
+            toast('加载上游详情失败: ' + e, 'error');
+        }
+    }
+
+    function closeModal() {
+        document.getElementById('upstream-modal').classList.remove('open');
+    }
+
+    async function saveUpstream() {
+        const id = document.getElementById('edit-id').value;
+        const provider_name = document.getElementById('f-provider').value.trim();
+        const base_url = document.getElementById('f-baseurl').value.trim();
+        const api_key = document.getElementById('f-apikey').value;
+        const selected_model = document.getElementById('f-model').value.trim();
+        const available_models = [...document.querySelectorAll('.model-chip.selected')].map(c => c.textContent.trim());
+        // If no chips selected but text input has a value, include it
+        if (available_models.length === 0 && selected_model) {
+            available_models.push(selected_model);
+        }
+        const enabled = document.getElementById('f-enabled').checked;
+        const remark = document.getElementById('f-remark').value.trim();
+
+        if (!provider_name || !base_url || !api_key) {
+            toast('请填写必填字段（供应商、Base URL、API Key）', 'error');
+            return;
+        }
+
+        const btn = document.getElementById('btn-save');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> 保存中...';
+
+        try {
+            if (id) {
+                await cmd('update_upstream', { id, req: { provider_name, base_url, api_key, selected_model, available_models, enabled, remark } });
+                toast('上游已更新', 'success');
+            } else {
+                await cmd('create_upstream', { req: { provider_name, base_url, api_key, selected_model, available_models, enabled, remark } });
+                toast('上游已创建', 'success');
+            }
+            closeModal();
+            await loadUpstreams();
+            refreshDashboard();
+        } catch (e) {
+            toast('保存失败: ' + e, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '保存';
+        }
+    }
+
+    // ================================================================
+    // Toggle
+    // ================================================================
+    async function toggleUpstream(id, enabled) {
+        try {
+            await cmd('toggle_upstream', { id, enabled });
+            toast(enabled ? '已启用' : '已禁用', 'success');
+        } catch (e) {
+            toast('切换失败: ' + e, 'error');
+            await loadUpstreams();
+        }
+    }
+
+    // ================================================================
+    // Delete
+    // ================================================================
+    function openDeleteModal(id) {
+        const u = upstreamsCache.find(x => x.id === id);
+        if (!u) return;
+        document.getElementById('delete-id').value = id;
+        document.getElementById('delete-name').textContent = u.provider_name;
+        document.getElementById('delete-modal').classList.add('open');
+    }
+
+    function closeDeleteModal() {
+        document.getElementById('delete-modal').classList.remove('open');
+    }
+
+    async function confirmDelete() {
+        const id = document.getElementById('delete-id').value;
+        try {
+            await cmd('delete_upstream', { id });
+            toast('上游已删除', 'success');
+            closeDeleteModal();
+            await loadUpstreams();
+            refreshDashboard();
+        } catch (e) {
+            toast('删除失败: ' + e, 'error');
+        }
+    }
+
+    // ================================================================
+    // Fetch Models
+    // ================================================================
+    async function fetchModels() {
+        const base_url = document.getElementById('f-baseurl').value.trim();
+        const api_key = document.getElementById('f-apikey').value;
+
+        if (!base_url || !api_key || api_key === '••••••••') {
+            toast('请先填写 Base URL 和有效的 API Key', 'error');
+            return;
+        }
+
+        const btn = document.getElementById('btn-fetch-models');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> 获取中...';
+
+        try {
+            const models = await cmd('fetch_upstream_models', { base_url: base_url, api_key: api_key });
+            if (!models || models.length === 0) {
+                toast('未获取到模型列表', 'info');
+                return;
+            }
+            const container = document.getElementById('model-chips');
+            container.innerHTML = models.map(m =>
+                `<span class="model-chip" onclick="selectModel(this, '${esc(m)}')">${esc(m)}</span>`
+            ).join('');
+            toast(`获取到 ${models.length} 个模型`, 'success');
+        } catch (e) {
+            toast('获取模型失败: ' + e, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '获取模型列表';
+        }
+    }
+
+    function selectModel(chip, model) {
+        chip.classList.toggle('selected');
+        // Update the hidden input with first selected model as default
+        const selected = [...document.querySelectorAll('.model-chip.selected')].map(c => c.textContent);
+        if (selected.length > 0 && !selected.includes(document.getElementById('f-model').value)) {
+            document.getElementById('f-model').value = selected[0];
+        }
+    }
+
+    // ================================================================
+    // Pools
+    // ================================================================
+    let poolsCache = [];
+
+    async function loadPools() {
+        try {
+            poolsCache = await cmd('list_pools') || [];
+            renderPoolTable();
+        } catch (e) {
+            toast('加载模型池失败: ' + e, 'error');
+        }
+    }
+
+    function renderPoolTable() {
+        const tbody = document.getElementById('pool-tbody');
+        if (poolsCache.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="empty-state">暂无模型池，点击「+ 新增模型池」创建</td></tr>';
+            return;
+        }
+        tbody.innerHTML = poolsCache.map(p => `
+            <tr>
+                <td style="color:var(--text-primary);font-weight:500;font-family:monospace;">${esc(p.name)}</td>
+                <td>${esc(p.display_name)}</td>
+                <td><span class="badge badge-blue">${p.upstream_count} 个上游</span></td>
+                <td>${p.max_concurrency}</td>
+                <td>${p.thinking_enabled ? '<span class="badge badge-green">开启</span>' : '<span style="color:var(--text-muted)">关闭</span>'}</td>
+                <td>${p.circuit_breaker_threshold} 次 / ${p.circuit_breaker_duration_seconds}s</td>
+                <td>
+                    <button class="btn btn-ghost btn-sm" onclick="openEditPoolModal('${p.id}')">编辑</button>
+                    <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="openPoolDeleteModal('${p.id}')">删除</button>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    async function openCreatePoolModal() {
+        document.getElementById('pool-modal-title').textContent = '新增模型池';
+        document.getElementById('pool-edit-id').value = '';
+        document.getElementById('pf-name').value = '';
+        document.getElementById('pf-display').value = '';
+        document.getElementById('pf-concurrency').value = '5';
+        document.getElementById('pf-cb-threshold').value = '3';
+        document.getElementById('pf-cb-duration').value = '60';
+        document.getElementById('pf-thinking').checked = false;
+        await loadPoolUpstreamCheckboxes(null);
+        document.getElementById('pool-modal').classList.add('open');
+    }
+
+    async function openEditPoolModal(id) {
+        try {
+            const p = await cmd('get_pool', { id });
+            if (!p) return;
+            const poolUpstreams = await cmd('get_pool_upstreams', { pool_id: id }) || [];
+
+            document.getElementById('pool-modal-title').textContent = '编辑模型池';
+            document.getElementById('pool-edit-id').value = p.id;
+            document.getElementById('pf-name').value = p.name;
+            document.getElementById('pf-name').disabled = true;
+            document.getElementById('pf-display').value = p.display_name;
+            document.getElementById('pf-concurrency').value = p.max_concurrency;
+            document.getElementById('pf-cb-threshold').value = p.circuit_breaker_threshold;
+            document.getElementById('pf-cb-duration').value = p.circuit_breaker_duration_seconds;
+            document.getElementById('pf-thinking').checked = p.thinking_enabled;
+            await loadPoolUpstreamCheckboxes(poolUpstreams);
+            document.getElementById('pool-modal').classList.add('open');
+        } catch (e) {
+            toast('加载模型池详情失败: ' + e, 'error');
+        }
+    }
+
+    async function loadPoolUpstreamCheckboxes(selectedEntries) {
+        const container = document.getElementById('pool-upstream-checkboxes');
+        try {
+            const upstreams = await cmd('list_upstreams') || [];
+            if (upstreams.length === 0) {
+                container.innerHTML = '<span style="color:var(--text-muted);font-size:12px;">暂无上游，请先添加上游</span>';
+                return;
+            }
+            const selectedMap = {};
+            (selectedEntries || []).forEach(e => { selectedMap[e.upstream_id] = e.model || ''; });
+
+            container.innerHTML = upstreams.map(u => {
+                const models = u.available_models || (u.selected_model ? [u.selected_model] : []);
+                const isChecked = u.id in selectedMap;
+                const currentModel = selectedMap[u.id] || '';
+                const modelOptions = models.map(m =>
+                    `<option value="${esc(m)}" ${m === currentModel ? 'selected' : ''}>${esc(m)}</option>`
+                ).join('');
+                return `
+                <div style="display:flex;align-items:center;gap:8px;padding:4px 0;" class="pool-upstream-row">
+                    <input type="checkbox" class="pool-upstream-cb" value="${esc(u.id)}" ${isChecked ? 'checked' : ''}
+                        onchange="this.parentElement.querySelector('.pool-model-select').disabled=!this.checked">
+                    <span style="flex:1;font-size:13px;color:var(--text-secondary);">
+                        ${esc(u.provider_name)}
+                    </span>
+                    <select class="pool-model-select form-input" style="width:160px;padding:4px 6px;font-size:12px;"
+                        data-upstream-id="${esc(u.id)}" ${!isChecked ? 'disabled' : ''}>
+                        <option value="">-- 选择模型 --</option>
+                        ${modelOptions}
+                    </select>
+                </div>`;
+            }).join('');
+        } catch (e) {
+            container.innerHTML = '<span style="color:var(--danger);font-size:12px;">加载上游列表失败</span>';
+        }
+    }
+
+    function closePoolModal() {
+        document.getElementById('pool-modal').classList.remove('open');
+        document.getElementById('pf-name').disabled = false;
+    }
+
+    async function savePool() {
+        const id = document.getElementById('pool-edit-id').value;
+        const name = document.getElementById('pf-name').value.trim();
+        const display_name = document.getElementById('pf-display').value.trim() || name;
+        const max_concurrency = parseInt(document.getElementById('pf-concurrency').value) || 5;
+        const thinking_enabled = document.getElementById('pf-thinking').checked;
+        const circuit_breaker_threshold = parseInt(document.getElementById('pf-cb-threshold').value) || 3;
+        const circuit_breaker_duration_seconds = parseInt(document.getElementById('pf-cb-duration').value) || 60;
+
+        const upstreams = [];
+        document.querySelectorAll('.pool-upstream-row').forEach(row => {
+            const cb = row.querySelector('.pool-upstream-cb');
+            const select = row.querySelector('.pool-model-select');
+            if (cb.checked) {
+                upstreams.push({ upstream_id: cb.value, model: select.value });
+            }
         });
 
-        // Health check
-        async function checkHealth() {
-            try {
-                const resp = await fetch('http://127.0.0.1:47339/api/health');
-                if (resp.ok) {
-                    const data = await resp.json();
-                    appendLog('[信息] 网关健康: ' + JSON.stringify(data));
+        if (!name) { toast('请填写模型名称', 'error'); return; }
+
+        const btn = document.getElementById('btn-save-pool');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> 保存中...';
+
+        try {
+            if (id) {
+                await cmd('update_pool', {
+                    id, req: { display_name, max_concurrency, thinking_enabled, circuit_breaker_threshold, circuit_breaker_duration_seconds }
+                });
+                // Rebuild upstream associations: remove all, re-add with model
+                const currentUpstreams = await cmd('get_pool_upstreams', { pool_id: id }) || [];
+                for (const u of currentUpstreams) {
+                    await cmd('remove_upstream_from_pool', { pool_id: id, upstream_id: u.upstream_id });
                 }
-            } catch (e) {
-                // Gateway may not be running yet
+                for (const entry of upstreams) {
+                    await cmd('add_upstream_to_pool', { pool_id: id, upstream_id: entry.upstream_id, model: entry.model });
+                }
+                toast('模型池已更新', 'success');
+            } else {
+                await cmd('create_pool', { req: { name, display_name, max_concurrency, thinking_enabled, upstreams } });
+                toast('模型池已创建', 'success');
             }
+            closePoolModal();
+            await loadPools();
+            refreshDashboard();
+        } catch (e) {
+            toast('保存失败: ' + e, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '保存';
         }
+    }
 
-        function appendLog(msg) {
-            const el = document.getElementById('log-output');
-            const time = new Date().toLocaleTimeString();
-            el.textContent += '\n[' + time + '] ' + msg;
-            el.scrollTop = el.scrollHeight;
+    function openPoolDeleteModal(id) {
+        const p = poolsCache.find(x => x.id === id);
+        if (!p) return;
+        document.getElementById('pool-delete-id').value = id;
+        document.getElementById('pool-delete-name').textContent = p.display_name || p.name;
+        document.getElementById('pool-delete-modal').classList.add('open');
+    }
+
+    function closePoolDeleteModal() {
+        document.getElementById('pool-delete-modal').classList.remove('open');
+    }
+
+    async function confirmPoolDelete() {
+        const id = document.getElementById('pool-delete-id').value;
+        try {
+            await cmd('delete_pool', { id });
+            toast('模型池已删除', 'success');
+            closePoolDeleteModal();
+            await loadPools();
+            refreshDashboard();
+        } catch (e) {
+            toast('删除失败: ' + e, 'error');
         }
+    }
 
-        // Check health periodically
-        checkHealth();
-        setInterval(checkHealth, 30000);
+    // ================================================================
+    // Request Logs
+    // ================================================================
+    async function loadLogs() {
+        try {
+            const logs = await cmd('get_request_logs', { limit: 50 }) || [];
+            const tbody = document.getElementById('logs-tbody');
+            if (logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="empty-state">暂无请求记录</td></tr>';
+                return;
+            }
+            tbody.innerHTML = logs.map(l => {
+                const codeBadge = l.status_code >= 200 && l.status_code < 300
+                    ? `<span class="badge badge-green">${l.status_code}</span>`
+                    : `<span class="badge badge-red">${l.status_code}</span>`;
+                return `<tr>
+                    <td style="font-size:12px;">${esc(l.created_at)}</td>
+                    <td>${esc(l.pool_name || '-')}</td>
+                    <td style="font-family:monospace;font-size:11px;">${esc(l.upstream_id ? l.upstream_id.substring(0,12)+'...' : '-')}</td>
+                    <td>${esc(l.method)}</td>
+                    <td>${codeBadge}</td>
+                    <td>${l.response_time_ms}ms</td>
+                    <td>${l.is_streaming ? '是' : '否'}</td>
+                </tr>`;
+            }).join('');
+        } catch (e) {
+            toast('加载日志失败: ' + e, 'error');
+        }
+    }
+
+    // ================================================================
+    // Dashboard
+    // ================================================================
+    async function refreshDashboard() {
+        try {
+            const [stats, gwInfo] = await Promise.all([
+                cmd('get_stats').catch(() => null),
+                cmd('get_gateway_info').catch(() => null),
+            ]);
+            if (stats) {
+                document.getElementById('dash-upstream-count').textContent = stats.upstream_count;
+                document.getElementById('dash-pool-count').textContent = stats.pool_count;
+                document.getElementById('dash-req-count').textContent = stats.today_request_count;
+            }
+            if (gwInfo) {
+                const addr = gwInfo.listen_address + ':' + gwInfo.listen_port;
+                document.getElementById('gw-addr').textContent = addr;
+                document.getElementById('cfg-addr').textContent = addr;
+                document.getElementById('cfg-openai').textContent = gwInfo.openai_base_url;
+            }
+        } catch (e) { /* ignore */ }
+    }
+
+    // ================================================================
+    // Init
+    // ================================================================
+    refreshDashboard();
     </script>
 </body>
 </html>

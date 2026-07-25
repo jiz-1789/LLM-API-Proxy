@@ -17,6 +17,7 @@ pub struct Upstream {
     pub base_url: String,
     pub api_key_encrypted: Vec<u8>,
     pub selected_model: String,
+    pub available_models: String,
     pub enabled: bool,
     pub remark: String,
     pub status: String,
@@ -48,6 +49,7 @@ pub struct Pool {
 pub struct PoolUpstreamInfo {
     pub upstream_id: String,
     pub provider_name: String,
+    pub model: String,
     pub sort_order: i32,
 }
 
@@ -219,8 +221,8 @@ impl Database {
         let current = self.get_schema_version()?;
         let migrations: Vec<(i32, &str)> = vec![
             (1, ""), // v1: initial schema (already created above)
-            // Future migrations go here:
-            // (2, "ALTER TABLE upstreams ADD COLUMN weight INTEGER DEFAULT 1;"),
+            (2, "ALTER TABLE upstreams ADD COLUMN available_models TEXT NOT NULL DEFAULT '[]';
+                 ALTER TABLE pool_upstreams ADD COLUMN model TEXT NOT NULL DEFAULT '';"),
         ];
         for (version, sql) in migrations {
             if current < version {
@@ -263,13 +265,14 @@ impl Database {
         base_url: &str,
         api_key_encrypted: &[u8],
         selected_model: &str,
+        available_models: &str,
         enabled: bool,
         remark: &str,
     ) -> Result<(), AppError> {
         self.conn.lock().unwrap().execute(
-            "INSERT INTO upstreams (id, provider_name, base_url, api_key_encrypted, selected_model, enabled, remark)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![id, provider_name, base_url, api_key_encrypted, selected_model, enabled as i32, remark],
+            "INSERT INTO upstreams (id, provider_name, base_url, api_key_encrypted, selected_model, available_models, enabled, remark)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![id, provider_name, base_url, api_key_encrypted, selected_model, available_models, enabled as i32, remark],
         )?;
         Ok(())
     }
@@ -279,7 +282,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, provider_name, base_url, api_key_encrypted, selected_model,
-                    enabled, remark, status, failure_count, last_failure_time,
+                    available_models, enabled, remark, status, failure_count, last_failure_time,
                     created_at, updated_at
              FROM upstreams ORDER BY created_at DESC"
         )?;
@@ -292,7 +295,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, provider_name, base_url, api_key_encrypted, selected_model,
-                    enabled, remark, status, failure_count, last_failure_time,
+                    available_models, enabled, remark, status, failure_count, last_failure_time,
                     created_at, updated_at
              FROM upstreams WHERE id = ?1"
         )?;
@@ -312,7 +315,7 @@ impl Database {
         let placeholders: Vec<String> = (1..=ids.len()).map(|i| format!("?{}", i)).collect();
         let sql = format!(
             "SELECT id, provider_name, base_url, api_key_encrypted, selected_model,
-                    enabled, remark, status, failure_count, last_failure_time,
+                    available_models, enabled, remark, status, failure_count, last_failure_time,
                     created_at, updated_at
              FROM upstreams WHERE id IN ({})",
             placeholders.join(",")
@@ -335,14 +338,15 @@ impl Database {
         base_url: &str,
         api_key_encrypted: &[u8],
         selected_model: &str,
+        available_models: &str,
         enabled: bool,
         remark: &str,
     ) -> Result<(), AppError> {
         let rows = self.conn.lock().unwrap().execute(
             "UPDATE upstreams SET provider_name=?1, base_url=?2, api_key_encrypted=?3,
-             selected_model=?4, enabled=?5, remark=?6, updated_at=datetime('now')
-             WHERE id=?7",
-            params![provider_name, base_url, api_key_encrypted, selected_model, enabled as i32, remark, id],
+             selected_model=?4, available_models=?5, enabled=?6, remark=?7, updated_at=datetime('now')
+             WHERE id=?8",
+            params![provider_name, base_url, api_key_encrypted, selected_model, available_models, enabled as i32, remark, id],
         )?;
         if rows == 0 {
             return Err(AppError::NotFound(format!("upstream {}", id)));
@@ -500,17 +504,18 @@ impl Database {
     // Pool-Upstream Association
     // ========================================================================
 
-    /// Associate an upstream with a pool at the given sort order.
+    /// Associate an upstream with a pool at the given sort order, specifying which model to use.
     pub fn add_upstream_to_pool(
         &self,
         pool_id: &str,
         upstream_id: &str,
         sort_order: i32,
+        model: &str,
     ) -> Result<(), AppError> {
         self.conn.lock().unwrap().execute(
-            "INSERT OR IGNORE INTO pool_upstreams (pool_id, upstream_id, sort_order)
-             VALUES (?1, ?2, ?3)",
-            params![pool_id, upstream_id, sort_order],
+            "INSERT OR IGNORE INTO pool_upstreams (pool_id, upstream_id, sort_order, model)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![pool_id, upstream_id, sort_order, model],
         )?;
         Ok(())
     }
@@ -532,7 +537,7 @@ impl Database {
     pub fn get_pool_upstreams(&self, pool_id: &str) -> Result<Vec<PoolUpstreamInfo>, AppError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT u.id, u.provider_name, pu.sort_order
+            "SELECT u.id, u.provider_name, pu.model, pu.sort_order
              FROM pool_upstreams pu
              JOIN upstreams u ON u.id = pu.upstream_id
              WHERE pu.pool_id=?1
@@ -542,7 +547,8 @@ impl Database {
             Ok(PoolUpstreamInfo {
                 upstream_id: row.get(0)?,
                 provider_name: row.get(1)?,
-                sort_order: row.get(2)?,
+                model: row.get(2)?,
+                sort_order: row.get(3)?,
             })
         })?;
         Self::collect_rows(rows)
@@ -823,13 +829,14 @@ impl Database {
             base_url: row.get(2)?,
             api_key_encrypted: row.get(3)?,
             selected_model: row.get(4)?,
-            enabled: row.get::<_, i32>(5)? != 0,
-            remark: row.get(6)?,
-            status: row.get(7)?,
-            failure_count: row.get(8)?,
-            last_failure_time: row.get(9)?,
-            created_at: row.get(10)?,
-            updated_at: row.get(11)?,
+            available_models: row.get(5)?,
+            enabled: row.get::<_, i32>(6)? != 0,
+            remark: row.get(7)?,
+            status: row.get(8)?,
+            failure_count: row.get(9)?,
+            last_failure_time: row.get(10)?,
+            created_at: row.get(11)?,
+            updated_at: row.get(12)?,
         })
     }
 
@@ -936,7 +943,7 @@ mod tests {
         let id = sample_upstream_id();
         let encrypted_key = b"encrypted_key_bytes";
 
-        db.create_upstream(&id, "OpenAI", "http://api.openai.com", encrypted_key, "gpt-4", true, "test remark").unwrap();
+        db.create_upstream(&id, "OpenAI", "http://api.openai.com", encrypted_key, "gpt-4", true, "[]", "test remark").unwrap();
 
         let upstreams = db.get_upstreams().unwrap();
         assert_eq!(upstreams.len(), 1);
@@ -955,7 +962,7 @@ mod tests {
     fn test_get_upstream_by_id() {
         let db = test_db();
         let id = sample_upstream_id();
-        db.create_upstream(&id, "DeepSeek", "http://api.deepseek.com", b"key", "deepseek-v3", true, "").unwrap();
+        db.create_upstream(&id, "DeepSeek", "http://api.deepseek.com", b"key", "deepseek-v3", true, "[]", "").unwrap();
 
         let found = db.get_upstream_by_id(&id).unwrap();
         assert!(found.is_some());
@@ -969,9 +976,9 @@ mod tests {
     fn test_update_upstream() {
         let db = test_db();
         let id = sample_upstream_id();
-        db.create_upstream(&id, "OpenAI", "http://old.url", b"old_key", "gpt-3.5", true, "").unwrap();
+        db.create_upstream(&id, "OpenAI", "http://old.url", b"old_key", "gpt-3.5", true, "[]", "").unwrap();
 
-        db.update_upstream(&id, "OpenAI-v2", "http://new.url", b"new_key", "gpt-4", false, "updated").unwrap();
+        db.update_upstream(&id, "OpenAI-v2", "http://new.url", b"new_key", "gpt-4", false, "[]", "updated").unwrap();
 
         let u = db.get_upstream_by_id(&id).unwrap().unwrap();
         assert_eq!(u.provider_name, "OpenAI-v2");
@@ -985,7 +992,7 @@ mod tests {
     #[test]
     fn test_update_nonexistent_upstream_returns_not_found() {
         let db = test_db();
-        let result = db.update_upstream("no-such-id", "X", "http://x", b"k", "m", true, "");
+        let result = db.update_upstream("no-such-id", "X", "http://x", b"k", "m", true, "[]", "");
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), AppError::NotFound(_)));
     }
@@ -994,7 +1001,7 @@ mod tests {
     fn test_delete_upstream() {
         let db = test_db();
         let id = sample_upstream_id();
-        db.create_upstream(&id, "Test", "http://test", b"k", "m", true, "").unwrap();
+        db.create_upstream(&id, "Test", "http://test", b"k", "m", true, "[]", "").unwrap();
         assert_eq!(db.count_upstreams().unwrap(), 1);
 
         db.delete_upstream(&id).unwrap();
@@ -1005,7 +1012,7 @@ mod tests {
     fn test_toggle_upstream() {
         let db = test_db();
         let id = sample_upstream_id();
-        db.create_upstream(&id, "Test", "http://test", b"k", "m", true, "").unwrap();
+        db.create_upstream(&id, "Test", "http://test", b"k", "m", true, "[]", "").unwrap();
 
         db.toggle_upstream(&id, false).unwrap();
         let u = db.get_upstream_by_id(&id).unwrap().unwrap();
@@ -1020,7 +1027,7 @@ mod tests {
     fn test_update_upstream_status() {
         let db = test_db();
         let id = sample_upstream_id();
-        db.create_upstream(&id, "Test", "http://test", b"k", "m", true, "").unwrap();
+        db.create_upstream(&id, "Test", "http://test", b"k", "m", true, "[]", "").unwrap();
 
         db.update_upstream_status(&id, "degraded", 5, Some("2026-07-25T10:00:00".to_string())).unwrap();
         let u = db.get_upstream_by_id(&id).unwrap().unwrap();
@@ -1035,9 +1042,9 @@ mod tests {
         let id1 = sample_upstream_id();
         let id2 = sample_upstream_id();
         let id3 = sample_upstream_id();
-        db.create_upstream(&id1, "A", "http://a", b"k", "m", true, "").unwrap();
-        db.create_upstream(&id2, "B", "http://b", b"k", "m", true, "").unwrap();
-        db.create_upstream(&id3, "C", "http://c", b"k", "m", true, "").unwrap();
+        db.create_upstream(&id1, "A", "http://a", b"k", "m", true, "[]", "").unwrap();
+        db.create_upstream(&id2, "B", "http://b", b"k", "m", true, "[]", "").unwrap();
+        db.create_upstream(&id3, "C", "http://c", b"k", "m", true, "[]", "").unwrap();
 
         let result = db.get_upstreams_by_ids(&[id1.clone(), id3.clone()]).unwrap();
         assert_eq!(result.len(), 2);
@@ -1055,7 +1062,7 @@ mod tests {
         let db = test_db();
         let ids: Vec<String> = (0..5).map(|_| sample_upstream_id()).collect();
         for (i, id) in ids.iter().enumerate() {
-            db.create_upstream(id, &format!("Up{}", i), "http://test", b"k", "m", true, "").unwrap();
+            db.create_upstream(id, &format!("Up{}", i), "http://test", b"k", "m", true, "[]", "").unwrap();
         }
         assert_eq!(db.count_upstreams().unwrap(), 5);
 
@@ -1145,11 +1152,11 @@ mod tests {
         let u2 = sample_upstream_id();
 
         db.create_pool(&pool_id, "pool1", "Pool 1", 5, false).unwrap();
-        db.create_upstream(&u1, "ProviderA", "http://a", b"k", "m", true, "").unwrap();
-        db.create_upstream(&u2, "ProviderB", "http://b", b"k", "m", true, "").unwrap();
+        db.create_upstream(&u1, "ProviderA", "http://a", b"k", "m", true, "[]", "").unwrap();
+        db.create_upstream(&u2, "ProviderB", "http://b", b"k", "m", true, "[]", "").unwrap();
 
-        db.add_upstream_to_pool(&pool_id, &u1, 0).unwrap();
-        db.add_upstream_to_pool(&pool_id, &u2, 1).unwrap();
+        db.add_upstream_to_pool(&pool_id, &u1, 0, "").unwrap();
+        db.add_upstream_to_pool(&pool_id, &u2, 1, "").unwrap();
 
         let pus = db.get_pool_upstreams(&pool_id).unwrap();
         assert_eq!(pus.len(), 2);
@@ -1167,8 +1174,8 @@ mod tests {
         let u1 = sample_upstream_id();
 
         db.create_pool(&pool_id, "pool1", "Pool 1", 5, false).unwrap();
-        db.create_upstream(&u1, "Provider", "http://x", b"k", "m", true, "").unwrap();
-        db.add_upstream_to_pool(&pool_id, &u1, 0).unwrap();
+        db.create_upstream(&u1, "Provider", "http://x", b"k", "m", true, "[]", "").unwrap();
+        db.add_upstream_to_pool(&pool_id, &u1, 0, "").unwrap();
         assert_eq!(db.get_pool_upstreams(&pool_id).unwrap().len(), 1);
 
         db.remove_upstream_from_pool(&pool_id, &u1).unwrap();
@@ -1184,13 +1191,13 @@ mod tests {
         let u3 = sample_upstream_id();
 
         db.create_pool(&pool_id, "pool1", "Pool 1", 5, false).unwrap();
-        db.create_upstream(&u1, "A", "http://a", b"k", "m", true, "").unwrap();
-        db.create_upstream(&u2, "B", "http://b", b"k", "m", true, "").unwrap();
-        db.create_upstream(&u3, "C", "http://c", b"k", "m", true, "").unwrap();
+        db.create_upstream(&u1, "A", "http://a", b"k", "m", true, "[]", "").unwrap();
+        db.create_upstream(&u2, "B", "http://b", b"k", "m", true, "[]", "").unwrap();
+        db.create_upstream(&u3, "C", "http://c", b"k", "m", true, "[]", "").unwrap();
 
-        db.add_upstream_to_pool(&pool_id, &u1, 0).unwrap();
-        db.add_upstream_to_pool(&pool_id, &u2, 1).unwrap();
-        db.add_upstream_to_pool(&pool_id, &u3, 2).unwrap();
+        db.add_upstream_to_pool(&pool_id, &u1, 0, "").unwrap();
+        db.add_upstream_to_pool(&pool_id, &u2, 1, "").unwrap();
+        db.add_upstream_to_pool(&pool_id, &u3, 2, "").unwrap();
 
         // Reorder: C first, A second, B third
         db.reorder_pool_upstreams(&pool_id, &[u3.clone(), u1.clone(), u2.clone()]).unwrap();
@@ -1211,8 +1218,8 @@ mod tests {
         let u1 = sample_upstream_id();
 
         db.create_pool(&pool_id, "pool1", "Pool 1", 5, false).unwrap();
-        db.create_upstream(&u1, "Provider", "http://x", b"k", "m", true, "").unwrap();
-        db.add_upstream_to_pool(&pool_id, &u1, 0).unwrap();
+        db.create_upstream(&u1, "Provider", "http://x", b"k", "m", true, "[]", "").unwrap();
+        db.add_upstream_to_pool(&pool_id, &u1, 0, "").unwrap();
 
         db.delete_pool(&pool_id).unwrap();
         // Upstream should still exist, but association should be gone
@@ -1227,8 +1234,8 @@ mod tests {
         let u1 = sample_upstream_id();
 
         db.create_pool(&pool_id, "pool1", "Pool 1", 5, false).unwrap();
-        db.create_upstream(&u1, "Provider", "http://x", b"k", "m", true, "").unwrap();
-        db.add_upstream_to_pool(&pool_id, &u1, 0).unwrap();
+        db.create_upstream(&u1, "Provider", "http://x", b"k", "m", true, "[]", "").unwrap();
+        db.add_upstream_to_pool(&pool_id, &u1, 0, "").unwrap();
 
         db.delete_upstream(&u1).unwrap();
         // Pool should still exist, but association should be gone
@@ -1385,7 +1392,7 @@ mod tests {
         let id = sample_upstream_id();
         assert!(!db.upstream_exists(&id).unwrap());
 
-        db.create_upstream(&id, "Test", "http://t", b"k", "m", true, "").unwrap();
+        db.create_upstream(&id, "Test", "http://t", b"k", "m", true, "[]", "").unwrap();
         assert!(db.upstream_exists(&id).unwrap());
     }
 
@@ -1403,17 +1410,17 @@ mod tests {
     fn test_count_upstreams() {
         let db = test_db();
         assert_eq!(db.count_upstreams().unwrap(), 0);
-        db.create_upstream(&sample_upstream_id(), "A", "http://a", b"k", "m", true, "").unwrap();
-        db.create_upstream(&sample_upstream_id(), "B", "http://b", b"k", "m", false, "").unwrap();
+        db.create_upstream(&sample_upstream_id(), "A", "http://a", b"k", "m", true, "[]", "").unwrap();
+        db.create_upstream(&sample_upstream_id(), "B", "http://b", b"k", "m", false, "[]", "").unwrap();
         assert_eq!(db.count_upstreams().unwrap(), 2);
     }
 
     #[test]
     fn test_count_active_upstreams() {
         let db = test_db();
-        db.create_upstream(&sample_upstream_id(), "A", "http://a", b"k", "m", true, "").unwrap();
-        db.create_upstream(&sample_upstream_id(), "B", "http://b", b"k", "m", false, "").unwrap();
-        db.create_upstream(&sample_upstream_id(), "C", "http://c", b"k", "m", true, "").unwrap();
+        db.create_upstream(&sample_upstream_id(), "A", "http://a", b"k", "m", true, "[]", "").unwrap();
+        db.create_upstream(&sample_upstream_id(), "B", "http://b", b"k", "m", false, "[]", "").unwrap();
+        db.create_upstream(&sample_upstream_id(), "C", "http://c", b"k", "m", true, "[]", "").unwrap();
 
         assert_eq!(db.count_active_upstreams().unwrap(), 2);
     }
@@ -1429,8 +1436,8 @@ mod tests {
     #[test]
     fn test_get_stats() {
         let db = test_db();
-        db.create_upstream(&sample_upstream_id(), "A", "http://a", b"k", "m", true, "").unwrap();
-        db.create_upstream(&sample_upstream_id(), "B", "http://b", b"k", "m", false, "").unwrap();
+        db.create_upstream(&sample_upstream_id(), "A", "http://a", b"k", "m", true, "[]", "").unwrap();
+        db.create_upstream(&sample_upstream_id(), "B", "http://b", b"k", "m", false, "[]", "").unwrap();
         db.create_pool(&sample_pool_id(), "pool1", "Pool 1", 5, false).unwrap();
 
         let stats = db.get_stats().unwrap();
@@ -1443,7 +1450,7 @@ mod tests {
     fn test_get_upstream_status_summary() {
         let db = test_db();
         let id = sample_upstream_id();
-        db.create_upstream(&id, "TestProvider", "http://t", b"k", "m", true, "").unwrap();
+        db.create_upstream(&id, "TestProvider", "http://t", b"k", "m", true, "[]", "").unwrap();
         db.update_upstream_status(&id, "degraded", 3, Some("2026-07-25T10:00:00".to_string())).unwrap();
 
         let summary = db.get_upstream_status_summary().unwrap();
@@ -1461,8 +1468,8 @@ mod tests {
         let id2 = sample_upstream_id();
 
         db.with_transaction(|| {
-            db.create_upstream(&id1, "Tx1", "http://1", b"k", "m", true, "")?;
-            db.create_upstream(&id2, "Tx2", "http://2", b"k", "m", true, "")?;
+            db.create_upstream(&id1, "Tx1", "http://1", b"k", "m", true, "[]", "")?;
+            db.create_upstream(&id2, "Tx2", "http://2", b"k", "m", true, "[]", "")?;
             Ok(())
         }).unwrap();
 
@@ -1475,7 +1482,7 @@ mod tests {
         let id = sample_upstream_id();
 
         let result = db.with_transaction(|| {
-            db.create_upstream(&id, "Tx1", "http://1", b"k", "m", true, "")?;
+            db.create_upstream(&id, "Tx1", "http://1", b"k", "m", true, "[]", "")?;
             // Simulate an error
             Err(AppError::Internal("simulated failure".to_string()))
         });
@@ -1502,7 +1509,7 @@ mod tests {
         let encrypted = km.encrypt_api_key(plaintext_key).unwrap();
 
         // Store encrypted key in database
-        db.create_upstream(&id, "Encrypted", "http://test", &encrypted, "model", true, "").unwrap();
+        db.create_upstream(&id, "Encrypted", "http://test", &encrypted, "model", true, "[]", "").unwrap();
 
         // Retrieve and decrypt
         let upstream = db.get_upstream_by_id(&id).unwrap().unwrap();
@@ -1531,7 +1538,7 @@ mod tests {
             let pool_id = sample_pool_id();
             db.create_pool(&pool_id, &format!("pool-{}", i), &format!("Pool {}", i), 5, false).unwrap();
             for j in 0..4 {
-                db.add_upstream_to_pool(&pool_id, &upstream_ids[i * 4 + j], j as i32).unwrap();
+                db.add_upstream_to_pool(&pool_id, &upstream_ids[i * 4 + j], j as i32, "").unwrap();
             }
         }
         assert_eq!(db.count_pools().unwrap(), 5);
