@@ -637,6 +637,18 @@ let per_model = state
 Ok(TokenUsageResponse { today, total, daily, per_model })
 }
 
+/// Reset token stats for an upstream by deleting all its request logs.
+#[tauri::command]
+pub fn reset_upstream_token_stats(
+upstream_id: String,
+state: State<'_, AppState>,
+) -> Result<i64, String> {
+state
+.db
+.reset_upstream_token_stats(&upstream_id)
+.map_err(|e| e.to_string())
+}
+
 // ============================================================================
 // Health Check Commands
 // ============================================================================

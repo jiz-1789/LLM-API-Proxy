@@ -756,6 +756,15 @@ Ok(())
         Ok(rows as i64)
     }
 
+    /// Delete all request logs for a specific upstream (reset its token stats).
+    pub fn reset_upstream_token_stats(&self, upstream_id: &str) -> Result<i64, AppError> {
+        let rows = self.conn.lock().unwrap().execute(
+            "DELETE FROM request_logs WHERE upstream_id = ?1",
+            params![upstream_id],
+        )?;
+        Ok(rows as i64)
+    }
+
     /// Get daily token usage for an upstream over the last N days.
     pub fn get_upstream_token_stats(&self, upstream_id: &str, days: i32) -> Result<Vec<DailyTokenUsage>, AppError> {
         let conn = self.conn.lock().unwrap();

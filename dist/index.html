@@ -1334,6 +1334,7 @@ print(response.choices[0].message.content)</code></pre>
                 <div class="empty-state">加载中...</div>
             </div>
             <div class="form-actions">
+                <button class="btn btn-danger" id="token-reset-btn" onclick="resetTokenStats()" style="margin-right:auto;display:none;">重置统计</button>
                 <button class="btn btn-ghost" onclick="closeTokenModal()">关闭</button>
             </div>
         </div>
@@ -1600,9 +1601,13 @@ if (page === 'settings') loadSettings();
     // ================================================================
     // Token Usage
     // ================================================================
+    let currentTokenUpstreamId = null;
+
     async function openTokenModal(upstreamId, providerName) {
+        currentTokenUpstreamId = upstreamId;
         document.getElementById('token-provider-name').textContent = providerName;
         document.getElementById('token-modal-body').innerHTML = '<div class="empty-state">加载中...</div>';
+        document.getElementById('token-reset-btn').style.display = 'none';
         document.getElementById('token-modal').classList.add('open');
 
         try {
@@ -1612,8 +1617,23 @@ if (page === 'settings') loadSettings();
                 return;
             }
             renderTokenUsage(data);
+            document.getElementById('token-reset-btn').style.display = '';
         } catch (e) {
             document.getElementById('token-modal-body').innerHTML = '<div class="empty-state">加载失败: ' + esc(String(e)) + '</div>';
+        }
+    }
+
+    async function resetTokenStats() {
+        if (!currentTokenUpstreamId) return;
+        if (!confirm('确定要重置该上游的 Token 统计吗？\n此操作将删除该上游的所有请求日志，不可恢复。')) return;
+        try {
+            await cmd('reset_upstream_token_stats', { upstreamId: currentTokenUpstreamId });
+            toast('统计已重置', 'success');
+            // Reload data
+            const data = await cmd('get_upstream_token_usage', { upstreamId: currentTokenUpstreamId });
+            if (data) renderTokenUsage(data);
+        } catch (e) {
+            toast('重置失败: ' + e, 'error');
         }
     }
 
@@ -1678,29 +1698,33 @@ if (page === 'settings') loadSettings();
             ` : ''}
             <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:10px;">近 30 天趋势</div>
             ${renderTokenChart(daily)}
+            <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin:16px 0 10px;">每日消耗（柱状图）</div>
+            ${renderTokenBarChart(daily)}
             ${daily.length === 0 ? '<div class="empty-state" style="margin-top:8px;">暂无消耗记录</div>' : ''}
         `;
     }
 
     function renderTokenChart(daily) {
         if (!daily || daily.length === 0) return '';
-        const W = 600, H = 180, P = 40;
-        const chartW = W - P * 2, chartH = H - P * 2;
+        const W = 600, H = 200, P = 40;
+        const chartW = W - P * 2, chartH = H - P * 2 - 20; // leave room for legend
 
-        const maxVal = Math.max(...daily.map(d => d.total_tokens), 1);
+        const maxVal = Math.max(...daily.map(d => Math.max(d.prompt_tokens, d.completion_tokens)), 1);
         const n = daily.length;
         const stepX = n > 1 ? chartW / (n - 1) : 0;
 
-        // Build points for total_tokens line
-        const points = daily.map((d, i) => {
+        // Build points for prompt_tokens line
+        const promptPoints = daily.map((d, i) => {
             const x = P + i * stepX;
-            const y = P + chartH - (d.total_tokens / maxVal) * chartH;
+            const y = P + chartH - (d.prompt_tokens / maxVal) * chartH;
             return `${x},${y}`;
         });
-        const linePath = points.join(' ');
-
-        // Build area path
-        const areaPath = `M ${P},${P + chartH} L ${linePath.replace(/ /g, ' L ')} L ${P + chartW},${P + chartH} Z`;
+        // Build points for completion_tokens line
+        const compPoints = daily.map((d, i) => {
+            const x = P + i * stepX;
+            const y = P + chartH - (d.completion_tokens / maxVal) * chartH;
+            return `${x},${y}`;
+        });
 
         // Y-axis labels (4 ticks)
         const yTicks = [];
@@ -1719,31 +1743,88 @@ if (page === 'settings') loadSettings();
         labelIndices.forEach(i => {
             if (i < 0 || i >= n) return;
             const x = P + i * stepX;
-            const dateStr = daily[i].date.substring(5); // MM-DD
-            xLabels.push(`<text x="${x}" y="${H - P + 14}" text-anchor="middle" font-size="10" fill="var(--text-muted)">${dateStr}</text>`);
+            const dateStr = daily[i].date.substring(5);
+            xLabels.push(`<text x="${x}" y="${P + chartH + 14}" text-anchor="middle" font-size="10" fill="var(--text-muted)">${dateStr}</text>`);
         });
 
         // Data points with hover tooltips
-        const dots = daily.map((d, i) => {
+        const promptDots = daily.map((d, i) => {
             const x = P + i * stepX;
-            const y = P + chartH - (d.total_tokens / maxVal) * chartH;
-            return `<circle cx="${x}" cy="${y}" r="3" fill="var(--accent)" stroke="var(--bg-primary)" stroke-width="1.5">
-                <title>${d.date}\n总计: ${d.total_tokens}\n输入: ${d.prompt_tokens}\n输出: ${d.completion_tokens}\n请求: ${d.request_count}</title>
+            const y = P + chartH - (d.prompt_tokens / maxVal) * chartH;
+            return `<circle cx="${x}" cy="${y}" r="3" fill="#6366f1" stroke="var(--bg-primary)" stroke-width="1.5">
+                <title>${d.date}\n输入: ${fmtNum(d.prompt_tokens)}\n输出: ${fmtNum(d.completion_tokens)}\n总计: ${fmtNum(d.total_tokens)}\n请求: ${d.request_count}</title>
             </circle>`;
+        });
+        const compDots = daily.map((d, i) => {
+            const x = P + i * stepX;
+            const y = P + chartH - (d.completion_tokens / maxVal) * chartH;
+            return `<circle cx="${x}" cy="${y}" r="3" fill="#10b981" stroke="var(--bg-primary)" stroke-width="1.5">
+                <title>${d.date}\n输入: ${fmtNum(d.prompt_tokens)}\n输出: ${fmtNum(d.completion_tokens)}\n总计: ${fmtNum(d.total_tokens)}\n请求: ${d.request_count}</title>
+            </circle>`;
+        });
+
+        const legendY = H - 6;
+        return `
+            <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="max-width:100%;height:auto;">
+                ${yTicks.join('')}
+                <polyline points="${promptPoints.join(' ')}" fill="none" stroke="#6366f1" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+                <polyline points="${compPoints.join(' ')}" fill="none" stroke="#10b981" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+                ${promptDots.join('')}
+                ${compDots.join('')}
+                ${xLabels.join('')}
+                <line x1="${P}" y1="${legendY - 2}" x2="${P + 12}" y2="${legendY - 2}" stroke="#6366f1" stroke-width="2.5"/>
+                <text x="${P + 16}" y="${legendY + 1}" font-size="11" fill="var(--text-secondary)">输入 Token</text>
+                <line x1="${P + 100}" y1="${legendY - 2}" x2="${P + 112}" y2="${legendY - 2}" stroke="#10b981" stroke-width="2.5"/>
+                <text x="${P + 116}" y="${legendY + 1}" font-size="11" fill="var(--text-secondary)">输出 Token</text>
+            </svg>
+        `;
+    }
+
+    function renderTokenBarChart(daily) {
+        if (!daily || daily.length === 0) return '';
+        const W = 600, H = 160, P = 40;
+        const chartW = W - P * 2, chartH = H - P * 2;
+
+        const maxVal = Math.max(...daily.map(d => d.total_tokens), 1);
+        const n = daily.length;
+        const gap = 4;
+        const barW = n > 0 ? Math.max((chartW - gap * (n - 1)) / n, 2) : 0;
+
+        // Y-axis labels
+        const yTicks = [];
+        for (let i = 0; i <= 3; i++) {
+            const val = Math.round(maxVal * (3 - i) / 3);
+            const y = P + (chartH * i / 3);
+            yTicks.push(`
+                <line x1="${P}" y1="${y}" x2="${W - P}" y2="${y}" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2,3"/>
+                <text x="${P - 6}" y="${y + 3}" text-anchor="end" font-size="10" fill="var(--text-muted)">${fmtNum(val)}</text>
+            `);
+        }
+
+        // Bars
+        const bars = daily.map((d, i) => {
+            const x = P + i * (barW + gap);
+            const h = (d.total_tokens / maxVal) * chartH;
+            const y = P + chartH - h;
+            return `<rect x="${x}" y="${y}" width="${barW}" height="${h}" rx="2" fill="var(--accent)" opacity="0.8">
+                <title>${d.date}\n消耗: ${fmtNum(d.total_tokens)}\n请求: ${d.request_count}</title>
+            </rect>`;
+        });
+
+        // X-axis labels
+        const xLabels = [];
+        const labelIndices = n <= 1 ? [0] : n <= 10 ? daily.map((_, i) => i) : [0, Math.floor(n / 2), n - 1];
+        labelIndices.forEach(i => {
+            if (i < 0 || i >= n) return;
+            const x = P + i * (barW + gap) + barW / 2;
+            const dateStr = daily[i].date.substring(5);
+            xLabels.push(`<text x="${x}" y="${H - P + 14}" text-anchor="middle" font-size="10" fill="var(--text-muted)">${dateStr}</text>`);
         });
 
         return `
             <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="max-width:100%;height:auto;">
-                <defs>
-                    <linearGradient id="tokenGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.2"/>
-                        <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/>
-                    </linearGradient>
-                </defs>
                 ${yTicks.join('')}
-                <path d="${areaPath}" fill="url(#tokenGrad)"/>
-                <polyline points="${linePath}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-                ${dots.join('')}
+                ${bars.join('')}
                 ${xLabels.join('')}
             </svg>
         `;
