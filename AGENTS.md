@@ -367,9 +367,10 @@ chore: gitignore internal docs and test data
 6. 打 Git 标签：git tag vX.Y.Z
 7. 推送代码和标签：git push origin main && git push origin vX.Y.Z
 8. 构建便携版：cargo tauri build（仅生成 release exe，不打包安装程序）
-9. 重命名 exe：copy target\release\llm-api-proxy-app.exe LLM-API-Proxy_vX.Y.Z_x64_portable.exe
-10. 在 GitHub Releases 页面创建发布，附带 CHANGELOG.md 中对应版本的内容
-11. 上传便携版 .exe 到 Release Assets
+9. 清理旧版本：删除 target\release\bundle\ 下所有旧的 LLM-API-Proxy_*_x64_portable.exe
+10. 重命名 exe：copy target\release\llm-api-proxy-app.exe target\release\bundle\LLM-API-Proxy_vX.Y.Z_x64_portable.exe
+11. 在 GitHub Releases 页面创建发布，附带 CHANGELOG.md 中对应版本的内容
+12. 上传便携版 .exe 到 Release Assets
 ```
 
 **打包规则：**

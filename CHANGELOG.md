@@ -7,6 +7,15 @@
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-07-27
+
+### 修复
+- 修复在线更新后桌面快捷方式图标消失的问题（更新完成后自动刷新 Windows 图标缓存）
+- 修复更新时 exe 文件仍被占用导致替换失败的问题（增加重试等待机制）
+
+### 变更
+- 打包发布流程增加清理旧版本便携版文件的步骤
+
 ## [0.1.4] - 2026-07-27
 
 ### 新增
@@ -71,7 +80,8 @@
 - **数据便携**：所有数据存储在程序同目录 `data/` 文件夹，U 盘携带即走
 - **开源治理**：AGPL-3.0 双轨许可、CLA 贡献者协议、CONTRIBUTING.md 贡献指南
 
-[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.5
 [0.1.4]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.4
 [0.1.3]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.3
 [0.1.2]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.2

@@ -1208,8 +1208,19 @@ pub async fn download_and_update(
         "@echo off\r\n\
          :: Wait for the app to fully exit\r\n\
          timeout /t 2 /nobreak >nul\r\n\
-         :: Replace the old exe with the new one\r\n\
+         :: Retry loop: rename old exe to .bak to verify it is unlocked\r\n\
+         :retry\r\n\
+         ren \"{exe_name}\" \"{exe_name}.bak\" 2>nul\r\n\
+         if errorlevel 1 (\r\n\
+             timeout /t 1 /nobreak >nul\r\n\
+             goto retry\r\n\
+         )\r\n\
+         :: Move the new exe into place\r\n\
          move /y \"_update_temp.exe\" \"{exe_name}\"\r\n\
+         :: Delete the old exe backup\r\n\
+         del \"{exe_name}.bak\" 2>nul\r\n\
+         :: Refresh Windows icon cache to fix desktop shortcuts\r\n\
+         ie4uinit.exe -show 2>nul\r\n\
          :: Start the new version\r\n\
          start \"\" \"{exe_name}\"\r\n\
          :: Clean up this batch script\r\n\
