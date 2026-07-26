@@ -114,7 +114,100 @@
             50% { opacity: 0.6; }
         }
 
-        /* === Layout === */
+        /* === Carousel === */
+.carousel {
+    position: relative;
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin-bottom: 20px;
+    height: 120px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+}
+.carousel-track {
+    display: flex;
+    height: 100%;
+    transition: transform 0.4s ease;
+}
+.carousel-slide {
+    min-width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+}
+.carousel-slide img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.carousel-slide .slide-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0.2) 50%, transparent 100%);
+    display: flex;
+    align-items: center;
+    padding: 0 24px;
+}
+.carousel-slide .slide-title {
+    color: #fff;
+    font-size: 16px;
+    font-weight: 700;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+}
+.carousel-slide .slide-desc {
+    color: rgba(255,255,255,0.85);
+    font-size: 12px;
+    margin-top: 4px;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+}
+.carousel-dots {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 6px;
+    z-index: 2;
+}
+.carousel-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.4);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.carousel-dot.active {
+    background: #fff;
+    width: 20px;
+    border-radius: 4px;
+}
+.carousel-arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.3);
+    border: none;
+    color: #fff;
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+    transition: background 0.2s;
+}
+.carousel-arrow:hover { background: rgba(0,0,0,0.6); }
+.carousel-arrow.prev { left: 8px; }
+.carousel-arrow.next { right: 8px; }
+
+/* === Layout === */
         .container { flex: 1; display: flex; overflow: hidden; }
         .sidebar {
             width: 200px;
@@ -846,6 +939,14 @@
         </div>
 
         <div class="main">
+            <!-- ==================== Carousel ==================== -->
+            <div class="carousel" id="carousel">
+                <div class="carousel-track" id="carousel-track"></div>
+                <button class="carousel-arrow prev" onclick="carouselPrev()">&#8249;</button>
+                <button class="carousel-arrow next" onclick="carouselNext()">&#8250;</button>
+                <div class="carousel-dots" id="carousel-dots"></div>
+            </div>
+
             <!-- ==================== Dashboard ==================== -->
             <div class="page active" id="page-dashboard">
                 <div class="cards">
@@ -2502,11 +2603,120 @@ function generateApiKey() {
         }
     });
 
-    // ================================================================
-    // Init
-    // ================================================================
+// ================================================================
+// Carousel
+// ================================================================
+const carouselSlides = [
+    {
+        title: 'OpenAI 平台',
+        desc: 'GPT-4o / o1 / o3 系列',
+        url: 'https://platform.openai.com',
+        gradient: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+        icon: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.9)" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20M12 2a14.5 14.5 0 0 1 0 20M2 12h20"/></svg>`,
+    },
+    {
+        title: 'Anthropic Claude',
+        desc: 'Claude 4 Sonnet / Opus',
+        url: 'https://console.anthropic.com',
+        gradient: 'linear-gradient(135deg, #1a1a1a 0%, #2d1b1b 50%, #4a2c2a 100%)',
+        icon: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="rgba(217,119,87,0.9)" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>`,
+    },
+    {
+        title: 'Google AI Studio',
+        desc: 'Gemini 2.5 Pro / Flash',
+        url: 'https://aistudio.google.com',
+        gradient: 'linear-gradient(135deg, #0d1117 0%, #1a237e 50%, #006064 100%)',
+        icon: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="rgba(66,165,245,0.9)" stroke-width="1.5"><path d="M12 2v6m0 0a4 4 0 0 1 4 4m-4-4a4 4 0 0 0-4 4m4 4v6m0-6a4 4 0 0 1 4-4m-4 4a4 4 0 0 0-4-4"/><circle cx="12" cy="12" r="2"/></svg>`,
+    },
+    {
+        title: 'DeepSeek 开放平台',
+        desc: 'DeepSeek V3 / R1',
+        url: 'https://platform.deepseek.com',
+        gradient: 'linear-gradient(135deg, #0a0e27 0%, #1a1a3e 50%, #2d1b69 100%)',
+        icon: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="rgba(129,140,248,0.9)" stroke-width="1.5"><path d="M3 12h6m6 0h6M12 3v6m0 6v6"/><circle cx="12" cy="12" r="3"/></svg>`,
+    },
+];
+
+let carouselIndex = 0;
+let carouselTimer = null;
+
+function renderCarousel() {
+    const track = document.getElementById('carousel-track');
+    const dots = document.getElementById('carousel-dots');
+    if (!track || !dots) return;
+
+    track.innerHTML = carouselSlides.map(s => `
+        <div class="carousel-slide" onclick="carouselClick('${s.url}')" style="background:${s.gradient};">
+            <div style="display:flex;align-items:center;gap:16px;width:100%;padding:0 24px;">
+                ${s.icon}
+                <div>
+                    <div style="color:#fff;font-size:16px;font-weight:700;text-shadow:0 1px 4px rgba(0,0,0,0.5);">${s.title}</div>
+                    <div style="color:rgba(255,255,255,0.8);font-size:12px;margin-top:4px;text-shadow:0 1px 4px rgba(0,0,0,0.5);">${s.desc}</div>
+                </div>
+            </div>
+        </div>
+    `).join('');
+
+    dots.innerHTML = carouselSlides.map((_, i) =>
+        `<div class="carousel-dot ${i === carouselIndex ? 'active' : ''}" onclick="carouselGoto(${i})"></div>`
+    ).join('');
+
+    updateCarousel();
+}
+
+function updateCarousel() {
+    const track = document.getElementById('carousel-track');
+    if (track) track.style.transform = `translateX(-${carouselIndex * 100}%)`;
+    document.querySelectorAll('.carousel-dot').forEach((d, i) => {
+        d.classList.toggle('active', i === carouselIndex);
+    });
+}
+
+function carouselNext() {
+    carouselIndex = (carouselIndex + 1) % carouselSlides.length;
+    updateCarousel();
+    restartCarouselTimer();
+}
+
+function carouselPrev() {
+    carouselIndex = (carouselIndex - 1 + carouselSlides.length) % carouselSlides.length;
+    updateCarousel();
+    restartCarouselTimer();
+}
+
+function carouselGoto(i) {
+    carouselIndex = i;
+    updateCarousel();
+    restartCarouselTimer();
+}
+
+async function carouselClick(url) {
+    try {
+        await cmd('open_external_url', { url });
+    } catch (e) {
+        window.open(url, '_blank');
+    }
+}
+
+function startCarouselTimer() {
+    carouselTimer = setInterval(() => {
+        carouselIndex = (carouselIndex + 1) % carouselSlides.length;
+        updateCarousel();
+    }, 5000);
+}
+
+function restartCarouselTimer() {
+    if (carouselTimer) clearInterval(carouselTimer);
+    startCarouselTimer();
+}
+
+// ================================================================
+// Init
+// ================================================================
     (async function init() {
         await loadTheme();
+        renderCarousel();
+        startCarouselTimer();
         // Dashboard is the default active page — start its timer
         refreshDashboard();
         dashboardTimer = setInterval(refreshDashboard, 30000);

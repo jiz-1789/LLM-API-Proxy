@@ -50,6 +50,7 @@ commands::fetch_upstream_models_by_id,
             commands::update_settings,
             commands::set_minimize_to_tray,
             commands::set_theme,
+            commands::open_external_url,
         ])
         .setup(|app| {
             // Build system tray menu
