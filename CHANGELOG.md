@@ -7,6 +7,17 @@
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-07-27
+
+### 变更
+- 打包配置改为仅便捷版（便携版），移除 NSIS 安装包生成
+- 完善开发规范：明确每次推送到 main 分支必须递增版本号
+
+### 修复
+- 修复启动检查发现新版本后侧边栏不显示更新提示的问题
+- 修复设置页需手动点击检查才能显示更新信息的问题
+- 修复下载按钮仅跳转网页而非直接下载更新的问题
+
 ## [0.1.2] - 2026-07-27
 
 ### 新增
@@ -54,7 +65,8 @@
 - **数据便携**：所有数据存储在程序同目录 `data/` 文件夹，U 盘携带即走
 - **开源治理**：AGPL-3.0 双轨许可、CLA 贡献者协议、CONTRIBUTING.md 贡献指南
 
-[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.3
 [0.1.2]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.2
 [0.1.1]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.1
 [0.1.0]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.0

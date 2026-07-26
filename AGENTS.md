@@ -304,7 +304,7 @@ feat: 多模型负载均衡、单实例运行、UI优化与使用教程更新
 fix: 修复模型标签选中状态不更新+柱状图高度过高
 perf: single-pass SSE chunk processing to avoid double JSON parse
 docs: 新增开发规范与数据库兼容性文档
-build: 打包配置改为NSIS安装版+支持便携版构建
+build: 打包配置改为仅便捷版（便携版），移除 NSIS 安装包
 chore: gitignore internal docs and test data
 ```
 
@@ -350,28 +350,41 @@ chore: gitignore internal docs and test data
 
 | 文件 | 字段 | 当前值 |
 |------|------|--------|
-| `Cargo.toml`（workspace） | `[workspace.package] version` | `0.1.0` |
-| `src-tauri/Cargo.toml` | `[package] version` | `0.1.0` |
-| `src-tauri/tauri.conf.json` | `"version"` | `0.1.0` |
+| `Cargo.toml`（workspace） | `[workspace.package] version` | `0.1.2` |
+| `src-tauri/Cargo.toml` | `[package] version` | `0.1.2` |
+| `src-tauri/tauri.conf.json` | `"version"` | `0.1.2` |
+
+> **⚠️ 每次推送到 `main` 分支必须递增版本号。** 无论是新功能、Bug 修复还是文档更新，合并到 main 前必须同步更新三处版本号和 `CHANGELOG.md`，确保每个 main 提交都对应一个唯一的发布版本。版本递增规则：Bug 修复 / 文档 → PATCH，新功能 → MINOR。
 
 **发布流程：**
 
 ```
-1. 在 feature 分支完成开发并自测通过
-2. 合并到 main
-3. 更新三处版本号（递增 PATCH 或 MINOR）
-4. 更新 CHANGELOG.md，添加版本说明
+1. 在 feature/fix 分支完成开发并自测通过
+2. 更新三处版本号（递增 PATCH 或 MINOR）
+3. 更新 CHANGELOG.md，添加版本说明
+4. 合并到 main
 5. 提交版本号变更：git commit -m "build: 发布 vX.Y.Z"
 6. 打 Git 标签：git tag vX.Y.Z
-7. 推送标签：git push origin vX.Y.Z
-8. 在 GitHub Releases 页面创建发布，附带 CHANGELOG.md 中对应版本的内容
-9. 上传构建好的 .exe 安装包到 Release Assets
+7. 推送代码和标签：git push origin main && git push origin vX.Y.Z
+8. 构建便携版：cargo tauri build（仅生成 release exe，不打包安装程序）
+9. 重命名 exe：copy target\release\llm-api-proxy-app.exe LLM-API-Proxy_vX.Y.Z_x64_portable.exe
+10. 在 GitHub Releases 页面创建发布，附带 CHANGELOG.md 中对应版本的内容
+11. 上传便携版 .exe 到 Release Assets
 ```
 
-**规则：**
+**打包规则：**
+
+- ✅ **只打包便捷版（便携版）**：`tauri.conf.json` 中 `bundle.targets` 设为 `["app"]`，仅编译生成 release exe，不生成 NSIS 安装包
+- ✅ 便携版 exe 路径：`target/release/llm-api-proxy-app.exe`
+- ✅ 发布时重命名为 `LLM-API-Proxy_vX.Y.Z_x64_portable.exe`
+- ❌ 禁止打包 NSIS 安装版（`bundle.targets` 不得包含 `nsis`）
+- ❌ 禁止上传安装版到 GitHub Release Assets
+
+**版本规则：**
 
 - ❌ 禁止跳过版本号递增直接打包发布
 - ❌ 禁止使用 `v0.1.0-r1`、`v0.1.0-beta` 等非标准后缀作为正式发布标签
+- ❌ 禁止推送到 main 时不更新版本号（每次 main 推送必须递增版本号）
 - ✅ Git 标签格式必须为 `vX.Y.Z`（如 `v0.1.1`、`v0.2.0`）
 - ✅ 每次发布必须同步更新 `CHANGELOG.md`
 - ✅ GitHub Release 的 `tag_name` 必须与三处版本号一致（带 `v` 前缀）
@@ -414,6 +427,9 @@ chore: gitignore internal docs and test data
 | 提交 `target/`、`*.db`、`*.exe`、`master_key.bin` | 构建产物/敏感数据 |
 | 直接在 `main` 分支上开发新功能 | 绕过分支审查流程 |
 | 不更新版本号直接打包发布 | 版本混乱，用户无法检测更新 |
+| 推送到 main 时不递增版本号 | 每次 main 推送必须对应唯一版本 |
+| 打包 NSIS 安装版 | 项目仅发布便捷版（便携版） |
+| `bundle.targets` 包含 `nsis` | 仅允许 `["app"]`，生成裸 exe |
 | 三处版本号不一致 | 语义化版本失效 |
 | 发布时不更新 `CHANGELOG.md` | 用户无法了解变更内容 |
 
@@ -447,6 +463,9 @@ chore: gitignore internal docs and test data
   → src-tauri/tauri.conf.json (version)
   → CHANGELOG.md (版本更新说明)
   → git tag vX.Y.Z
+  → cargo tauri build (仅便携版 exe)
+  → 重命名为 LLM-API-Proxy_vX.Y.Z_x64_portable.exe
+  → GitHub Release 上传便携版
 ```
 
 ---
