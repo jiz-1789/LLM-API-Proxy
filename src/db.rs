@@ -206,8 +206,8 @@ impl Database {
                 status TEXT NOT NULL DEFAULT 'healthy',
                 failure_count INTEGER NOT NULL DEFAULT 0,
                 last_failure_time TEXT,
-                created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
             );
 
             CREATE TABLE IF NOT EXISTS pools (
@@ -219,8 +219,8 @@ impl Database {
                 timeout_seconds INTEGER NOT NULL DEFAULT 30,
                 max_concurrency INTEGER NOT NULL DEFAULT 5,
                 thinking_enabled INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
             );
 
             CREATE TABLE IF NOT EXISTS pool_upstreams (
@@ -233,7 +233,7 @@ impl Database {
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL,
-                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
             );
 
             CREATE TABLE IF NOT EXISTS request_logs (
@@ -247,7 +247,7 @@ impl Database {
                 status_code INTEGER NOT NULL,
                 response_time_ms INTEGER NOT NULL,
                 is_streaming INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
             );
 
             CREATE INDEX IF NOT EXISTS idx_request_logs_created_at ON request_logs(created_at);
@@ -396,7 +396,7 @@ impl Database {
     ) -> Result<(), AppError> {
         let rows = self.conn.lock().unwrap().execute(
             "UPDATE upstreams SET provider_name=?1, base_url=?2, api_key_encrypted=?3,
-             selected_model=?4, available_models=?5, enabled=?6, remark=?7, updated_at=datetime('now')
+             selected_model=?4, available_models=?5, enabled=?6, remark=?7, updated_at=datetime('now', 'localtime')
              WHERE id=?8",
             params![provider_name, base_url, api_key_encrypted, selected_model, available_models, enabled as i32, remark, id],
         )?;
@@ -428,7 +428,7 @@ impl Database {
     /// Toggle an upstream's enabled state.
     pub fn toggle_upstream(&self, id: &str, enabled: bool) -> Result<(), AppError> {
         self.conn.lock().unwrap().execute(
-            "UPDATE upstreams SET enabled=?, updated_at=datetime('now') WHERE id=?",
+            "UPDATE upstreams SET enabled=?, updated_at=datetime('now', 'localtime') WHERE id=?",
             params![enabled as i32, id],
         )?;
         Ok(())
@@ -443,7 +443,7 @@ impl Database {
         last_failure_time: Option<String>,
     ) -> Result<(), AppError> {
         self.conn.lock().unwrap().execute(
-            "UPDATE upstreams SET status=?, failure_count=?, last_failure_time=?, updated_at=datetime('now')
+            "UPDATE upstreams SET status=?, failure_count=?, last_failure_time=?, updated_at=datetime('now', 'localtime')
              WHERE id=?",
             params![status, failure_count, last_failure_time, id],
         )?;
@@ -528,7 +528,7 @@ impl Database {
     ) -> Result<(), AppError> {
         let rows = self.conn.lock().unwrap().execute(
             "UPDATE pools SET display_name=?1, max_concurrency=?2, thinking_enabled=?3,
-             updated_at=datetime('now') WHERE id=?4",
+             updated_at=datetime('now', 'localtime') WHERE id=?4",
             params![
                 display_name, max_concurrency, thinking_enabled as i32, id
             ],
@@ -624,7 +624,7 @@ impl Database {
     pub fn save_setting(&self, key: &str, value: &str) -> Result<(), AppError> {
         self.conn.lock().unwrap().execute(
             "INSERT INTO settings (key, value) VALUES (?1, ?2)
-             ON CONFLICT(key) DO UPDATE SET value=?2, updated_at=datetime('now')",
+             ON CONFLICT(key) DO UPDATE SET value=?2, updated_at=datetime('now', 'localtime')",
             params![key, value],
         )?;
         Ok(())
@@ -877,7 +877,7 @@ prompt_tokens, completion_tokens, total_tokens
                     COALESCE(SUM(total_tokens), 0)
              FROM request_logs
              WHERE upstream_id = ?1
-               AND date(created_at) = date('now')",
+               AND date(created_at) = date('now', 'localtime')",
             params![upstream_id],
             |row| Ok(TokenTotals {
                 prompt_tokens: row.get(0)?,
@@ -912,7 +912,7 @@ prompt_tokens, completion_tokens, total_tokens
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT COALESCE(NULLIF(model, ''), '未记录') as model,
-                    COALESCE(SUM(CASE WHEN date(created_at) = date('now') THEN total_tokens ELSE 0 END), 0) as today_tokens,
+                    COALESCE(SUM(CASE WHEN date(created_at) = date('now', 'localtime') THEN total_tokens ELSE 0 END), 0) as today_tokens,
                     COALESCE(SUM(total_tokens), 0) as total_tokens,
                     COUNT(*) as request_count
              FROM request_logs
@@ -1006,7 +1006,7 @@ prompt_tokens, completion_tokens, total_tokens
 
         let (sql, params_vec): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match model {
             Some(m) => (
-                "SELECT strftime('%H', created_at) as hour,
+                "SELECT strftime('%H', created_at, 'localtime') as hour,
                         COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
                         COALESCE(SUM(completion_tokens), 0) as completion_tokens,
                         COALESCE(SUM(total_tokens), 0) as total_tokens,
@@ -1014,7 +1014,7 @@ prompt_tokens, completion_tokens, total_tokens
                  FROM request_logs
                  WHERE upstream_id = ?1
                    AND model = ?2
-                   AND date(created_at) = date('now')
+                   AND date(created_at) = date('now', 'localtime')
                  GROUP BY hour
                  ORDER BY hour ASC"
                     .to_string(),
@@ -1024,14 +1024,14 @@ prompt_tokens, completion_tokens, total_tokens
                 ],
             ),
             None => (
-                "SELECT strftime('%H', created_at) as hour,
+                "SELECT strftime('%H', created_at, 'localtime') as hour,
                         COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
                         COALESCE(SUM(completion_tokens), 0) as completion_tokens,
                         COALESCE(SUM(total_tokens), 0) as total_tokens,
                         COUNT(*) as request_count
                  FROM request_logs
                  WHERE upstream_id = ?1
-                   AND date(created_at) = date('now')
+                   AND date(created_at) = date('now', 'localtime')
                  GROUP BY hour
                  ORDER BY hour ASC"
                     .to_string(),
@@ -1088,7 +1088,7 @@ prompt_tokens, completion_tokens, total_tokens
                         COALESCE(SUM(total_tokens), 0)
                  FROM request_logs
                  WHERE upstream_id = ?1 AND model = ?2
-                   AND date(created_at) = date('now')"
+                   AND date(created_at) = date('now', 'localtime')"
                     .to_string(),
                 vec![
                     Box::new(upstream_id.to_string()),
@@ -1101,7 +1101,7 @@ prompt_tokens, completion_tokens, total_tokens
                         COALESCE(SUM(total_tokens), 0)
                  FROM request_logs
                  WHERE upstream_id = ?1
-                   AND date(created_at) = date('now')"
+                   AND date(created_at) = date('now', 'localtime')"
                     .to_string(),
                 vec![Box::new(upstream_id.to_string())],
             ),
@@ -1236,15 +1236,15 @@ prompt_tokens, completion_tokens, total_tokens
         let pool_count = self.count_pools()?;
 
         let today_request_count: i64 = self.conn.lock().unwrap().query_row(
-            "SELECT COUNT(*) FROM request_logs WHERE date(created_at) = date('now')",
+            "SELECT COUNT(*) FROM request_logs WHERE date(created_at) = date('now', 'localtime')",
             [], |row| row.get(0),
         )?;
         let today_success_count: i64 = self.conn.lock().unwrap().query_row(
-            "SELECT COUNT(*) FROM request_logs WHERE date(created_at) = date('now') AND status_code >= 200 AND status_code < 300",
+            "SELECT COUNT(*) FROM request_logs WHERE date(created_at) = date('now', 'localtime') AND status_code >= 200 AND status_code < 300",
             [], |row| row.get(0),
         )?;
         let today_error_count: i64 = self.conn.lock().unwrap().query_row(
-            "SELECT COUNT(*) FROM request_logs WHERE date(created_at) = date('now') AND status_code >= 400",
+            "SELECT COUNT(*) FROM request_logs WHERE date(created_at) = date('now', 'localtime') AND status_code >= 400",
             [], |row| row.get(0),
         )?;
 
