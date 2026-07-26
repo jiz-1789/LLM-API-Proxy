@@ -2609,34 +2609,6 @@ function generateApiKey() {
 // ================================================================
 const carouselSlides = [
     {
-        title: 'OpenAI 平台',
-        desc: 'GPT-4o / o1 / o3 系列',
-        url: 'https://platform.openai.com',
-        gradient: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
-        icon: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.9)" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20M12 2a14.5 14.5 0 0 1 0 20M2 12h20"/></svg>`,
-    },
-    {
-        title: 'Anthropic Claude',
-        desc: 'Claude 4 Sonnet / Opus',
-        url: 'https://console.anthropic.com',
-        gradient: 'linear-gradient(135deg, #1a1a1a 0%, #2d1b1b 50%, #4a2c2a 100%)',
-        icon: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="rgba(217,119,87,0.9)" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>`,
-    },
-    {
-        title: 'Google AI Studio',
-        desc: 'Gemini 2.5 Pro / Flash',
-        url: 'https://aistudio.google.com',
-        gradient: 'linear-gradient(135deg, #0d1117 0%, #1a237e 50%, #006064 100%)',
-        icon: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="rgba(66,165,245,0.9)" stroke-width="1.5"><path d="M12 2v6m0 0a4 4 0 0 1 4 4m-4-4a4 4 0 0 0-4 4m4 4v6m0-6a4 4 0 0 1 4-4m-4 4a4 4 0 0 0-4-4"/><circle cx="12" cy="12" r="2"/></svg>`,
-    },
-    {
-        title: 'DeepSeek 开放平台',
-        desc: 'DeepSeek V3 / R1',
-        url: 'https://platform.deepseek.com',
-        gradient: 'linear-gradient(135deg, #0a0e27 0%, #1a1a3e 50%, #2d1b69 100%)',
-        icon: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="rgba(129,140,248,0.9)" stroke-width="1.5"><path d="M3 12h6m6 0h6M12 3v6m0 6v6"/><circle cx="12" cy="12" r="3"/></svg>`,
-    },
-    {
         title: '广告位招租',
         desc: 'QQ 3267245598 · 说明来意自带价格',
         url: 'tencent://message/?uin=3267245598&Site=&Menu=yes',
@@ -2653,6 +2625,8 @@ function renderCarousel() {
     const dots = document.getElementById('carousel-dots');
     if (!track || !dots) return;
 
+    const single = carouselSlides.length <= 1;
+
     track.innerHTML = carouselSlides.map(s => `
         <div class="carousel-slide" onclick="carouselClick('${s.url}')" style="background:${s.gradient};">
             <div style="display:flex;align-items:center;gap:16px;width:100%;padding:0 24px;">
@@ -2665,9 +2639,16 @@ function renderCarousel() {
         </div>
     `).join('');
 
-    dots.innerHTML = carouselSlides.map((_, i) =>
-        `<div class="carousel-dot ${i === carouselIndex ? 'active' : ''}" onclick="carouselGoto(${i})"></div>`
-    ).join('');
+    if (single) {
+        dots.style.display = 'none';
+        document.querySelectorAll('.carousel-arrow').forEach(a => a.style.display = 'none');
+    } else {
+        dots.style.display = '';
+        document.querySelectorAll('.carousel-arrow').forEach(a => a.style.display = '');
+        dots.innerHTML = carouselSlides.map((_, i) =>
+            `<div class="carousel-dot ${i === carouselIndex ? 'active' : ''}" onclick="carouselGoto(${i})"></div>`
+        ).join('');
+    }
 
     updateCarousel();
 }
@@ -2707,6 +2688,7 @@ async function carouselClick(url) {
 }
 
 function startCarouselTimer() {
+    if (carouselSlides.length <= 1) return;
     carouselTimer = setInterval(() => {
         carouselIndex = (carouselIndex + 1) % carouselSlides.length;
         updateCarousel();
