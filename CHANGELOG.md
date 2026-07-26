@@ -7,14 +7,22 @@
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-26
+
 ### 新增
 - 设置页新增「版本更新」区域，支持检查 GitHub 最新发布版本
+- 启动时自动静默检查更新，有新版本时弹出提示
+- 侧边栏底部新增检查更新按钮，点击后显示更新状态
 - 使用教程新增「版本更新」章节，说明便捷版手动下载更新流程
 - 仪表盘「最近活动」区域改为展示真实请求日志，替代硬编码占位文本
+
+### 修复
+- 修复侧边栏检查更新按钮点击无反应的问题（ID 冲突导致 DOM 操作失败）
 
 ### 变更
 - AGENTS.md 完善分支策略与版本发布规范（7.3 ~ 7.5 节）
 - 侧边栏轮播图内容由广告替换为项目宣传语
+- 移除右上角冗余的版本号显示
 
 ## [0.1.0] - 2026-07-25
 
@@ -33,5 +41,6 @@
 - **数据便携**：所有数据存储在程序同目录 `data/` 文件夹，U 盘携带即走
 - **开源治理**：AGPL-3.0 双轨许可、CLA 贡献者协议、CONTRIBUTING.md 贡献指南
 
-[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.1
 [0.1.0]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.0

@@ -1056,7 +1056,7 @@ gap: 8px;
             <div class="sidebar-footer">
                 <div class="version-row">
                     <span class="version-label">v</span><span class="version-num" id="app-version">0.1.0</span>
-                    <button class="check-update-btn" onclick="checkForUpdates(false)" id="btn-check-update" title="检查更新">
+                    <button class="check-update-btn" onclick="checkForUpdates(true)" id="sidebar-check-update" title="检查更新">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
                     </button>
                 </div>
@@ -1277,7 +1277,7 @@ gap: 8px;
                         <div class="section-title">版本更新</div>
                         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
                             <span style="font-size:13px;color:var(--text-secondary);">当前版本：<code id="settings-app-version" style="font-family:'SF Mono','Cascadia Code',monospace;font-size:13px;">v0.1.0</code></span>
-                            <button class="btn btn-ghost btn-sm" id="btn-check-update" onclick="checkForUpdates()">检查更新</button>
+                            <button class="btn btn-ghost btn-sm" id="btn-check-update" onclick="checkForUpdates(false)">检查更新</button>
                             <span id="update-status" style="font-size:12px;color:var(--text-muted);"></span>
                         </div>
                         <div id="update-result" style="display:none;margin-top:12px;padding:14px 16px;background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-md);font-size:12px;line-height:1.6;"></div>
@@ -2774,34 +2774,64 @@ function generateApiKey() {
     // ================================================================
     // Update Check
     // ================================================================
-    async function checkForUpdates() {
-        const btn = document.getElementById('btn-check-update');
+    async function checkForUpdates(fromSidebar) {
+        const sidebarBtn = document.getElementById('sidebar-check-update');
+        const settingsBtn = document.getElementById('btn-check-update');
         const status = document.getElementById('update-status');
         const result = document.getElementById('update-result');
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner"></span> 检查中...';
-        status.textContent = '正在查询 GitHub 最新版本...';
-        result.style.display = 'none';
+        const isSettings = !fromSidebar;
+        const btn = isSettings ? settingsBtn : sidebarBtn;
+        if (btn) {
+            btn.disabled = true;
+            if (isSettings) {
+                btn.innerHTML = '<span class="spinner"></span> 检查中...';
+            } else {
+                btn.innerHTML = '<span class="spinner"></span>';
+            }
+        }
+        if (status) status.textContent = '正在查询 GitHub 最新版本...';
+        if (result) result.style.display = 'none';
         try {
             const info = await cmd('check_for_updates');
-            document.getElementById('settings-app-version').textContent = 'v' + info.current_version;
+            const sbVer = document.getElementById('app-version');
+            if (sbVer) sbVer.textContent = info.current_version;
+            const setVer = document.getElementById('settings-app-version');
+            if (setVer) setVer.textContent = 'v' + info.current_version;
             if (info.has_update) {
-                status.innerHTML = '<span style="color:var(--warning);">发现新版本 v' + esc(info.latest_version) + '</span>';
-                const notes = info.release_notes ? esc(info.release_notes).replace(/\n/g, '<br>') : '无更新说明';
-                result.style.display = 'block';
-                result.innerHTML = '<div style="margin-bottom:10px;"><strong style="color:var(--text-primary);">v' + esc(info.latest_version) + '</strong>' + (info.published_at ? ' <span style="color:var(--text-muted);">· ' + esc(info.published_at.substring(0, 10)) + '</span>' : '') + '</div><div style="color:var(--text-secondary);margin-bottom:12px;max-height:200px;overflow-y:auto;">' + notes + '</div><button class="btn btn-primary btn-sm" onclick="cmd(\'open_external_url\', { url: ' + JSON.stringify(info.release_url) + ' })">前往下载</button>';
+                if (isSettings) {
+                    status.innerHTML = '<span style="color:var(--warning);">发现新版本 v' + esc(info.latest_version) + '</span>';
+                    const notes = info.release_notes ? esc(info.release_notes).replace(/\n/g, '<br>') : '无更新说明';
+                    result.style.display = 'block';
+                    result.innerHTML = '<div style="margin-bottom:10px;"><strong style="color:var(--text-primary);">v' + esc(info.latest_version) + '</strong>' + (info.published_at ? ' <span style="color:var(--text-muted);">· ' + esc(info.published_at.substring(0, 10)) + '</span>' : '') + '</div><div style="color:var(--text-secondary);margin-bottom:12px;max-height:200px;overflow-y:auto;">' + notes + '</div><button class="btn btn-primary btn-sm" onclick="cmd(\'open_external_url\', { url: ' + JSON.stringify(info.release_url) + ' })">前往下载</button>';
+                } else {
+                    toast('发现新版本 v' + info.latest_version + '，请前往「设置」页面下载', 'info');
+                }
             } else {
-                status.innerHTML = '<span style="color:var(--success);">已是最新版本</span>';
-                result.style.display = 'block';
-                result.innerHTML = '<div style="color:var(--text-secondary);">当前版本 v' + esc(info.current_version) + ' 已是最新发布版本。</div>';
+                if (isSettings) {
+                    status.innerHTML = '<span style="color:var(--success);">已是最新版本</span>';
+                    result.style.display = 'block';
+                    result.innerHTML = '<div style="color:var(--text-secondary);">当前版本 v' + esc(info.current_version) + ' 已是最新发布版本。</div>';
+                } else {
+                    toast('已是最新版本', 'success');
+                }
             }
         } catch (e) {
-            status.innerHTML = '<span style="color:var(--danger);">检查更新失败</span>';
-            result.style.display = 'block';
-            result.innerHTML = '<div style="color:var(--text-muted);">无法连接 GitHub API，请检查网络后重试。</div><div style="color:var(--text-muted);margin-top:4px;font-size:11px;">错误：' + esc(String(e)) + '</div>';
+            if (isSettings) {
+                status.innerHTML = '<span style="color:var(--danger);">检查更新失败</span>';
+                result.style.display = 'block';
+                result.innerHTML = '<div style="color:var(--text-muted);">无法连接 GitHub API，请检查网络后重试。</div><div style="color:var(--text-muted);margin-top:4px;font-size:11px;">错误：' + esc(String(e)) + '</div>';
+            } else {
+                toast('检查更新失败，请检查网络', 'error');
+            }
         } finally {
-            btn.disabled = false;
-            btn.textContent = '检查更新';
+            if (btn) {
+                btn.disabled = false;
+                if (isSettings) {
+                    btn.textContent = '检查更新';
+                } else {
+                    btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>';
+                }
+            }
         }
     }
 
