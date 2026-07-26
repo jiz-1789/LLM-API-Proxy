@@ -56,28 +56,49 @@ pub struct PoolUpstreamInfo {
 /// A single request log entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RequestLogEntry {
-    pub id: String,
-    pub request_id: String,
-    pub pool_name: Option<String>,
-    pub upstream_id: Option<String>,
-    pub failed_upstreams: String,
-    pub method: String,
-    pub endpoint: String,
-    pub status_code: i32,
-    pub response_time_ms: i32,
-    pub is_streaming: bool,
-    pub created_at: String,
+pub id: String,
+pub request_id: String,
+pub pool_name: Option<String>,
+pub upstream_id: Option<String>,
+pub failed_upstreams: String,
+pub method: String,
+pub endpoint: String,
+pub status_code: i32,
+pub response_time_ms: i32,
+pub is_streaming: bool,
+pub prompt_tokens: i64,
+pub completion_tokens: i64,
+pub total_tokens: i64,
+pub created_at: String,
 }
 
 /// Aggregate statistics about the system.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Stats {
-    pub upstream_count: i64,
-    pub active_upstream_count: i64,
-    pub pool_count: i64,
-    pub today_request_count: i64,
-    pub today_success_count: i64,
-    pub today_error_count: i64,
+pub upstream_count: i64,
+pub active_upstream_count: i64,
+pub pool_count: i64,
+pub today_request_count: i64,
+pub today_success_count: i64,
+pub today_error_count: i64,
+}
+
+/// Daily token usage for charts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DailyTokenUsage {
+pub date: String,
+pub prompt_tokens: i64,
+pub completion_tokens: i64,
+pub total_tokens: i64,
+pub request_count: i64,
+}
+
+/// Token totals summary.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TokenTotals {
+pub prompt_tokens: i64,
+pub completion_tokens: i64,
+pub total_tokens: i64,
 }
 
 /// Per-upstream health summary.
@@ -223,6 +244,9 @@ impl Database {
             (1, ""), // v1: initial schema (already created above)
             (2, "ALTER TABLE upstreams ADD COLUMN available_models TEXT NOT NULL DEFAULT '[]';
                  ALTER TABLE pool_upstreams ADD COLUMN model TEXT NOT NULL DEFAULT '';"),
+            (3, "ALTER TABLE request_logs ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0;
+                 ALTER TABLE request_logs ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0;
+                 ALTER TABLE request_logs ADD COLUMN total_tokens INTEGER NOT NULL DEFAULT 0;"),
         ];
         for (version, sql) in migrations {
             if current < version {
@@ -618,30 +642,34 @@ impl Database {
     // ========================================================================
 
     /// Insert a request log entry.
-    pub fn insert_request_log(
-        &self,
-        id: &str,
-        request_id: &str,
-        pool_name: Option<&str>,
-        upstream_id: Option<&str>,
-        failed_upstreams: &str,
-        method: &str,
-        endpoint: &str,
-        status_code: i32,
-        response_time_ms: i32,
-        is_streaming: bool,
-    ) -> Result<(), AppError> {
-        self.conn.lock().unwrap().execute(
-            "INSERT INTO request_logs (id, request_id, pool_name, upstream_id, failed_upstreams,
-             method, endpoint, status_code, response_time_ms, is_streaming)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            params![
-                id, request_id, pool_name, upstream_id, failed_upstreams,
-                method, endpoint, status_code, response_time_ms, is_streaming as i32
-            ],
-        )?;
-        Ok(())
-    }
+pub fn insert_request_log(
+&self,
+id: &str,
+request_id: &str,
+pool_name: Option<&str>,
+upstream_id: Option<&str>,
+failed_upstreams: &str,
+method: &str,
+endpoint: &str,
+status_code: i32,
+response_time_ms: i32,
+is_streaming: bool,
+prompt_tokens: i64,
+completion_tokens: i64,
+total_tokens: i64,
+) -> Result<(), AppError> {
+self.conn.lock().unwrap().execute(
+"INSERT INTO request_logs (id, request_id, pool_name, upstream_id, failed_upstreams,
+method, endpoint, status_code, response_time_ms, is_streaming, prompt_tokens, completion_tokens, total_tokens)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+params![
+id, request_id, pool_name, upstream_id, failed_upstreams,
+method, endpoint, status_code, response_time_ms, is_streaming as i32,
+prompt_tokens, completion_tokens, total_tokens
+],
+)?;
+Ok(())
+}
 
     /// Get recent logs with optional time-range filter, pagination.
     pub fn get_recent_logs(&self, filter: &LogFilter) -> Result<Vec<RequestLogEntry>, AppError> {
@@ -676,7 +704,8 @@ impl Database {
 
         let sql = format!(
             "SELECT id, request_id, pool_name, upstream_id, failed_upstreams,
-                    method, endpoint, status_code, response_time_ms, is_streaming, created_at
+                    method, endpoint, status_code, response_time_ms, is_streaming,
+                    prompt_tokens, completion_tokens, total_tokens, created_at
              FROM request_logs {} ORDER BY created_at DESC LIMIT ?{} OFFSET ?{}",
             where_clause,
             param_values.len() - 1,
@@ -697,6 +726,73 @@ impl Database {
     pub fn clear_logs(&self) -> Result<i64, AppError> {
         let rows = self.conn.lock().unwrap().execute("DELETE FROM request_logs", [])?;
         Ok(rows as i64)
+    }
+
+    /// Get daily token usage for an upstream over the last N days.
+    pub fn get_upstream_token_stats(&self, upstream_id: &str, days: i32) -> Result<Vec<DailyTokenUsage>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT date(created_at) as day,
+                    COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
+                    COALESCE(SUM(completion_tokens), 0) as completion_tokens,
+                    COALESCE(SUM(total_tokens), 0) as total_tokens,
+                    COUNT(*) as request_count
+             FROM request_logs
+             WHERE upstream_id = ?1
+               AND created_at >= datetime('now', ?2)
+             GROUP BY date(created_at)
+             ORDER BY day ASC",
+        )?;
+        let offset = format!("-{} days", days);
+        let rows = stmt.query_map(params![upstream_id, offset], |row| {
+            Ok(DailyTokenUsage {
+                date: row.get(0)?,
+                prompt_tokens: row.get(1)?,
+                completion_tokens: row.get(2)?,
+                total_tokens: row.get(3)?,
+                request_count: row.get(4)?,
+            })
+        })?;
+        Self::collect_rows(rows)
+    }
+
+    /// Get today's token totals for an upstream.
+    pub fn get_upstream_today_tokens(&self, upstream_id: &str) -> Result<TokenTotals, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let result = conn.query_row(
+            "SELECT COALESCE(SUM(prompt_tokens), 0),
+                    COALESCE(SUM(completion_tokens), 0),
+                    COALESCE(SUM(total_tokens), 0)
+             FROM request_logs
+             WHERE upstream_id = ?1
+               AND date(created_at) = date('now')",
+            params![upstream_id],
+            |row| Ok(TokenTotals {
+                prompt_tokens: row.get(0)?,
+                completion_tokens: row.get(1)?,
+                total_tokens: row.get(2)?,
+            }),
+        )?;
+        Ok(result)
+    }
+
+    /// Get all-time token totals for an upstream.
+    pub fn get_upstream_total_tokens(&self, upstream_id: &str) -> Result<TokenTotals, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let result = conn.query_row(
+            "SELECT COALESCE(SUM(prompt_tokens), 0),
+                    COALESCE(SUM(completion_tokens), 0),
+                    COALESCE(SUM(total_tokens), 0)
+             FROM request_logs
+             WHERE upstream_id = ?1",
+            params![upstream_id],
+            |row| Ok(TokenTotals {
+                prompt_tokens: row.get(0)?,
+                completion_tokens: row.get(1)?,
+                total_tokens: row.get(2)?,
+            }),
+        )?;
+        Ok(result)
     }
 
     // ========================================================================
@@ -857,21 +953,24 @@ impl Database {
         })
     }
 
-    fn map_log_row(row: &rusqlite::Row) -> rusqlite::Result<RequestLogEntry> {
-        Ok(RequestLogEntry {
-            id: row.get(0)?,
-            request_id: row.get(1)?,
-            pool_name: row.get(2)?,
-            upstream_id: row.get(3)?,
-            failed_upstreams: row.get(4)?,
-            method: row.get(5)?,
-            endpoint: row.get(6)?,
-            status_code: row.get(7)?,
-            response_time_ms: row.get(8)?,
-            is_streaming: row.get::<_, i32>(9)? != 0,
-            created_at: row.get(10)?,
-        })
-    }
+fn map_log_row(row: &rusqlite::Row) -> rusqlite::Result<RequestLogEntry> {
+Ok(RequestLogEntry {
+id: row.get(0)?,
+request_id: row.get(1)?,
+pool_name: row.get(2)?,
+upstream_id: row.get(3)?,
+failed_upstreams: row.get(4)?,
+method: row.get(5)?,
+endpoint: row.get(6)?,
+status_code: row.get(7)?,
+response_time_ms: row.get(8)?,
+is_streaming: row.get::<_, i32>(9)? != 0,
+prompt_tokens: row.get(10)?,
+completion_tokens: row.get(11)?,
+total_tokens: row.get(12)?,
+created_at: row.get(13)?,
+})
+}
 
     fn collect_rows<T>(rows: rusqlite::MappedRows<'_, impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<T>>) -> Result<Vec<T>, AppError> {
         let mut result = Vec::new();
@@ -1303,10 +1402,10 @@ mod tests {
     #[test]
     fn test_insert_and_get_request_log() {
         let db = test_db();
-        db.insert_request_log(
-            "log-1", "req-1", Some("pool-a"), Some("up-1"),
-            "[]", "POST", "/v1/chat/completions", 200, 150, false,
-        ).unwrap();
+db.insert_request_log(
+"log-1", "req-1", Some("pool-a"), Some("up-1"),
+"[]", "POST", "/v1/chat/completions", 200, 150, false, 100, 50, 150,
+).unwrap();
 
         let filter = LogFilter { limit: 10, ..Default::default() };
         let logs = db.get_recent_logs(&filter).unwrap();
@@ -1323,10 +1422,10 @@ mod tests {
     fn test_log_pagination() {
         let db = test_db();
         for i in 0..10 {
-            db.insert_request_log(
-                &format!("log-{}", i), &format!("req-{}", i), None, None,
-                "[]", "POST", "/v1/chat/completions", 200, 100, false,
-            ).unwrap();
+db.insert_request_log(
+&format!("log-{}", i), &format!("req-{}", i), None, None,
+"[]", "POST", "/v1/chat/completions", 200, 100, false, 0, 0, 0,
+).unwrap();
         }
 
         // First page
@@ -1346,9 +1445,9 @@ mod tests {
     #[test]
     fn test_log_filter_by_pool() {
         let db = test_db();
-        db.insert_request_log("l1", "r1", Some("pool-a"), None, "[]", "POST", "/", 200, 50, false).unwrap();
-        db.insert_request_log("l2", "r2", Some("pool-b"), None, "[]", "POST", "/", 200, 50, false).unwrap();
-        db.insert_request_log("l3", "r3", Some("pool-a"), None, "[]", "POST", "/", 200, 50, false).unwrap();
+db.insert_request_log("l1", "r1", Some("pool-a"), None, "[]", "POST", "/", 200, 50, false, 0, 0, 0).unwrap();
+db.insert_request_log("l2", "r2", Some("pool-b"), None, "[]", "POST", "/", 200, 50, false, 0, 0, 0).unwrap();
+db.insert_request_log("l3", "r3", Some("pool-a"), None, "[]", "POST", "/", 200, 50, false, 0, 0, 0).unwrap();
 
         let filter = LogFilter { pool_name: Some("pool-a".to_string()), limit: 100, ..Default::default() };
         let logs = db.get_recent_logs(&filter).unwrap();
@@ -1359,9 +1458,9 @@ mod tests {
     #[test]
     fn test_log_filter_by_status_code() {
         let db = test_db();
-        db.insert_request_log("l1", "r1", None, None, "[]", "POST", "/", 200, 50, false).unwrap();
-        db.insert_request_log("l2", "r2", None, None, "[]", "POST", "/", 500, 50, false).unwrap();
-        db.insert_request_log("l3", "r3", None, None, "[]", "POST", "/", 200, 50, false).unwrap();
+db.insert_request_log("l1", "r1", None, None, "[]", "POST", "/", 200, 50, false, 0, 0, 0).unwrap();
+db.insert_request_log("l2", "r2", None, None, "[]", "POST", "/", 500, 50, false, 0, 0, 0).unwrap();
+db.insert_request_log("l3", "r3", None, None, "[]", "POST", "/", 200, 50, false, 0, 0, 0).unwrap();
 
         let filter = LogFilter { status_code: Some(500), limit: 100, ..Default::default() };
         let logs = db.get_recent_logs(&filter).unwrap();
@@ -1373,8 +1472,8 @@ mod tests {
     fn test_clear_logs() {
         let db = test_db();
         for i in 0..5 {
-            db.insert_request_log(&format!("l{}", i), &format!("r{}", i), None, None,
-                "[]", "POST", "/", 200, 50, false).unwrap();
+db.insert_request_log(&format!("l{}", i), &format!("r{}", i), None, None,
+"[]", "POST", "/", 200, 50, false, 0, 0, 0).unwrap();
         }
 
         let deleted = db.clear_logs().unwrap();

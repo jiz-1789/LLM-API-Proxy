@@ -93,6 +93,21 @@ async fn handle_models(State(state): State<GatewayState>) -> impl IntoResponse {
     }
 }
 
+/// Extract token usage from an OpenAI-compatible response body.
+/// Returns (prompt_tokens, completion_tokens, total_tokens).
+/// Returns (0, 0, 0) if usage is not present (e.g. streaming or error responses).
+fn extract_usage(resp: &serde_json::Value) -> (i64, i64, i64) {
+    let usage = resp.get("usage");
+    if let Some(usage) = usage {
+        let prompt = usage.get("prompt_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+        let completion = usage.get("completion_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+        let total = usage.get("total_tokens").and_then(|v| v.as_i64()).unwrap_or(prompt + completion);
+        (prompt, completion, total)
+    } else {
+        (0, 0, 0)
+    }
+}
+
 /// POST /v1/chat/completions — Forward to upstream pool with round-robin + failover.
 ///
 /// Routing logic:
@@ -338,6 +353,9 @@ async fn handle_chat_completions(
                         upstream_response.status().as_u16() as i32,
                         elapsed,
                         true,
+                        0,
+                        0,
+                        0,
                     );
 
                     info!(
@@ -431,6 +449,9 @@ async fn handle_chat_completions(
                         );
                     }
 
+                    // Extract token usage from response
+                    let (prompt_tokens, completion_tokens, total_tokens) = extract_usage(&resp_body);
+
                     // Log successful request
                     let log_id =
                         format!("log_{:x}", elapsed as u32 ^ request_id.len() as u32);
@@ -445,6 +466,9 @@ async fn handle_chat_completions(
                         response.status_code,
                         elapsed,
                         false,
+                        prompt_tokens,
+                        completion_tokens,
+                        total_tokens,
                     );
 
                     return (StatusCode::OK, Json(resp_body)).into_response();
@@ -477,6 +501,9 @@ async fn handle_chat_completions(
         502,
         elapsed,
         is_stream,
+        0,
+        0,
+        0,
     );
 
     // If we never actually attempted any upstream (all were disabled or

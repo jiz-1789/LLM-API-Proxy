@@ -1326,6 +1326,19 @@ print(response.choices[0].message.content)</code></pre>
         </div>
     </div>
 
+    <!-- ==================== Token Usage Modal ==================== -->
+    <div class="modal-overlay" id="token-modal">
+        <div class="modal" style="width:680px;">
+            <div class="modal-title">Token 消耗 — <span id="token-provider-name" style="color:var(--accent);"></span></div>
+            <div id="token-modal-body" style="min-height:200px;">
+                <div class="empty-state">加载中...</div>
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-ghost" onclick="closeTokenModal()">关闭</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ==================== Context Menu ==================== -->
 <div class="ctx-menu" id="ctx-menu" style="display:none;"></div>
 
@@ -1438,6 +1451,7 @@ if (page === 'settings') loadSettings();
                 </td>
                 <td>
                     <button class="btn btn-ghost btn-sm" onclick="openEditModal('${u.id}')">编辑</button>
+                    <button class="btn btn-ghost btn-sm" onclick="openTokenModal('${u.id}', '${esc(u.provider_name)}')">Token</button>
                     <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="openDeleteModal('${u.id}')">删除</button>
                 </td>
             </tr>
@@ -1581,6 +1595,132 @@ if (page === 'settings') loadSettings();
         } catch (e) {
             toast('删除失败: ' + e, 'error');
         }
+    }
+
+    // ================================================================
+    // Token Usage
+    // ================================================================
+    async function openTokenModal(upstreamId, providerName) {
+        document.getElementById('token-provider-name').textContent = providerName;
+        document.getElementById('token-modal-body').innerHTML = '<div class="empty-state">加载中...</div>';
+        document.getElementById('token-modal').classList.add('open');
+
+        try {
+            const data = await cmd('get_upstream_token_usage', { upstreamId });
+            if (!data) {
+                document.getElementById('token-modal-body').innerHTML = '<div class="empty-state">无法获取数据</div>';
+                return;
+            }
+            renderTokenUsage(data);
+        } catch (e) {
+            document.getElementById('token-modal-body').innerHTML = '<div class="empty-state">加载失败: ' + esc(String(e)) + '</div>';
+        }
+    }
+
+    function closeTokenModal() {
+        document.getElementById('token-modal').classList.remove('open');
+    }
+
+    function fmtNum(n) {
+        if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+        if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+        return String(n);
+    }
+
+    function renderTokenUsage(data) {
+        const today = data.today || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+        const total = data.total || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+        const daily = data.daily || [];
+
+        const body = document.getElementById('token-modal-body');
+        body.innerHTML = `
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;">
+                <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:16px;">
+                    <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">今日消耗</div>
+                    <div style="font-size:24px;font-weight:700;color:var(--text-primary);">${fmtNum(today.total_tokens)}</div>
+                    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">
+                        输入 ${fmtNum(today.prompt_tokens)} · 输出 ${fmtNum(today.completion_tokens)}
+                    </div>
+                </div>
+                <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:16px;">
+                    <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">累计消耗</div>
+                    <div style="font-size:24px;font-weight:700;color:var(--text-primary);">${fmtNum(total.total_tokens)}</div>
+                    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">
+                        输入 ${fmtNum(total.prompt_tokens)} · 输出 ${fmtNum(total.completion_tokens)}
+                    </div>
+                </div>
+            </div>
+            <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:10px;">近 30 天趋势</div>
+            ${renderTokenChart(daily)}
+            ${daily.length === 0 ? '<div class="empty-state" style="margin-top:8px;">暂无消耗记录</div>' : ''}
+        `;
+    }
+
+    function renderTokenChart(daily) {
+        if (!daily || daily.length === 0) return '';
+        const W = 600, H = 180, P = 40;
+        const chartW = W - P * 2, chartH = H - P * 2;
+
+        const maxVal = Math.max(...daily.map(d => d.total_tokens), 1);
+        const n = daily.length;
+        const stepX = n > 1 ? chartW / (n - 1) : 0;
+
+        // Build points for total_tokens line
+        const points = daily.map((d, i) => {
+            const x = P + i * stepX;
+            const y = P + chartH - (d.total_tokens / maxVal) * chartH;
+            return `${x},${y}`;
+        });
+        const linePath = points.join(' ');
+
+        // Build area path
+        const areaPath = `M ${P},${P + chartH} L ${linePath.replace(/ /g, ' L ')} L ${P + chartW},${P + chartH} Z`;
+
+        // Y-axis labels (4 ticks)
+        const yTicks = [];
+        for (let i = 0; i <= 3; i++) {
+            const val = Math.round(maxVal * (3 - i) / 3);
+            const y = P + (chartH * i / 3);
+            yTicks.push(`
+                <line x1="${P}" y1="${y}" x2="${W - P}" y2="${y}" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2,3"/>
+                <text x="${P - 6}" y="${y + 3}" text-anchor="end" font-size="10" fill="var(--text-muted)">${fmtNum(val)}</text>
+            `);
+        }
+
+        // X-axis labels (show first, middle, last)
+        const xLabels = [];
+        const labelIndices = n <= 1 ? [0] : n <= 10 ? daily.map((_, i) => i) : [0, Math.floor(n / 2), n - 1];
+        labelIndices.forEach(i => {
+            if (i < 0 || i >= n) return;
+            const x = P + i * stepX;
+            const dateStr = daily[i].date.substring(5); // MM-DD
+            xLabels.push(`<text x="${x}" y="${H - P + 14}" text-anchor="middle" font-size="10" fill="var(--text-muted)">${dateStr}</text>`);
+        });
+
+        // Data points with hover tooltips
+        const dots = daily.map((d, i) => {
+            const x = P + i * stepX;
+            const y = P + chartH - (d.total_tokens / maxVal) * chartH;
+            return `<circle cx="${x}" cy="${y}" r="3" fill="var(--accent)" stroke="var(--bg-primary)" stroke-width="1.5">
+                <title>${d.date}\n总计: ${d.total_tokens}\n输入: ${d.prompt_tokens}\n输出: ${d.completion_tokens}\n请求: ${d.request_count}</title>
+            </circle>`;
+        });
+
+        return `
+            <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="max-width:100%;height:auto;">
+                <defs>
+                    <linearGradient id="tokenGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.2"/>
+                        <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/>
+                    </linearGradient>
+                </defs>
+                ${yTicks.join('')}
+                <path d="${areaPath}" fill="url(#tokenGrad)"/>
+                <polyline points="${linePath}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+                ${dots.join('')}
+                ${xLabels.join('')}
+            </svg>
+        `;
     }
 
     // ================================================================
@@ -2188,6 +2328,7 @@ function generateApiKey() {
             if (!u) return;
             showContextMenu(e.clientX, e.clientY, [
                 { label: '编辑', action: () => openEditModal(id) },
+                { label: 'Token 消耗', action: () => openTokenModal(id, u.provider_name) },
                 { label: u.enabled ? '禁用' : '启用', action: () => toggleUpstream(id, !u.enabled) },
                 { separator: true },
                 { label: '复制供应商名称', action: () => { navigator.clipboard.writeText(u.provider_name); toast('已复制', 'success'); } },
