@@ -63,9 +63,18 @@ commands::fetch_upstream_models_by_id,
             commands::check_for_updates,
         ])
         .setup(|app| {
+            // Read language setting for bilingual tray menu
+            let state = app.state::<llm_api_proxy_lib::AppState>();
+            let lang = state.db.get_setting("language").ok().flatten().unwrap_or_else(|| "zh".to_string());
+            let (open_text, quit_text) = if lang == "en" {
+                ("Open Main Window", "Quit")
+            } else {
+                ("打开主窗口", "退出")
+            };
+
             // Build system tray menu
-            let open_item = MenuItemBuilder::with_id("open", "打开主窗口").build(app)?;
-            let quit_item = MenuItemBuilder::with_id("quit", "退出").build(app)?;
+            let open_item = MenuItemBuilder::with_id("open", open_text).build(app)?;
+            let quit_item = MenuItemBuilder::with_id("quit", quit_text).build(app)?;
             let tray_menu = MenuBuilder::new(app)
                 .item(&open_item)
                 .separator()

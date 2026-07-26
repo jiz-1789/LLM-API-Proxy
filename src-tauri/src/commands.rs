@@ -58,6 +58,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_zh() -> String {
+    "zh".to_string()
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -809,6 +813,8 @@ pub struct SettingsVO {
     pub theme: String,
     #[serde(default = "default_true")]
     pub minimize_to_tray: bool,
+    #[serde(default = "default_zh")]
+    pub language: String,
 }
 
 /// Get current gateway settings.
@@ -830,6 +836,8 @@ pub fn get_settings(state: State<'_, AppState>) -> Result<SettingsVO, String> {
         minimize_to_tray: db.get_setting("minimize_to_tray").ok().flatten()
             .map(|v| v == "true")
             .unwrap_or(true),
+        language: db.get_setting("language").ok().flatten()
+            .unwrap_or_else(|| "zh".to_string()),
     })
 }
 
@@ -848,6 +856,7 @@ pub fn update_settings(req: SettingsVO, state: State<'_, AppState>) -> Result<()
     db.save_setting("log_level", &req.log_level).map_err(|e| e.to_string())?;
     db.save_setting("theme", &req.theme).map_err(|e| e.to_string())?;
     db.save_setting("minimize_to_tray", &req.minimize_to_tray.to_string()).map_err(|e| e.to_string())?;
+    db.save_setting("language", &req.language).map_err(|e| e.to_string())?;
     Ok(())
 }
 
