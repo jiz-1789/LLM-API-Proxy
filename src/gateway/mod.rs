@@ -396,11 +396,12 @@ async fn handle_chat_completions(
                                 if trimmed == "[DONE]" {
                                     "data: [DONE]\n\n".to_string()
                                 } else {
-                                    // Extract usage from this chunk (if present)
-                                    if let Some(usage) = stream::extract_usage_from_sse_chunk(trimmed) {
-                                        last_usage = Some(usage);
+                                    // Single-pass: parse JSON once, replace model + extract usage
+                                    let (chunk, usage) = stream::process_sse_chunk(trimmed, &display_name);
+                                    if let Some(u) = usage {
+                                        last_usage = Some(u);
                                     }
-                                    stream::replace_model_in_sse_chunk(trimmed, &display_name)
+                                    chunk
                                 }
                             } else if line.is_empty() || line.starts_with(':') {
                                 // Skip blank separators and SSE comments

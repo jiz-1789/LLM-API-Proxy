@@ -45,6 +45,32 @@ pub fn extract_usage_from_sse_chunk(json_str: &str) -> Option<(i64, i64, i64)> {
     }
 }
 
+/// Combined: parse JSON once, extract usage (if any), and replace model name.
+/// Returns `(output_line, Option<usage>)`.
+/// This avoids double-parsing the same JSON chunk for model replacement + usage extraction.
+pub fn process_sse_chunk(json_str: &str, display_name: &str) -> (String, Option<(i64, i64, i64)>) {
+    match serde_json::from_str::<Value>(json_str) {
+        Ok(mut v) => {
+            if let Some(obj) = v.as_object_mut() {
+                obj.insert("model".to_string(), Value::String(display_name.to_string()));
+            }
+            // Extract usage from the same parsed value (no second parse)
+            let usage = v.get("usage").filter(|u| !u.is_null()).and_then(|usage| {
+                let prompt = usage.get("prompt_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+                let completion = usage.get("completion_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+                let total = usage.get("total_tokens").and_then(|v| v.as_i64()).unwrap_or(prompt + completion);
+                if prompt == 0 && completion == 0 && total == 0 {
+                    None
+                } else {
+                    Some((prompt, completion, total))
+                }
+            });
+            (format!("data: {}\n\n", v), usage)
+        }
+        Err(_) => (format!("data: {}\n\n", json_str), None),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
