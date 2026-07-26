@@ -1631,6 +1631,7 @@ if (page === 'settings') loadSettings();
         const today = data.today || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
         const total = data.total || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
         const daily = data.daily || [];
+        const perModel = data.per_model || [];
 
         const body = document.getElementById('token-modal-body');
         body.innerHTML = `
@@ -1650,6 +1651,31 @@ if (page === 'settings') loadSettings();
                     </div>
                 </div>
             </div>
+            ${perModel.length > 0 ? `
+            <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:10px;">按模型统计</div>
+            <div class="table-wrap" style="margin-bottom:20px;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>模型</th>
+                            <th>今日消耗</th>
+                            <th>累计消耗</th>
+                            <th>请求数</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${perModel.map(m => `
+                            <tr>
+                                <td><span class="badge badge-blue">${esc(m.model)}</span></td>
+                                <td style="color:var(--text-primary);font-weight:500;">${fmtNum(m.today_tokens)}</td>
+                                <td style="color:var(--text-primary);font-weight:500;">${fmtNum(m.total_tokens)}</td>
+                                <td style="color:var(--text-muted);">${m.request_count}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+            ` : ''}
             <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:10px;">近 30 天趋势</div>
             ${renderTokenChart(daily)}
             ${daily.length === 0 ? '<div class="empty-state" style="margin-top:8px;">暂无消耗记录</div>' : ''}

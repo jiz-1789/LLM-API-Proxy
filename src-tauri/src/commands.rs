@@ -606,30 +606,35 @@ pub fn get_request_logs(
 /// Token usage response for an upstream.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenUsageResponse {
-    pub today: llm_api_proxy_lib::db::TokenTotals,
-    pub total: llm_api_proxy_lib::db::TokenTotals,
-    pub daily: Vec<llm_api_proxy_lib::db::DailyTokenUsage>,
+pub today: llm_api_proxy_lib::db::TokenTotals,
+pub total: llm_api_proxy_lib::db::TokenTotals,
+pub daily: Vec<llm_api_proxy_lib::db::DailyTokenUsage>,
+pub per_model: Vec<llm_api_proxy_lib::db::ModelTokenUsage>,
 }
 
-/// Get token usage stats for an upstream (today + total + 30-day daily breakdown).
+/// Get token usage stats for an upstream (today + total + 30-day daily breakdown + per-model).
 #[tauri::command]
 pub fn get_upstream_token_usage(
-    upstream_id: String,
-    state: State<'_, AppState>,
+upstream_id: String,
+state: State<'_, AppState>,
 ) -> Result<TokenUsageResponse, String> {
-    let today = state
-        .db
-        .get_upstream_today_tokens(&upstream_id)
-        .map_err(|e| e.to_string())?;
-    let total = state
-        .db
-        .get_upstream_total_tokens(&upstream_id)
-        .map_err(|e| e.to_string())?;
-    let daily = state
-        .db
-        .get_upstream_token_stats(&upstream_id, 30)
-        .map_err(|e| e.to_string())?;
-    Ok(TokenUsageResponse { today, total, daily })
+let today = state
+.db
+.get_upstream_today_tokens(&upstream_id)
+.map_err(|e| e.to_string())?;
+let total = state
+.db
+.get_upstream_total_tokens(&upstream_id)
+.map_err(|e| e.to_string())?;
+let daily = state
+.db
+.get_upstream_token_stats(&upstream_id, 30)
+.map_err(|e| e.to_string())?;
+let per_model = state
+.db
+.get_upstream_model_token_stats(&upstream_id)
+.map_err(|e| e.to_string())?;
+Ok(TokenUsageResponse { today, total, daily, per_model })
 }
 
 // ============================================================================
