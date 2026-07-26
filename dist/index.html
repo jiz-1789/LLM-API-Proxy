@@ -88,14 +88,15 @@
             position: relative;
             z-index: 10;
         }
-        .titlebar h1 {
-            font-size: 13px;
-            font-weight: 600;
-            letter-spacing: -0.02em;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
+.titlebar h1 {
+font-size: 13px;
+font-weight: 600;
+letter-spacing: -0.02em;
+display: flex;
+align-items: center;
+gap: 8px;
+}
+.app-logo { flex-shrink: 0; border-radius: 4px; }
         .titlebar .ver {
             font-size: 11px;
             color: var(--text-muted);
@@ -908,8 +909,18 @@
     </style>
 </head>
 <body>
-    <div class="titlebar">
-        <h1><span class="status-dot"></span>LLM-API-Proxy</h1>
+<div class="titlebar">
+<h1><svg class="app-logo" width="20" height="20" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<linearGradient id="logoGrad" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0%" stop-color="#0a84ff"/>
+<stop offset="100%" stop-color="#0066cc"/>
+</linearGradient>
+</defs>
+<rect width="48" height="48" rx="12" fill="url(#logoGrad)"/>
+<path d="M14 18 L14 34 M14 18 L20 18 Q25 18 25 23 Q25 28 20 28 L14 28 M25 23 Q25 28 28 28 Q31 28 31 24 Q31 20 28 20 L25 20" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+<circle cx="34" cy="16" r="4" fill="#30d158"/>
+</svg><span class="status-dot"></span>LLM-API-Proxy</h1>
         <div style="display:flex;align-items:center;gap:12px;-webkit-app-region:no-drag;">
             <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn">亮色模式</button>
             <span class="ver">v0.1.0</span>
