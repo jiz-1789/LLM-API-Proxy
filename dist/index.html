@@ -1747,9 +1747,10 @@ print(response.choices[0].message.content)</code></pre>
         update_latest: { zh: '已是最新版本', en: 'Up to date' },
         update_latest_detail: { zh: '已是最新发布版本。', en: 'is the latest released version.' },
         update_fail: { zh: '检查更新失败', en: 'Update check failed' },
-        update_fail_network: { zh: '无法连接 GitHub API，请检查网络后重试。', en: 'Cannot connect to GitHub API. Please check your network.' },
+        update_fail_network: { zh: '无法连接 GitHub 和 Gitee API，请检查网络后重试。', en: 'Cannot connect to GitHub and Gitee API. Please check your network.' },
         update_download: { zh: '前往下载', en: 'Download' },
-        update_download_btn: { zh: '下载并更新', en: 'Download & Update' },
+        update_download_github: { zh: 'GitHub 下载', en: 'GitHub Download' },
+        update_download_gitee: { zh: 'Gitee 下载', en: 'Gitee Download' },
         update_downloading: { zh: '正在下载更新...', en: 'Downloading update...' },
         update_download_success: { zh: '下载完成，正在重启更新...', en: 'Download complete, restarting...' },
         update_download_fail: { zh: '下载更新失败: ', en: 'Download failed: ' },
@@ -3312,10 +3313,26 @@ function generateApiKey() {
             status.innerHTML = '<span style="color:var(--warning);">' + t('update_found') + ' v' + esc(info.latest_version) + '</span>';
             const notes = info.release_notes ? esc(info.release_notes).replace(/\n/g, '<br>') : t('update_no_notes');
             result.style.display = 'block';
-            const downloadBtn = info.download_url
-                ? '<button class="btn btn-primary btn-sm" id="btn-download-update" onclick="downloadAndUpdate(' + JSON.stringify(info.download_url) + ')">' + t('update_download_btn') + '</button>'
-                : '<button class="btn btn-ghost btn-sm" onclick="cmd(\'open_external_url\', { url: ' + JSON.stringify(info.release_url) + ' })">' + t('update_download') + '</button>';
-            result.innerHTML = '<div style="margin-bottom:10px;"><strong style="color:var(--text-primary);">v' + esc(info.latest_version) + '</strong>' + (info.published_at ? ' <span style="color:var(--text-muted);">· ' + esc(info.published_at.substring(0, 10)) + '</span>' : '') + '</div><div style="color:var(--text-secondary);margin-bottom:12px;max-height:200px;overflow-y:auto;">' + notes + '</div>' + downloadBtn;
+            // Build download buttons: GitHub + Gitee
+            var buttons = [];
+            if (info.github_download_url) {
+                buttons.push('<button class="btn btn-primary btn-sm" id="btn-download-github" onclick="downloadAndUpdate(' + JSON.stringify(info.github_download_url) + ', \'github\')">' + t('update_download_github') + '</button>');
+            } else if (info.github_release_url) {
+                buttons.push('<button class="btn btn-ghost btn-sm" onclick="cmd(\'open_external_url\', { url: ' + JSON.stringify(info.github_release_url) + ' })">' + t('update_download_github') + '</button>');
+            }
+            if (info.gitee_download_url) {
+                buttons.push('<button class="btn btn-primary btn-sm" id="btn-download-gitee" onclick="downloadAndUpdate(' + JSON.stringify(info.gitee_download_url) + ', \'gitee\')">' + t('update_download_gitee') + '</button>');
+            } else if (info.gitee_release_url) {
+                buttons.push('<button class="btn btn-ghost btn-sm" onclick="cmd(\'open_external_url\', { url: ' + JSON.stringify(info.gitee_release_url) + ' })">' + t('update_download_gitee') + '</button>');
+            }
+            // Fallback: if no download buttons at all, show release page link
+            if (buttons.length === 0) {
+                var fallbackUrl = info.github_release_url || info.gitee_release_url || '';
+                if (fallbackUrl) {
+                    buttons.push('<button class="btn btn-ghost btn-sm" onclick="cmd(\'open_external_url\', { url: ' + JSON.stringify(fallbackUrl) + ' })">' + t('update_download') + '</button>');
+                }
+            }
+            result.innerHTML = '<div style="margin-bottom:10px;"><strong style="color:var(--text-primary);">v' + esc(info.latest_version) + '</strong>' + (info.published_at ? ' <span style="color:var(--text-muted);">· ' + esc(info.published_at.substring(0, 10)) + '</span>' : '') + '</div><div style="color:var(--text-secondary);margin-bottom:12px;max-height:200px;overflow-y:auto;">' + notes + '</div><div style="display:flex;gap:8px;flex-wrap:wrap;">' + buttons.join('') + '</div>';
         } else {
             status.innerHTML = '<span style="color:var(--success);">' + t('update_latest') + '</span>';
             result.style.display = 'block';
@@ -3324,8 +3341,9 @@ function generateApiKey() {
     }
 
     // Download the new portable exe and auto-update
-    async function downloadAndUpdate(downloadUrl) {
-        const btn = document.getElementById('btn-download-update');
+    async function downloadAndUpdate(downloadUrl, source) {
+        const btnId = source === 'gitee' ? 'btn-download-gitee' : 'btn-download-github';
+        const btn = document.getElementById(btnId);
         if (btn) {
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner"></span> ' + t('update_downloading');
@@ -3337,7 +3355,7 @@ function generateApiKey() {
         } catch (e) {
             if (btn) {
                 btn.disabled = false;
-                btn.textContent = t('update_download_btn');
+                btn.textContent = source === 'gitee' ? t('update_download_gitee') : t('update_download_github');
             }
             toast(t('update_download_fail') + e, 'error');
         }

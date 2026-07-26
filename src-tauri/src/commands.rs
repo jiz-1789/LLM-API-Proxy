@@ -952,33 +952,53 @@ pub async fn save_file_dialog(
 // Update Check
 // ============================================================================
 
-/// GitHub release info returned to the frontend.
+/// Release info returned to the frontend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateCheckResult {
     pub has_update: bool,
     pub current_version: String,
     pub latest_version: String,
-    pub release_url: String,
-    pub download_url: String,
     pub release_notes: String,
     pub published_at: String,
+    pub source: String,
+    pub github_release_url: String,
+    pub github_download_url: String,
+    pub gitee_release_url: String,
+    pub gitee_download_url: String,
 }
 
-/// Check GitHub Releases for a newer version.
-/// Compares the current app version (from Cargo.toml) with the latest
-/// GitHub release tag. Returns update info for the frontend to display.
-#[tauri::command]
-pub async fn check_for_updates() -> Result<UpdateCheckResult, String> {
-    let current_version = env!("CARGO_PKG_VERSION");
-    let github_api_url = "https://api.github.com/repos/jiz-1789/LLM-API-Proxy/releases/latest";
+/// Parsed release info from a single source (GitHub or Gitee).
+struct ParsedRelease {
+    latest_version: String,
+    release_url: String,
+    download_url: String,
+    release_notes: String,
+    published_at: String,
+}
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
+/// Extract the portable exe download URL from a JSON assets array.
+fn extract_portable_download_url(json: &serde_json::Value) -> String {
+    json.get("assets")
+        .and_then(|a| a.as_array())
+        .and_then(|assets| {
+            assets.iter().find_map(|asset| {
+                let name = asset.get("name")?.as_str()?;
+                if name.contains("portable") && name.ends_with(".exe") {
+                    asset.get("browser_download_url")?.as_str()
+                } else {
+                    None
+                }
+            })
+        })
+        .unwrap_or("")
+        .to_string()
+}
 
+/// Fetch the latest release from GitHub API.
+async fn fetch_github_release(client: &reqwest::Client) -> Result<ParsedRelease, String> {
+    let url = "https://api.github.com/repos/jiz-1789/LLM-API-Proxy/releases/latest";
     let resp = client
-        .get(github_api_url)
+        .get(url)
         .header("User-Agent", "LLM-API-Proxy")
         .header("Accept", "application/vnd.github+json")
         .send()
@@ -994,59 +1014,120 @@ pub async fn check_for_updates() -> Result<UpdateCheckResult, String> {
         .await
         .map_err(|e| format!("解析 GitHub API 响应失败: {}", e))?;
 
-    // Release tag looks like "v0.1.0" — strip the leading 'v'
-    let tag = json
-        .get("tag_name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let tag = json.get("tag_name").and_then(|v| v.as_str()).unwrap_or("");
     let latest_version = tag.trim_start_matches('v').to_string();
-
     let release_url = json
         .get("html_url")
         .and_then(|v| v.as_str())
         .unwrap_or("https://github.com/jiz-1789/LLM-API-Proxy/releases")
         .to_string();
+    let download_url = extract_portable_download_url(&json);
+    let release_notes = json.get("body").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let published_at = json.get("published_at").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
-    // Extract direct download URL for the portable exe asset
-    let download_url = json
-        .get("assets")
-        .and_then(|a| a.as_array())
-        .and_then(|assets| {
-            assets.iter().find_map(|asset| {
-                let name = asset.get("name")?.as_str()?;
-                // Prefer the portable exe asset
-                if name.contains("portable") && name.ends_with(".exe") {
-                    asset.get("browser_download_url")?.as_str()
-                } else {
-                    None
-                }
-            })
-        })
-        .unwrap_or("")
-        .to_string();
-
-    let release_notes = json
-        .get("body")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    let published_at = json
-        .get("published_at")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    let has_update = compare_versions(&latest_version, current_version);
-
-    Ok(UpdateCheckResult {
-        has_update,
-        current_version: current_version.to_string(),
+    Ok(ParsedRelease {
         latest_version,
         release_url,
         download_url,
         release_notes,
         published_at,
+    })
+}
+
+/// Fetch the latest release from Gitee API.
+async fn fetch_gitee_release(client: &reqwest::Client) -> Result<ParsedRelease, String> {
+    let url = "https://gitee.com/api/v5/repos/yilichenaiosi/LLM-API-Proxy/releases/latest";
+    let resp = client
+        .get(url)
+        .header("User-Agent", "LLM-API-Proxy")
+        .send()
+        .await
+        .map_err(|e| format!("请求 Gitee API 失败: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("Gitee API 返回错误: HTTP {}", resp.status()));
+    }
+
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("解析 Gitee API 响应失败: {}", e))?;
+
+    let tag = json.get("tag_name").and_then(|v| v.as_str()).unwrap_or("");
+    let latest_version = tag.trim_start_matches('v').to_string();
+    let release_url = json
+        .get("html_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("https://gitee.com/yilichenaiosi/LLM-API-Proxy/releases")
+        .to_string();
+    let download_url = extract_portable_download_url(&json);
+    let release_notes = json.get("body").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    // Gitee uses "created_at" instead of "published_at"
+    let published_at = json
+        .get("created_at")
+        .or_else(|| json.get("published_at"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    Ok(ParsedRelease {
+        latest_version,
+        release_url,
+        download_url,
+        release_notes,
+        published_at,
+    })
+}
+
+/// Check for updates from GitHub (primary) and Gitee (fallback).
+/// Tries GitHub first; if it fails, falls back to Gitee.
+/// Always attempts to fetch Gitee download URL for the dual-button UI.
+#[tauri::command]
+pub async fn check_for_updates() -> Result<UpdateCheckResult, String> {
+    let current_version = env!("CARGO_PKG_VERSION");
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
+
+    // Try GitHub first
+    let github_result = fetch_github_release(&client).await;
+
+    // Always try Gitee (for the Gitee download URL)
+    let gitee_result = fetch_gitee_release(&client).await;
+
+    // Determine which source to use for version info
+    let (primary, source) = match (&github_result, &gitee_result) {
+        (Ok(gh), _) => (gh.clone(), "github"),
+        (Err(_), Ok(gitee)) => (gitee.clone(), "gitee"),
+        (Err(gh_err), Err(_)) => {
+            return Err(format!(
+                "GitHub 和 Gitee 均无法访问: {}",
+                gh_err
+            ));
+        }
+    };
+
+    let has_update = compare_versions(&primary.latest_version, current_version);
+
+    // Extract URLs from whichever source succeeded
+    let github_release_url = github_result.as_ref().map(|r| r.release_url.clone()).unwrap_or_default();
+    let github_download_url = github_result.as_ref().map(|r| r.download_url.clone()).unwrap_or_default();
+    let gitee_release_url = gitee_result.as_ref().map(|r| r.release_url.clone()).unwrap_or_default();
+    let gitee_download_url = gitee_result.as_ref().map(|r| r.download_url.clone()).unwrap_or_default();
+
+    Ok(UpdateCheckResult {
+        has_update,
+        current_version: current_version.to_string(),
+        latest_version: primary.latest_version.clone(),
+        release_notes: primary.release_notes.clone(),
+        published_at: primary.published_at.clone(),
+        source: source.to_string(),
+        github_release_url,
+        github_download_url,
+        gitee_release_url,
+        gitee_download_url,
     })
 }
 

@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-07-27
+
+### 新增
+- 检查更新支持 GitHub + Gitee 双数据源，GitHub 访问失败时自动回退 Gitee
+- 更新页面显示两个下载按钮（GitHub 下载 + Gitee 下载），方便国内用户选择
+
 ## [0.1.3] - 2026-07-27
 
 ### 变更
@@ -65,7 +71,8 @@
 - **数据便携**：所有数据存储在程序同目录 `data/` 文件夹，U 盘携带即走
 - **开源治理**：AGPL-3.0 双轨许可、CLA 贡献者协议、CONTRIBUTING.md 贡献指南
 
-[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.4
 [0.1.3]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.3
 [0.1.2]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.2
 [0.1.1]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.1
