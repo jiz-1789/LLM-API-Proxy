@@ -321,6 +321,16 @@ async fn handle_chat_completions(
             }
         }
 
+        // For streaming requests, ensure we get usage info in the final chunk
+        if is_stream {
+            if let Some(obj) = request_body.as_object_mut() {
+                obj.insert(
+                    "stream_options".to_string(),
+                    json!({ "include_usage": true }),
+                );
+            }
+        }
+
         // ── SSE streaming path ──────────────────────────────────────
         if is_stream {
             match state
@@ -366,10 +376,12 @@ async fn handle_chat_completions(
                     // Build byte stream from upstream response
                     let byte_stream = upstream_response.bytes_stream();
                     let display_name = pool.display_name.clone();
+                    let db_clone = state.db.clone();
+                    let log_id_clone = log_id.clone();
                     let (tx, rx) =
                         tokio::sync::mpsc::channel::<Result<Bytes, std::convert::Infallible>>(64);
 
-                    // Spawn a task to read lines, replace model, and forward chunks
+                    // Spawn a task to read lines, replace model, extract usage, and forward chunks
                     tokio::spawn(async move {
                         use tokio_stream::StreamExt;
                         let mapped_stream = byte_stream
@@ -377,12 +389,17 @@ async fn handle_chat_completions(
                         let stream_reader = StreamReader::new(mapped_stream);
                         let reader = BufReader::new(stream_reader);
                         let mut lines = reader.lines();
+                        let mut last_usage: Option<(i64, i64, i64)> = None;
                         while let Ok(Some(line)) = lines.next_line().await {
                             let output = if let Some(json_str) = line.strip_prefix("data: ") {
                                 let trimmed = json_str.trim();
                                 if trimmed == "[DONE]" {
                                     "data: [DONE]\n\n".to_string()
                                 } else {
+                                    // Extract usage from this chunk (if present)
+                                    if let Some(usage) = stream::extract_usage_from_sse_chunk(trimmed) {
+                                        last_usage = Some(usage);
+                                    }
                                     stream::replace_model_in_sse_chunk(trimmed, &display_name)
                                 }
                             } else if line.is_empty() || line.starts_with(':') {
@@ -394,6 +411,16 @@ async fn handle_chat_completions(
                             if tx.send(Ok(Bytes::from(output))).await.is_err() {
                                 break; // client disconnected
                             }
+                        }
+
+                        // After stream completes, update the log with token usage if found
+                        if let Some((prompt, completion, total)) = last_usage {
+                            let _ = db_clone.update_request_log_tokens(
+                                &log_id_clone,
+                                prompt,
+                                completion,
+                                total,
+                            );
                         }
                     });
 

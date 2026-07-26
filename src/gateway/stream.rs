@@ -25,6 +25,26 @@ pub fn replace_model_in_sse_chunk(json_str: &str, display_name: &str) -> String 
     }
 }
 
+/// Try to extract token usage from an SSE JSON chunk.
+/// Returns `Some((prompt, completion, total))` if the chunk contains a `usage` object.
+/// OpenAI sends usage in the final chunk before [DONE] when `stream_options.include_usage` is set.
+/// Some providers include usage in every chunk; we take the last non-null one.
+pub fn extract_usage_from_sse_chunk(json_str: &str) -> Option<(i64, i64, i64)> {
+    let v: Value = serde_json::from_str(json_str).ok()?;
+    let usage = v.get("usage")?;
+    if usage.is_null() {
+        return None;
+    }
+    let prompt = usage.get("prompt_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+    let completion = usage.get("completion_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+    let total = usage.get("total_tokens").and_then(|v| v.as_i64()).unwrap_or(prompt + completion);
+    if prompt == 0 && completion == 0 && total == 0 {
+        None
+    } else {
+        Some((prompt, completion, total))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

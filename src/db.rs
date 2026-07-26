@@ -671,6 +671,22 @@ prompt_tokens, completion_tokens, total_tokens
 Ok(())
 }
 
+    /// Update token usage for an existing request log entry.
+    /// Used for streaming requests where usage is only known after the stream completes.
+    pub fn update_request_log_tokens(
+        &self,
+        log_id: &str,
+        prompt_tokens: i64,
+        completion_tokens: i64,
+        total_tokens: i64,
+    ) -> Result<(), AppError> {
+        self.conn.lock().unwrap().execute(
+            "UPDATE request_logs SET prompt_tokens=?1, completion_tokens=?2, total_tokens=?3 WHERE id=?4",
+            params![prompt_tokens, completion_tokens, total_tokens, log_id],
+        )?;
+        Ok(())
+    }
+
     /// Get recent logs with optional time-range filter, pagination.
     pub fn get_recent_logs(&self, filter: &LogFilter) -> Result<Vec<RequestLogEntry>, AppError> {
         let mut conditions = Vec::new();
