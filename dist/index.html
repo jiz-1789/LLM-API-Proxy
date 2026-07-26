@@ -714,6 +714,101 @@
             color: var(--text-muted);
             font-family: 'SF Mono', 'Cascadia Code', monospace;
         }
+
+        /* === Help / Tutorial === */
+        .help-section { margin-bottom: 28px; }
+        .help-section h3 {
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .help-section h3 .help-icon {
+            width: 28px; height: 28px;
+            border-radius: var(--radius-sm);
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+        .help-section p, .help-section li {
+            font-size: 13px;
+            line-height: 1.7;
+            color: var(--text-secondary);
+        }
+        .help-section ul {
+            padding-left: 20px;
+            margin: 8px 0;
+        }
+        .help-section li { margin-bottom: 4px; }
+        .help-section code {
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-family: 'SF Mono','Cascadia Code',monospace;
+            color: var(--text-primary);
+        }
+        .help-tip {
+            background: var(--bg-tertiary);
+            border-left: 3px solid var(--accent);
+            padding: 10px 14px;
+            border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin: 10px 0;
+        }
+        .help-flow {
+            display: flex;
+            gap: 0;
+            align-items: stretch;
+            flex-wrap: wrap;
+            margin: 14px 0;
+        }
+        .help-step {
+            flex: 1;
+            min-width: 140px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 12px 14px;
+            position: relative;
+            font-size: 12px;
+        }
+        .help-step .step-num {
+            position: absolute;
+            top: -8px; left: 12px;
+            background: var(--accent);
+            color: #fff;
+            width: 20px; height: 20px;
+            border-radius: 50%;
+            font-size: 11px;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 600;
+        }
+        .help-step .step-title {
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+            margin-top: 4px;
+        }
+        .help-step .step-desc {
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+        .help-arrow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+            font-size: 18px;
+            padding: 0 4px;
+        }
     </style>
 </head>
 <body>
@@ -744,6 +839,7 @@
             <div class="nav-item" data-page="logs">请求日志</div>
             <div class="nav-item" data-page="settings">设置</div>
             <div class="nav-item" data-page="health">健康检查</div>
+            <div class="nav-item" data-page="help">使用教程</div>
         </div>
 
         <div class="main">
@@ -957,6 +1053,144 @@
                     <div class="empty-state" style="grid-column:1/-1;">点击「一键检测」开始检查上游连通性</div>
                 </div>
             </div>
+
+            <!-- ==================== Help ==================== -->
+            <div class="page" id="page-help">
+                <div class="section-title">使用教程</div>
+                <p style="font-size:13px;color:var(--text-secondary);margin-bottom:20px;">
+                    LLM-API-Proxy 是一个本地运行的 LLM API 网关，将多个上游 AI 服务商聚合为统一的 OpenAI 兼容接口。以下按功能模块逐一介绍使用方法。
+                </p>
+
+                <div class="help-section">
+                    <h3><span class="help-icon">1</span>快速开始</h3>
+                    <p>从零到跑通只需四步：</p>
+                    <div class="help-flow">
+                        <div class="help-step">
+                            <span class="step-num">1</span>
+                            <div class="step-title">添加上游</div>
+                            <div class="step-desc">在「上游服务」页填入服务商的 Base URL、API Key 和模型名</div>
+                        </div>
+                        <div class="help-arrow">→</div>
+                        <div class="help-step">
+                            <span class="step-num">2</span>
+                            <div class="step-title">创建模型池</div>
+                            <div class="step-desc">在「模型池」页将上游组合为一个池，配置负载均衡策略</div>
+                        </div>
+                        <div class="help-arrow">→</div>
+                        <div class="help-step">
+                            <span class="step-num">3</span>
+                            <div class="step-title">获取地址</div>
+                            <div class="step-desc">在「设置」页复制 API 地址和 API Key</div>
+                        </div>
+                        <div class="help-arrow">→</div>
+                        <div class="help-step">
+                            <span class="step-num">4</span>
+                            <div class="step-title">接入客户端</div>
+                            <div class="step-desc">将地址和密钥填入任意 OpenAI 兼容客户端即可</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="help-section">
+                    <h3><span class="help-icon">📊</span>仪表盘</h3>
+                    <ul>
+                        <li><strong>网关状态</strong>：显示网关是否运行中及监听地址</li>
+                        <li><strong>上游服务 / 模型池</strong>：已配置的数量统计</li>
+                        <li><strong>今日请求 / 成功 / 错误</strong>：当天的请求量与成功率</li>
+                        <li><strong>网关配置</strong>：展示 OpenAI 兼容地址，方便复制</li>
+                        <li><strong>最近活动</strong>：实时显示最近的网关请求日志</li>
+                    </ul>
+                    <div class="help-tip">仪表盘每 30 秒自动刷新一次统计数据，离开页面时自动停止刷新以节省资源。</div>
+                </div>
+
+                <div class="help-section">
+                    <h3><span class="help-icon">🔌</span>上游服务</h3>
+                    <p>上游服务指你实际订阅的 AI 服务商（如 OpenAI、Anthropic、DeepSeek 等）。每个上游包含：</p>
+                    <ul>
+                        <li><strong>供应商名称</strong>：用于识别服务商，也决定思考模式注入的参数类型</li>
+                        <li><strong>Base URL</strong>：服务商的 API 地址，如 <code>https://api.openai.com</code></li>
+                        <li><strong>API Key</strong>：你在服务商处获取的密钥，加密存储</li>
+                        <li><strong>模型</strong>：该上游使用的模型名，如 <code>gpt-4o</code></li>
+                        <li><strong>可用模型</strong>：点击「获取」按钮自动从服务商拉取支持的模型列表</li>
+                    </ul>
+                    <p><strong>操作方式：</strong></p>
+                    <ul>
+                        <li>点击「+ 新增上游」添加新服务商</li>
+                        <li>右键点击表格行可弹出菜单：编辑、启用/禁用、复制信息、删除</li>
+                        <li><strong>启用/禁用开关</strong>：禁用后网关不会再向该上游转发请求。适合余额用完或临时维护时使用</li>
+                    </ul>
+                    <div class="help-tip">编辑上游时如果 API Key 显示为 <code>••••••</code>（已脱敏），不修改则保持原密钥不变。获取模型列表时会自动调用服务商接口。</div>
+                </div>
+
+                <div class="help-section">
+                    <h3><span class="help-icon">🗂️</span>模型池</h3>
+                    <p>模型池将一个或多个上游组合为一个统一的 OpenAI 兼容端点。客户端只需请求一个池地址，网关自动在多个上游之间做负载均衡。</p>
+                    <p><strong>配置项说明：</strong></p>
+                    <ul>
+                        <li><strong>模型名称</strong>：客户端请求时使用的模型名（如 <code>gpt-4o</code>），对应 OpenAI API 中的 <code>model</code> 参数</li>
+                        <li><strong>显示名</strong>：在界面中展示的友好名称</li>
+                        <li><strong>上游列表</strong>：选择加入该池的上游及其对应的模型映射</li>
+                        <li><strong>最大并发</strong>：该池允许的最大并发请求数</li>
+                        <li><strong>思考模式</strong>：开启后自动为支持的上游注入推理参数（如 OpenAI 的 <code>reasoning_effort</code>、Claude 的 <code>thinking</code>）</li>
+                        <li><strong>熔断阈值</strong>：连续失败达到此次数后，该上游被临时熔断跳过</li>
+                        <li><strong>熔断恢复时间</strong>：熔断后经过此秒数自动尝试恢复</li>
+                    </ul>
+                    <div class="help-tip">请求转发逻辑：轮询选择上游 → 跳过已禁用和已熔断的上游 → 失败时若开启故障转移则自动尝试下一个上游 → 全部失败则返回错误。</div>
+                </div>
+
+                <div class="help-section">
+                    <h3><span class="help-icon">📋</span>请求日志</h3>
+                    <p>记录所有经过网关转发的请求，用于排查问题和监控。</p>
+                    <ul>
+                        <li><strong>筛选</strong>：按模型池或状态码（2xx / 4xx / 5xx）过滤</li>
+                        <li><strong>分页</strong>：每页显示 20 条，可翻页查看历史记录</li>
+                        <li><strong>状态码</strong>：绿色标签表示成功（2xx），红色标签表示失败（4xx/5xx）</li>
+                        <li><strong>耗时</strong>：从收到请求到上游响应的毫秒数</li>
+                        <li><strong>流式</strong>：该请求是否为 SSE 流式响应</li>
+                    </ul>
+                </div>
+
+                <div class="help-section">
+                    <h3><span class="help-icon">⚙️</span>设置</h3>
+                    <ul>
+                        <li><strong>API 地址</strong>：网关的 OpenAI 兼容地址，格式为 <code>http://&lt;监听地址&gt;/v1</code></li>
+                        <li><strong>API Key</strong>：客户端连接网关时使用的密钥（<code>sk-gw-...</code> 格式），可重新生成</li>
+                        <li><strong>日志级别</strong>：控制后台日志输出详细程度（trace > debug > info > warn > error）</li>
+                        <li><strong>界面主题</strong>：暗色 / 亮色切换</li>
+                        <li><strong>关闭窗口时</strong>：开启后点击关闭按钮会最小化到系统托盘而非退出程序</li>
+                    </ul>
+                    <div class="help-tip">重新生成 API Key 后，之前使用的客户端需要更新密钥才能继续连接。</div>
+                </div>
+
+                <div class="help-section">
+                    <h3><span class="help-icon">💓</span>健康检查</h3>
+                    <p>点击「一键检测」向所有上游发送测试请求，检查 API 连通性和响应延迟。</p>
+                    <ul>
+                        <li>检测结果包含：连通状态、响应延迟、错误信息</li>
+                        <li>健康检查会消耗少量上游 Token，请按需使用</li>
+                        <li>建议在添加新上游或修改配置后执行一次检测确认连通性</li>
+                    </ul>
+                </div>
+
+                <div class="help-section">
+                    <h3><span class="help-icon">💡</span>接入客户端示例</h3>
+                    <p>以 Python OpenAI SDK 为例：</p>
+                    <pre style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;font-size:12px;font-family:'SF Mono','Cascadia Code',monospace;overflow-x:auto;color:var(--text-primary);"><code>from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:47339/v1",
+    api_key="sk-gw-your-key-here"
+)
+
+response = client.chat.completions.create(
+    model="gpt-4o",          # 填写模型池名称
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+print(response.choices[0].message.content)</code></pre>
+                    <div class="help-tip">任意兼容 OpenAI API 的客户端（如 ChatBox、NextChat、Cursor 等）均可直接使用上述地址和密钥接入。</div>
+                </div>
+            </div>
+
         </div>
     </div>
 
