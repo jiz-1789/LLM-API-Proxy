@@ -1635,6 +1635,16 @@ if (page === 'settings') loadSettings();
     async function selectTokenModel(model) {
         if (!currentTokenUpstreamId) return;
         currentTokenModel = model;
+        // Update tab active states
+        document.querySelectorAll('.token-model-tab').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        // Re-render the tabs to reflect selection
+        const tabContainer = document.querySelector('.token-model-tab').parentElement;
+        if (tabContainer) {
+            tabContainer.innerHTML = `<button class="token-model-tab ${currentTokenModel === null ? 'active' : ''}" onclick="selectTokenModel(null)">全部模型</button>` +
+                currentTokenModels.map(m => `<button class="token-model-tab ${currentTokenModel === m ? 'active' : ''}" onclick="selectTokenModel('${esc(m).replace(/'/g,"\\'")}')">${esc(m)}</button>`).join('');
+        }
         const chartArea = document.getElementById('token-chart-area');
         if (chartArea) chartArea.innerHTML = '<div class="empty-state">加载中...</div>';
         try {
@@ -1812,7 +1822,7 @@ if (page === 'settings') loadSettings();
 
     function renderTokenHourlyChart(hourly) {
         if (!hourly || hourly.length === 0) return '<div class="empty-state" style="margin-top:8px;">今日暂无消耗记录</div>';
-        const W = 600, H = 180, P = 40;
+        const W = 600, H = 140, P = 36;
         const chartW = W - P * 2, chartH = H - P * 2;
         const n = hourly.length; // 24
         const gap = 2;
@@ -1832,7 +1842,8 @@ if (page === 'settings') loadSettings();
 
         const bars = hourly.map((d, i) => {
             const x = P + i * (barW + gap);
-            const h = (d.total_tokens / maxVal) * chartH;
+            const ratio = d.total_tokens / maxVal;
+            const h = Math.min(ratio * chartH, chartH);
             const y = P + chartH - h;
             const hasData = d.total_tokens > 0;
             return `<rect x="${x}" y="${y}" width="${barW}" height="${hasData ? h : 2}" rx="1.5" fill="${hasData ? 'var(--accent)' : 'var(--border)'}" opacity="${hasData ? 0.85 : 0.4}">
