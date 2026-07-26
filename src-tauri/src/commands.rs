@@ -935,3 +935,107 @@ pub async fn save_file_dialog(
 
     Ok(path.to_string_lossy().to_string())
 }
+
+// ============================================================================
+// Update Check
+// ============================================================================
+
+/// GitHub release info returned to the frontend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateCheckResult {
+    pub has_update: bool,
+    pub current_version: String,
+    pub latest_version: String,
+    pub release_url: String,
+    pub release_notes: String,
+    pub published_at: String,
+}
+
+/// Check GitHub Releases for a newer version.
+/// Compares the current app version (from Cargo.toml) with the latest
+/// GitHub release tag. Returns update info for the frontend to display.
+#[tauri::command]
+pub async fn check_for_updates() -> Result<UpdateCheckResult, String> {
+    let current_version = env!("CARGO_PKG_VERSION");
+    let github_api_url = "https://api.github.com/repos/jiz-1789/LLM-API-Proxy/releases/latest";
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
+
+    let resp = client
+        .get(github_api_url)
+        .header("User-Agent", "LLM-API-Proxy")
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|e| format!("请求 GitHub API 失败: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("GitHub API 返回错误: HTTP {}", resp.status()));
+    }
+
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("解析 GitHub API 响应失败: {}", e))?;
+
+    // Release tag looks like "v0.1.0" — strip the leading 'v'
+    let tag = json
+        .get("tag_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let latest_version = tag.trim_start_matches('v').to_string();
+
+    let release_url = json
+        .get("html_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("https://github.com/jiz-1789/LLM-API-Proxy/releases")
+        .to_string();
+
+    let release_notes = json
+        .get("body")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let published_at = json
+        .get("published_at")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let has_update = compare_versions(&latest_version, current_version);
+
+    Ok(UpdateCheckResult {
+        has_update,
+        current_version: current_version.to_string(),
+        latest_version,
+        release_url,
+        release_notes,
+        published_at,
+    })
+}
+
+/// Compare two semver strings. Returns true if `latest` > `current`.
+fn compare_versions(latest: &str, current: &str) -> bool {
+    let parse = |s: &str| -> Vec<u32> {
+        s.split('.')
+            .filter_map(|p| p.parse::<u32>().ok())
+            .collect()
+    };
+    let l = parse(latest);
+    let c = parse(current);
+    for i in 0..l.len().max(c.len()) {
+        let lv = l.get(i).copied().unwrap_or(0);
+        let cv = c.get(i).copied().unwrap_or(0);
+        if lv > cv {
+            return true;
+        }
+        if lv < cv {
+            return false;
+        }
+    }
+    false
+}

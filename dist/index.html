@@ -267,6 +267,45 @@ gap: 8px;
             text-align: center;
             user-select: none;
         }
+        .sidebar-footer .version-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            margin-bottom: 6px;
+        }
+        .sidebar-footer .version-label {
+            opacity: 0.6;
+        }
+        .sidebar-footer .version-num {
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+        .sidebar-footer .check-update-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 11px;
+            cursor: pointer;
+            padding: 2px 6px;
+            border-radius: 4px;
+            transition: all var(--transition);
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+        }
+        .sidebar-footer .check-update-btn:hover {
+            color: var(--accent);
+            background: var(--bg-hover);
+        }
+        .sidebar-footer .update-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--danger);
+            display: inline-block;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
         .sidebar-footer .qq-label {
             opacity: 0.6;
         }
@@ -991,7 +1030,6 @@ gap: 8px;
 <h1><img class="app-logo" width="20" height="20" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAIeElEQVR4nK1XCXBVZxX+t3vv2192sBCWLGWHBIWyVS2L1Bad2CLFaWtxGJTSOlNnEKqOgDiZKbVqZ9RabUew2DrWwWlnIMgyI2iFFGjipCRGlgYiSUjykrcv997//r/nvy9QkCWh7Ztk3su9ef855zvf951z8fJnVqCP88Lwg7F6Q0iqX4nEnXyffdSgBCMqJHJsgaUj3dgIriGNSEQxYpCFGEkyd5yAOtwSiGcswj1MohKvUxLWRSnBkqRsEu3P0u6YSbhBJfIyySA5/okloKqOQ+AynxN85O7EukVjsivLA3yyl4mQaoPp4ExvmnWc7PU07O3w//psVLsY0sWV9sibojlSDkAAkrKIeGBietVTs2K/DPl5KVJnq+Px0NkS58NAG4RF+R/ag9t2tYXqGdynBK7epCW0at7dI6pcBV8/M75lw5zBXxkY+a/U053Qzp4ZME5eimvtNifZAl2MQgTSkgjXjM0uqQ7ymUcu+d5U6ZF8unfWAtVzBfvXJiXXPzoz9iM7R01NF0bLZc/fXmsL/bBtUD+esbFQ+ai+TwjzyauqU5uXTkyt4VliL5iQfmiTjXduf7f4GwFNKBScESMAlZMsx05lAa+oXxQ5qKCmumR/bgvv2NZY/HhXmv6XESQNiphOXRHIvgyNHLroezuWo+cXlWdXOjbhVWXm7J6k1to6YLQqYkKyYkQJqL5bDpbfmxv9/SifrDzR7dvbcM7/0u9Oh+rhIOSBwBAVgyqUHAUkQ3XotU8T2onL3mboQnzOmNwDyMFoQpBP33/R/9JQcDwiEipcvToOzi7O3Pt+t2joN3XkMA8Kag7Jew6SGY7RKJ9TCAh4upK0R6d5wimOWJDUK0t7myoKrVoVcvPR0vuO93iOBDTpeoiL8m3JRwi10pnk4a5gw6XKJU/kFn31xZAhdPAdgfKyQ09MTW7cff/lzteWX77w/Xuir6o+wOGCEklzkNyhTt8uBEkpZcwqNe/jwrXNqwiQW4IPv8RKO6mq+Q9Hv/Lshb7F63flAmVVyMxamFA9C8SrLTPnr62J/cTDRACMSPvCpMTausrU02mbuEEYBD0T1U8hJx9mTIBXU3y9J9xKBZjwnIjMeeS5gZkPbiZWBmp2EM2lejG8I8UNqKSqwK5VZ1mcZhVfNJsYkwrtuVJeJTHKcJIEv4C+IOyh0o/x9X50AwISEwYBxUBt3bZIzZc301zSFsxA/q7Wk6Hzx18VmgHJSNdqW/qNo8qMdEN4NSYMNQFO9XkOEPwhh0K6U4RI3g0hmYSQ17eA/V/dlFoZnimf+blIzZe2skyMO7pPK27Z++OSpre2uNNOM4BgknsZov8e1Frrj5esXDM1Xg8Jefed9r/81wu+1/2aKhlJUAaaWmwtdDkAr84Ea5PydkYkoTbK0MCsFTuwAG0ZPlbUevCnpSf+tMXxhkieG3lnV0Tz6Vg7cNG75+9dnj1KggmTOBBcQY8huB02BF4+PrNWyVAV3dTvOaym5bUcINdWD32X2bKqedmSinsU0Y1Y9/ni5rc3Op7AUFzhQHtc+QAXJLaydkBHmjqeQ75BXVDlnOp2zKRo3fTE86NDdoUCvH1Abzwd0U+Cf2BxjRteRUCq8gRH2dGTlikU1Ct0vvEVIB7i3pAGAcETOYrO+OJ34lULNhBupYreb/hB4GJTA9I8FEu1FoAv2NhRGv12TWzLQ5MTGx0bc6pJtrM1/KwtlF2j6+yYXbNkSIkpssKjp7l/Ozby9H/wzlAymNg5mahauLp3/mM/IyaoAq73fPab+8btq5+kR7vOgBkz20F8dpk5b92M+AtTysyF3MI28wrtjy0F2//Z7TkKe8MN+8E1KnAxQIJ5wu4Nh3Mg5ACoIp8gtCQzZuoKzE0ErTJBHVmliOyo6sXEsdSKxGBuoLqq9DNT7souRPCZeYS2pzX8wsstoa1BIObNlhNy3aIF2GBhZ9x0CGWC6QHXcN3pCvBFLzULzaukqoE0veq6HutpkYS5BFYmE9CcAnVqf07reu5YyeoXmwq+62MSD7sRufVDlVoycs7VMNORWTi21tvTfso9HQKH24/+3Cwa9+lkec1q4thmUcu+7b7L/zkmNA8B/VgBA+vdGaOj8ZjxrYPntd9GHC/4gFC+L9CwG5FSATA8NX72/d2Ln9qvKvf2nTtWvv/5hRCAKgkgxXxwQjs8egLmVgaS7VNtcHMH6TEwMOX/WSOM6F0VS4ORc43CtlJX1XuzfePDcQz6pBRpqcEOSOIxMKBCO1harmXjl3xdre8J3a+r/RsRimk2ESXcTIMpUYkxIA/wc0tGpy59Mj1j2abUglW7BXw/ePad3ZIZND84h01A2TBl1EzBBiDiyYlz62AU8vTYGXV6KtLs7T3bBihJlYCkGpNEfRAOhZmh5Bn5zMP1/TA7zIIx0wSc86mjv3kQvh9V/38r+G9IQFUimU68/R/8C2CekS2rnA7y48mKuY86voJiPdXfBr4Qg2sCOOC6Zq60ck7fgq/vjFffu4ZlE6bUPGzUu29sCHQ2HQIUmPKH2y67NywkCmfotcq85/NPHkiOq10GkgMSejDI0jJiXc0sHe0ElWjQomqz4K5pgAxSKIB1o5Lmt7aXvPeXrUL3UjRM8FtvRLAKQBLuCIvU1u2ITVmySalCEdD1hasjQbr+oJDQ0oNRCPx06Ow/3oDK1cCSt4N+uJ1QqnVI2U+gs/lwoLv1TeX9wPhCQMYPrWLYgf3AyiQBkdOF7Ud+Udb4+uMg2ZPC8KvKR/x8ONyDCchLDSmTQ88B4gDh/sLxju4vUoOJ5ZK9LD3YA/eR2hkEkBMQ4Z/kw6lUBypicmbA1uVwLd7boUnRMbQ0gmMyzI2AO4zuNPjInw0BUqUQ13CYhvMkkEPmAfc+QuArr/8BFmhIo44ScwcAAAAASUVORK5CYII=" alt="logo"><span class="status-dot"></span>LLM-API-Proxy</h1>
         <div style="display:flex;align-items:center;gap:12px;-webkit-app-region:no-drag;">
             <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn">亮色模式</button>
-            <span class="ver">v0.1.0</span>
             <div class="win-controls">
                 <button class="win-btn" onclick="winMinimize()" title="最小化">
                     <svg width="12" height="12" viewBox="0 0 12 12"><rect y="5.5" width="12" height="1" fill="currentColor"/></svg>
@@ -1016,6 +1054,12 @@ gap: 8px;
             <div class="nav-item" data-page="health">健康检查</div>
             <div class="nav-item" data-page="help">使用教程</div>
             <div class="sidebar-footer">
+                <div class="version-row">
+                    <span class="version-label">v</span><span class="version-num" id="app-version">0.1.0</span>
+                    <button class="check-update-btn" onclick="checkForUpdates(false)" id="btn-check-update" title="检查更新">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+                    </button>
+                </div>
                 <span class="qq-label">作者QQ：</span><span class="qq-num" onclick="copyQQ()" title="点击复制">3267245598</span>
             </div>
         </div>
@@ -1229,6 +1273,15 @@ gap: 8px;
                             </div>
                         </div>
                     </div>
+                    <div class="settings-section">
+                        <div class="section-title">版本更新</div>
+                        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                            <span style="font-size:13px;color:var(--text-secondary);">当前版本：<code id="settings-app-version" style="font-family:'SF Mono','Cascadia Code',monospace;font-size:13px;">v0.1.0</code></span>
+                            <button class="btn btn-ghost btn-sm" id="btn-check-update" onclick="checkForUpdates()">检查更新</button>
+                            <span id="update-status" style="font-size:12px;color:var(--text-muted);"></span>
+                        </div>
+                        <div id="update-result" style="display:none;margin-top:12px;padding:14px 16px;background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-md);font-size:12px;line-height:1.6;"></div>
+                    </div>
                     <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px;">
                         <button class="btn btn-primary" id="btn-save-settings" onclick="saveSettings()">保存设置</button>
                     </div>
@@ -1369,6 +1422,18 @@ gap: 8px;
                         <li>健康检查会消耗少量上游 Token，请按需使用</li>
                         <li>建议在添加新上游或修改配置后执行一次检测确认连通性</li>
                     </ul>
+                </div>
+
+                <div class="help-section">
+                    <h3><span class="help-icon">🔄</span>版本更新</h3>
+                    <p>便捷版不支持在线自动更新，如需升级到新版本请按以下步骤操作：</p>
+                    <ul>
+                        <li>在「设置」页点击「检查更新」，程序会自动查询 GitHub 上的最新发布版本</li>
+                        <li>如果有新版本，点击「前往下载」跳转到 GitHub Releases 页面</li>
+                        <li>下载最新的 <code>.exe</code> 安装包，直接运行安装即可覆盖更新</li>
+                        <li>更新不会丢失数据 — 所有配置和日志存储在 <code>data/</code> 目录中，与程序文件分离</li>
+                    </ul>
+                    <div class="help-tip">也可以直接访问 <code>github.com/jiz-1789/LLM-API-Proxy/releases</code> 手动查看所有版本。建议关注 Releases 页面或给仓库点 Star 以获取更新通知。</div>
                 </div>
 
                 <div class="help-section">
@@ -2707,6 +2772,53 @@ function generateApiKey() {
     }
 
     // ================================================================
+    // Update Check
+    // ================================================================
+    async function checkForUpdates() {
+        const btn = document.getElementById('btn-check-update');
+        const status = document.getElementById('update-status');
+        const result = document.getElementById('update-result');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> 检查中...';
+        status.textContent = '正在查询 GitHub 最新版本...';
+        result.style.display = 'none';
+        try {
+            const info = await cmd('check_for_updates');
+            document.getElementById('settings-app-version').textContent = 'v' + info.current_version;
+            if (info.has_update) {
+                status.innerHTML = '<span style="color:var(--warning);">发现新版本 v' + esc(info.latest_version) + '</span>';
+                const notes = info.release_notes ? esc(info.release_notes).replace(/\n/g, '<br>') : '无更新说明';
+                result.style.display = 'block';
+                result.innerHTML = '<div style="margin-bottom:10px;"><strong style="color:var(--text-primary);">v' + esc(info.latest_version) + '</strong>' + (info.published_at ? ' <span style="color:var(--text-muted);">· ' + esc(info.published_at.substring(0, 10)) + '</span>' : '') + '</div><div style="color:var(--text-secondary);margin-bottom:12px;max-height:200px;overflow-y:auto;">' + notes + '</div><button class="btn btn-primary btn-sm" onclick="cmd(\'open_external_url\', { url: ' + JSON.stringify(info.release_url) + ' })">前往下载</button>';
+            } else {
+                status.innerHTML = '<span style="color:var(--success);">已是最新版本</span>';
+                result.style.display = 'block';
+                result.innerHTML = '<div style="color:var(--text-secondary);">当前版本 v' + esc(info.current_version) + ' 已是最新发布版本。</div>';
+            }
+        } catch (e) {
+            status.innerHTML = '<span style="color:var(--danger);">检查更新失败</span>';
+            result.style.display = 'block';
+            result.innerHTML = '<div style="color:var(--text-muted);">无法连接 GitHub API，请检查网络后重试。</div><div style="color:var(--text-muted);margin-top:4px;font-size:11px;">错误：' + esc(String(e)) + '</div>';
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '检查更新';
+        }
+    }
+
+    async function silentCheckForUpdates() {
+        try {
+            const info = await cmd('check_for_updates');
+const sbVer = document.getElementById('app-version');
+if (sbVer) sbVer.textContent = info.current_version;
+const setVer = document.getElementById('settings-app-version');
+if (setVer) setVer.textContent = 'v' + info.current_version;
+if (info.has_update) {
+toast('发现新版本 v' + info.latest_version + '，请前往「设置」页面下载', 'info');
+            }
+        } catch (_) { /* silent fail on startup */ }
+    }
+
+    // ================================================================
     // Health Check
     // ================================================================
     async function runHealthCheck() {
@@ -2994,6 +3106,8 @@ function restartCarouselTimer() {
         // Dashboard is the default active page — start its timer
         refreshDashboard();
         dashboardTimer = setInterval(refreshDashboard, 30000);
+        // Silently check for updates on startup
+        silentCheckForUpdates();
     })();
     </script>
 </body>

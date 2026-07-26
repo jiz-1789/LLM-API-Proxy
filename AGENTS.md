@@ -316,8 +316,84 @@ chore: gitignore internal docs and test data
 
 ### 7.3 分支策略
 
-- `main`：稳定版本，每次里程碑打 tag
-- `feature/*`：功能开发分支
+- `main`：**稳定发布分支**，只接受经过验证的合并，不允许直接在 `main` 上开发新功能
+- `feature/*`：功能开发分支，从 `main` 切出，开发完成后合并回 `main`
+- `fix/*`：Bug 修复分支，从 `main` 切出，修复后合并回 `main`
+
+**分支工作流：**
+
+```
+1. 从 main 切出 feature/xxx 分支
+2. 在 feature 分支上开发和自测
+3. 自测通过后合并回 main
+4. 清理已合并的 feature 分支
+```
+
+**规则：**
+
+- ❌ 禁止直接在 `main` 分支上开发新功能或修改代码
+- ✅ 所有功能开发和 Bug 修复必须在 `feature/*` 或 `fix/*` 分支上进行
+- ✅ 紧急修复可从 `main` 切出 `hotfix/*` 分支，修复后合并回 `main`
+- ✅ 已合并的分支应及时清理，避免分支堆积
+
+### 7.4 版本号管理
+
+本项目采用 **语义化版本**（Semantic Versioning），格式为 `vMAJOR.MINOR.PATCH`：
+
+| 版本段 | 何时递增 | 示例 |
+|--------|----------|------|
+| MAJOR | 不兼容的 API 变更 | `v1.0.0` |
+| MINOR | 向下兼容的新功能 | `v0.2.0` |
+| PATCH | 向下兼容的 Bug 修复 | `v0.1.1` |
+
+**版本号位置（三处必须同步）：**
+
+| 文件 | 字段 | 当前值 |
+|------|------|--------|
+| `Cargo.toml`（workspace） | `[workspace.package] version` | `0.1.0` |
+| `src-tauri/Cargo.toml` | `[package] version` | `0.1.0` |
+| `src-tauri/tauri.conf.json` | `"version"` | `0.1.0` |
+
+**发布流程：**
+
+```
+1. 在 feature 分支完成开发并自测通过
+2. 合并到 main
+3. 更新三处版本号（递增 PATCH 或 MINOR）
+4. 更新 CHANGELOG.md，添加版本说明
+5. 提交版本号变更：git commit -m "build: 发布 vX.Y.Z"
+6. 打 Git 标签：git tag vX.Y.Z
+7. 推送标签：git push origin vX.Y.Z
+8. 在 GitHub Releases 页面创建发布，附带 CHANGELOG.md 中对应版本的内容
+9. 上传构建好的 .exe 安装包到 Release Assets
+```
+
+**规则：**
+
+- ❌ 禁止跳过版本号递增直接打包发布
+- ❌ 禁止使用 `v0.1.0-r1`、`v0.1.0-beta` 等非标准后缀作为正式发布标签
+- ✅ Git 标签格式必须为 `vX.Y.Z`（如 `v0.1.1`、`v0.2.0`）
+- ✅ 每次发布必须同步更新 `CHANGELOG.md`
+- ✅ GitHub Release 的 `tag_name` 必须与三处版本号一致（带 `v` 前缀）
+
+### 7.5 更新日志（CHANGELOG）
+
+项目根目录维护 `CHANGELOG.md`，记录每个版本的变更内容：
+
+- 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)
+- 每次发布新版本前，在文件顶部新增版本条目
+- 变更分为：`新增`、`变更`、`修复`、`移除` 四类
+- 从用户视角描述变更，不写文件名、重构细节等内部信息
+
+```markdown
+## [0.1.1] - 2026-07-26
+
+### 新增
+- 设置页新增版本检查功能，可检测 GitHub 最新发布版本
+
+### 修复
+- 修复仪表盘最近活动显示硬编码文本的问题
+```
 
 ---
 
@@ -336,6 +412,10 @@ chore: gitignore internal docs and test data
 | 修改 `master_key.bin` 格式或位置 | 旧用户数据无法解密 |
 | 在 `src-tauri/gen/` 下手动编辑文件 | 自动生成，会被覆盖 |
 | 提交 `target/`、`*.db`、`*.exe`、`master_key.bin` | 构建产物/敏感数据 |
+| 直接在 `main` 分支上开发新功能 | 绕过分支审查流程 |
+| 不更新版本号直接打包发布 | 版本混乱，用户无法检测更新 |
+| 三处版本号不一致 | 语义化版本失效 |
+| 发布时不更新 `CHANGELOG.md` | 用户无法了解变更内容 |
 
 ---
 
@@ -360,6 +440,13 @@ chore: gitignore internal docs and test data
 
 新上游厂商
   → src/pool/thinking.rs (thinking 参数映射)
+
+版本发布
+  → Cargo.toml (workspace version)
+  → src-tauri/Cargo.toml (package version)
+  → src-tauri/tauri.conf.json (version)
+  → CHANGELOG.md (版本更新说明)
+  → git tag vX.Y.Z
 ```
 
 ---
@@ -374,6 +461,7 @@ chore: gitignore internal docs and test data
 | `CLA.md` | 贡献者许可协议 |
 | `LICENSE` | 双轨许可（AGPL-3.0 + 商业授权） |
 | `NOTICE` | 版权声明摘要 |
+| `CHANGELOG.md` | 版本更新日志 |
 | `DEVELOPMENT.md` | 数据库 Schema、迁移规范与兼容性检查清单 |
 | `LLM-API-Proxy-PRD.md` | 产品需求文档（内部，未公开） |
 | `LLM-API-Proxy-TECHDESIGN.md` | 技术设计文档（内部，未公开） |
