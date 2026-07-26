@@ -827,13 +827,13 @@ Ok(())
     pub fn get_upstream_model_token_stats(&self, upstream_id: &str) -> Result<Vec<ModelTokenUsage>, AppError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT COALESCE(model, 'unknown') as model,
+            "SELECT COALESCE(NULLIF(model, ''), '未记录') as model,
                     COALESCE(SUM(CASE WHEN date(created_at) = date('now') THEN total_tokens ELSE 0 END), 0) as today_tokens,
                     COALESCE(SUM(total_tokens), 0) as total_tokens,
                     COUNT(*) as request_count
              FROM request_logs
              WHERE upstream_id = ?1
-             GROUP BY COALESCE(model, 'unknown')
+             GROUP BY COALESCE(NULLIF(model, ''), '未记录')
              ORDER BY total_tokens DESC",
         )?;
         let rows = stmt.query_map(params![upstream_id], |row| {
