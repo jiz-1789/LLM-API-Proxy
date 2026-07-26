@@ -901,3 +901,13 @@ pub fn open_external_url(url: String) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Read text from the system clipboard (bypasses WebView2 permission prompts).
+#[tauri::command]
+pub fn read_clipboard() -> Result<String, String> {
+    let mut clipboard = arboard::Clipboard::new()
+        .map_err(|e| format!("Failed to access clipboard: {}", e))?;
+    let text = clipboard.get_text()
+        .map_err(|e| format!("Failed to read clipboard: {}", e))?;
+    Ok(text)
+}

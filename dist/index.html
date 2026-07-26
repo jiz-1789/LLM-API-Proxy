@@ -65,7 +65,8 @@
             font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", "Microsoft YaHei", sans-serif;
             background: var(--bg-primary);
             color: var(--text-primary);
-            min-height: 100vh;
+            height: 100vh;
+            overflow: hidden;
             display: flex;
             flex-direction: column;
             -webkit-font-smoothing: antialiased;
@@ -87,6 +88,7 @@
             user-select: none;
             position: relative;
             z-index: 10;
+            flex-shrink: 0;
         }
 .titlebar h1 {
 font-size: 13px;
@@ -120,10 +122,11 @@ gap: 8px;
     position: relative;
     border-radius: 12px;
     overflow: hidden;
-    margin-bottom: 20px;
-    height: 120px;
+    margin: 16px 20px 0 20px;
+    height: 100px;
     background: var(--bg-tertiary);
     border: 1px solid var(--border);
+    flex-shrink: 0;
 }
 .carousel-track {
     display: flex;
@@ -209,7 +212,7 @@ gap: 8px;
 .carousel-arrow.next { right: 8px; }
 
 /* === Layout === */
-        .container { flex: 1; display: flex; overflow: hidden; }
+        .container { flex: 1; display: flex; overflow: hidden; min-height: 0; }
         .sidebar {
             width: 200px;
             min-width: 200px;
@@ -221,6 +224,8 @@ gap: 8px;
             display: flex;
             flex-direction: column;
             gap: 2px;
+            overflow-y: auto;
+            flex-shrink: 0;
         }
         .nav-item {
             padding: 8px 12px;
@@ -255,9 +260,15 @@ gap: 8px;
         }
         .main {
             flex: 1;
-            padding: 28px 32px;
-            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
             background: var(--bg-primary);
+        }
+        .main-scroll {
+            flex: 1;
+            overflow-y: auto;
+            padding: 28px 32px;
         }
 
         /* === Cards === */
@@ -940,7 +951,7 @@ gap: 8px;
         </div>
 
         <div class="main">
-            <!-- ==================== Carousel ==================== -->
+            <!-- ==================== Carousel (fixed, non-scrollable) ==================== -->
             <div class="carousel" id="carousel">
                 <div class="carousel-track" id="carousel-track"></div>
                 <button class="carousel-arrow prev" onclick="carouselPrev()">&#8249;</button>
@@ -948,7 +959,8 @@ gap: 8px;
                 <div class="carousel-dots" id="carousel-dots"></div>
             </div>
 
-            <!-- ==================== Dashboard ==================== -->
+            <!-- ==================== Pages (scrollable) ==================== -->
+            <div class="main-scroll">
             <div class="page active" id="page-dashboard">
                 <div class="cards">
                     <div class="card">
@@ -1216,12 +1228,12 @@ gap: 8px;
                         <li><strong>Base URL</strong>：服务商的 API 地址，如 <code>https://api.openai.com</code></li>
                         <li><strong>API Key</strong>：你在服务商处获取的密钥，加密存储</li>
                         <li><strong>模型</strong>：该上游使用的模型名，如 <code>gpt-4o</code></li>
-                        <li><strong>可用模型</strong>：点击「获取」按钮自动从服务商拉取支持的模型列表</li>
+                        <li><strong>可用模型</strong>：点击「获取模型列表」按钮自动从服务商拉取支持的模型列表</li>
                     </ul>
                     <p><strong>操作方式：</strong></p>
                     <ul>
                         <li>点击「+ 新增上游」添加新服务商</li>
-                        <li>右键点击表格行可弹出菜单：编辑、启用/禁用、复制信息、删除</li>
+                        <li>右键点击表格行可弹出菜单：编辑、Token 消耗、启用/禁用、复制信息、删除（右键删除直接执行，无需二次确认）</li>
                         <li><strong>启用/禁用开关</strong>：禁用后网关不会再向该上游转发请求。适合余额用完或临时维护时使用</li>
                     </ul>
                     <div class="help-tip">编辑上游时如果 API Key 显示为 <code>••••••</code>（已脱敏），不修改则保持原密钥不变。获取模型列表时会自动调用服务商接口。</div>
@@ -1234,13 +1246,19 @@ gap: 8px;
                     <ul>
                         <li><strong>模型名称</strong>：客户端请求时使用的模型名（如 <code>gpt-4o</code>），对应 OpenAI API 中的 <code>model</code> 参数</li>
                         <li><strong>显示名</strong>：在界面中展示的友好名称</li>
-                        <li><strong>上游列表</strong>：选择加入该池的上游及其对应的模型映射</li>
+                        <li><strong>关联上游</strong>：勾选要加入该池的上游，并为每个上游选择对应模型</li>
+                        <li><strong>多模型选择</strong>：按住 Ctrl（或 Shift）可为一个上游选择多个模型，网关会在这些模型之间轮询负载均衡</li>
                         <li><strong>最大并发</strong>：该池允许的最大并发请求数</li>
                         <li><strong>思考模式</strong>：开启后自动为支持的上游注入推理参数（如 OpenAI 的 <code>reasoning_effort</code>、Claude 的 <code>thinking</code>）</li>
                         <li><strong>熔断阈值</strong>：连续失败达到此次数后，该上游被临时熔断跳过</li>
                         <li><strong>熔断恢复时间</strong>：熔断后经过此秒数自动尝试恢复</li>
                     </ul>
-                    <div class="help-tip">请求转发逻辑：轮询选择上游 → 跳过已禁用和已熔断的上游 → 失败时若开启故障转移则自动尝试下一个上游 → 全部失败则返回错误。</div>
+                    <p><strong>负载均衡机制（两层轮询）：</strong></p>
+                    <ul>
+                        <li><strong>第一层 — 上游轮询</strong>：每次请求在上游列表中轮换起始位置，使请求均匀分布到不同上游</li>
+                        <li><strong>第二层 — 模型轮询</strong>：若某上游关联了多个模型，每次请求到该上游时在模型间轮换</li>
+                    </ul>
+                    <div class="help-tip">请求转发逻辑：轮询选择上游 → 跳过已禁用和已熔断的上游 → 失败时若开启故障转移则自动尝试下一个上游 → 全部失败则返回错误。右键删除模型池直接执行，无需二次确认。</div>
                 </div>
 
                 <div class="help-section">
@@ -1278,6 +1296,16 @@ gap: 8px;
                 </div>
 
                 <div class="help-section">
+                    <h3><span class="help-icon">💾</span>数据与便携性</h3>
+                    <p>所有数据存储在程序同目录的 <code>data/</code> 文件夹中，不会写入系统注册表或其他系统目录。</p>
+                    <ul>
+                        <li><strong>proxy.db</strong>：SQLite 数据库，存储所有上游配置、模型池、请求日志、统计、设置等</li>
+                        <li><strong>master_key.bin</strong>：AES-256-GCM 主密钥，用于加密 API Key</li>
+                    </ul>
+                    <div class="help-tip">将便捷版 .exe 放入 U 盘或任意目录运行，所有数据会自动在程序同级目录生成。拔走即带走，不在电脑上残留任何用户数据。</div>
+                </div>
+
+                <div class="help-section">
                     <h3><span class="help-icon">💡</span>接入客户端示例</h3>
                     <p>以 Python OpenAI SDK 为例：</p>
                     <pre style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;font-size:12px;font-family:'SF Mono','Cascadia Code',monospace;overflow-x:auto;color:var(--text-primary);"><code>from openai import OpenAI
@@ -1306,22 +1334,22 @@ print(response.choices[0].message.content)</code></pre>
             <input type="hidden" id="edit-id">
             <div class="form-group">
                 <label class="form-label">供应商名称 *</label>
-                <input class="form-input" id="f-provider" placeholder="例如：OpenAI、DeepSeek、智谱">
+                <input class="form-input" id="f-provider" placeholder="例如：OpenAI、DeepSeek、智谱" autocomplete="off">
             </div>
             <div class="form-group">
                 <label class="form-label">Base URL *</label>
-                <input class="form-input" id="f-baseurl" placeholder="例如：https://api.openai.com">
+                <input class="form-input" id="f-baseurl" placeholder="例如：https://api.openai.com" autocomplete="off">
                 <div class="form-hint">上游 API 的根地址，不需要加 /v1</div>
             </div>
             <div class="form-group">
                 <label class="form-label">API Key *</label>
-                <input class="form-input" id="f-apikey" type="password" placeholder="输入 API Key">
+                <input class="form-input" id="f-apikey" type="password" placeholder="输入 API Key" autocomplete="new-password">
                 <div class="form-hint">API Key 将以 AES-256-GCM 加密存储</div>
             </div>
             <div class="form-group">
                 <label class="form-label">选择模型</label>
                 <div style="display:flex;gap:8px;align-items:center;">
-                    <input class="form-input" id="f-model" placeholder="输入或从下方选择模型" style="flex:1;">
+                    <input class="form-input" id="f-model" placeholder="输入或从下方选择模型" style="flex:1;" autocomplete="off">
                     <button class="btn btn-ghost btn-sm" id="btn-fetch-models" onclick="fetchModels()">
                         获取模型列表
                     </button>
@@ -1338,7 +1366,7 @@ print(response.choices[0].message.content)</code></pre>
                 </div>
                 <div class="form-group">
                     <label class="form-label">备注</label>
-                    <input class="form-input" id="f-remark" placeholder="可选备注">
+                    <input class="form-input" id="f-remark" placeholder="可选备注" autocomplete="off">
                 </div>
             </div>
             <div class="form-actions">
@@ -1490,6 +1518,15 @@ item.classList.add('active');
 const page = item.dataset.page;
 document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
 document.getElementById('page-' + page)?.classList.add('active');
+
+// Reset filters and pagination on page switch
+if (page === 'logs') {
+logCurrentPage = 0;
+const poolSel = document.getElementById('log-filter-pool');
+const statusSel = document.getElementById('log-filter-status');
+if (poolSel) poolSel.value = '';
+if (statusSel) statusSel.value = '';
+}
 
 // Stop dashboard timer when leaving dashboard
 if (page !== 'dashboard' && dashboardTimer) {
@@ -2109,25 +2146,26 @@ if (page === 'settings') loadSettings();
                 return;
             }
             const selectedMap = {};
-            (selectedEntries || []).forEach(e => { selectedMap[e.upstream_id] = e.model || ''; });
+            (selectedEntries || []).forEach(e => {
+                selectedMap[e.upstream_id] = (e.model || '').split(',').map(s => s.trim()).filter(s => s);
+            });
 
             container.innerHTML = upstreams.map(u => {
                 const models = u.available_models || (u.selected_model ? [u.selected_model] : []);
                 const isChecked = u.id in selectedMap;
-                const currentModel = selectedMap[u.id] || '';
+                const currentModels = selectedMap[u.id] || [];
                 const modelOptions = models.map(m =>
-                    `<option value="${esc(m)}" ${m === currentModel ? 'selected' : ''}>${esc(m)}</option>`
+                    `<option value="${esc(m)}" ${currentModels.includes(m) ? 'selected' : ''}>${esc(m)}</option>`
                 ).join('');
                 return `
-                <div style="display:flex;align-items:center;gap:8px;padding:5px 0;" class="pool-upstream-row">
+                <div style="display:flex;align-items:flex-start;gap:8px;padding:5px 0;" class="pool-upstream-row">
                     <input type="checkbox" class="pool-upstream-cb" value="${esc(u.id)}" ${isChecked ? 'checked' : ''}
-                        onchange="this.parentElement.querySelector('.pool-model-select').disabled=!this.checked">
-                    <span style="flex:1;font-size:13px;color:var(--text-secondary);">
+                        onchange="this.parentElement.querySelector('.pool-model-select').disabled=!this.checked" style="margin-top:4px;">
+                    <span style="flex:1;font-size:13px;color:var(--text-secondary);padding-top:2px;">
                         ${esc(u.provider_name)}
                     </span>
-                    <select class="pool-model-select form-input" style="width:160px;padding:5px 8px;font-size:12px;"
+                    <select multiple class="pool-model-select form-input" style="width:180px;padding:5px 8px;font-size:12px;min-height:60px;"
                         data-upstream-id="${esc(u.id)}" ${!isChecked ? 'disabled' : ''}>
-                        <option value="">-- 选择模型 --</option>
                         ${modelOptions}
                     </select>
                 </div>`;
@@ -2156,7 +2194,8 @@ if (page === 'settings') loadSettings();
             const cb = row.querySelector('.pool-upstream-cb');
             const select = row.querySelector('.pool-model-select');
             if (cb.checked) {
-                upstreams.push({ upstream_id: cb.value, model: select.value });
+                const selectedModels = [...select.selectedOptions].map(o => o.value).filter(v => v);
+                upstreams.push({ upstream_id: cb.value, model: selectedModels.join(',') });
             }
         });
 
@@ -2551,7 +2590,7 @@ function generateApiKey() {
                 { label: '复制', shortcut: 'Ctrl+C', disabled: !hasSelection, action: () => { document.execCommand('copy'); } },
                 { label: '粘贴', shortcut: 'Ctrl+V', action: async () => {
                     try {
-                        const text = await navigator.clipboard.readText();
+                        const text = await cmd('read_clipboard');
                         const start = target.selectionStart;
                         const end = target.selectionEnd;
                         target.value = target.value.substring(0, start) + text + target.value.substring(end);
@@ -2580,7 +2619,7 @@ function generateApiKey() {
                 { label: '复制供应商名称', action: () => { navigator.clipboard.writeText(u.provider_name); toast('已复制', 'success'); } },
                 { label: '复制 Base URL', action: () => { navigator.clipboard.writeText(u.base_url); toast('已复制', 'success'); } },
                 { separator: true },
-                { label: '删除', danger: true, action: () => openDeleteModal(id) },
+                { label: '删除', danger: true, action: async () => { try { await cmd('delete_upstream', { id }); toast('上游已删除', 'success'); await loadUpstreams(); refreshDashboard(); } catch (e) { toast('删除失败: ' + e, 'error'); } } },
             ]);
             return;
         }
@@ -2598,7 +2637,7 @@ function generateApiKey() {
                 { label: '复制模型名称', action: () => { navigator.clipboard.writeText(p.name); toast('已复制', 'success'); } },
                 { label: '复制显示名称', action: () => { navigator.clipboard.writeText(p.display_name); toast('已复制', 'success'); } },
                 { separator: true },
-                { label: '删除', danger: true, action: () => openPoolDeleteModal(id) },
+                { label: '删除', danger: true, action: async () => { try { await cmd('delete_pool', { id }); toast('模型池已删除', 'success'); await loadPools(); refreshDashboard(); } catch (e) { toast('删除失败: ' + e, 'error'); } } },
             ]);
             return;
         }
@@ -2610,8 +2649,9 @@ function generateApiKey() {
 const carouselSlides = [
     {
         title: '广告位招租',
-        desc: 'QQ 3267245598 · 说明来意自带价格',
-        url: 'tencent://message/?uin=3267245598&Site=&Menu=yes',
+        desc: '点击复制QQ号 3267245598 · 说明来意自带价格',
+        copyText: '3267245598',
+        copyToast: 'QQ号已复制到剪贴板，请手动添加好友',
         gradient: 'linear-gradient(135deg, #1a1a2e 0%, #444 50%, #666 100%)',
         icon: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="rgba(255,215,0,0.9)" stroke-width="1.5"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/><circle cx="9" cy="14" r="1" fill="rgba(255,215,0,0.9)"/><circle cx="15" cy="14" r="1" fill="rgba(255,215,0,0.9)"/></svg>`,
     },
@@ -2627,8 +2667,8 @@ function renderCarousel() {
 
     const single = carouselSlides.length <= 1;
 
-    track.innerHTML = carouselSlides.map(s => `
-        <div class="carousel-slide" onclick="carouselClick('${s.url}')" style="background:${s.gradient};">
+    track.innerHTML = carouselSlides.map((s, i) => `
+        <div class="carousel-slide" onclick="carouselClick(${i})" style="background:${s.gradient};">
             <div style="display:flex;align-items:center;gap:16px;width:100%;padding:0 24px;">
                 ${s.icon}
                 <div>
@@ -2679,11 +2719,22 @@ function carouselGoto(i) {
     restartCarouselTimer();
 }
 
-async function carouselClick(url) {
-    try {
-        await cmd('open_external_url', { url });
-    } catch (e) {
-        window.open(url, '_blank');
+async function carouselClick(i) {
+    const slide = carouselSlides[i];
+    if (!slide) return;
+    if (slide.copyText) {
+        try {
+            await navigator.clipboard.writeText(slide.copyText);
+            toast(slide.copyToast || '已复制到剪贴板', 'success');
+        } catch (e) {
+            toast('复制失败，请手动复制: ' + slide.copyText, 'error');
+        }
+    } else if (slide.url) {
+        try {
+            await cmd('open_external_url', { url: slide.url });
+        } catch (e) {
+            window.open(slide.url, '_blank');
+        }
     }
 }
 

@@ -301,14 +301,29 @@ async fn handle_chat_completions(
         // thinking params or model overrides from a previous iteration.
         let mut request_body = body.clone();
 
-        // Override model with the pool-specific model for this upstream
-        let target_model = if !pu.model.is_empty() {
-            &pu.model
+        // Override model with the pool-specific model for this upstream.
+        // The model field may contain comma-separated values (multi-select);
+        // round-robin across the available models for load balancing.
+        let models: Vec<&str> = if !pu.model.is_empty() {
+            pu.model.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect()
         } else {
-            &upstream.selected_model
+            Vec::new()
+        };
+        let model_str = if models.is_empty() {
+            upstream.selected_model.as_str()
+        } else if models.len() == 1 {
+            models[0]
+        } else {
+            // Round-robin across models: use a composite key of pool_id + upstream_id
+            let key = format!("{}:{}", pool.id, pu.upstream_id);
+            let mut counters = state.rr_counters.lock().unwrap();
+            let counter = counters.entry(key).or_insert(0);
+            let idx = *counter % models.len();
+            *counter = (*counter + 1) % models.len();
+            models[idx]
         };
         if let Some(obj) = request_body.as_object_mut() {
-            obj.insert("model".to_string(), Value::String(target_model.to_string()));
+            obj.insert("model".to_string(), Value::String(model_str.to_string()));
         }
 
         // Inject thinking params **per-upstream** based on this upstream's
@@ -338,7 +353,7 @@ async fn handle_chat_completions(
                 .forward_stream_request(
                     &upstream.base_url,
                     &api_key,
-                    target_model,
+                    model_str,
                     &request_body,
                 )
                 .await
@@ -357,7 +372,7 @@ async fn handle_chat_completions(
                         &request_id,
                         Some(&pool.name),
                         Some(&upstream.id),
-                        Some(target_model),
+                        Some(model_str),
                         &serde_json::to_string(&failed_upstreams_json).unwrap_or_default(),
                         "POST",
                         "/v1/chat/completions",
@@ -371,7 +386,7 @@ async fn handle_chat_completions(
 
                     info!(
                         "Streaming from {} (model={}) for pool={}",
-                        upstream.provider_name, target_model, pool.display_name
+                        upstream.provider_name, model_str, pool.display_name
                     );
 
                     // Build byte stream from upstream response
@@ -457,7 +472,7 @@ async fn handle_chat_completions(
                 .forward_request(
                     &upstream.base_url,
                     &api_key,
-                    target_model,
+                    model_str,
                     &request_body,
                     timeout_secs,
                 )
@@ -489,7 +504,7 @@ async fn handle_chat_completions(
                         &request_id,
                         Some(&pool.name),
                         Some(&upstream.id),
-                        Some(target_model),
+                        Some(model_str),
                         &serde_json::to_string(&failed_upstreams_json).unwrap_or_default(),
                         "POST",
                         "/v1/chat/completions",
