@@ -7,6 +7,19 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-07-27
+
+### 新增
+- 支持中英文双语切换，可在设置页选择界面语言（中文 / English）
+- 系统托盘菜单根据语言设置显示对应文本
+
+### 修复
+- 修复上游服务表格和模型池表格按钮文本因模板字符串语法错误导致显示异常的问题
+- 修复主题切换按钮文本未跟随语言切换的问题
+
+### 变更
+- 轮播图、Token 消耗图表、上下文菜单、CSV 导出等所有动态内容均已支持国际化
+
 ## [0.1.1] - 2026-07-26
 
 ### 新增
@@ -41,6 +54,7 @@
 - **数据便携**：所有数据存储在程序同目录 `data/` 文件夹，U 盘携带即走
 - **开源治理**：AGPL-3.0 双轨许可、CLA 贡献者协议、CONTRIBUTING.md 贡献指南
 
-[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.2
 [0.1.1]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.1
 [0.1.0]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.0
