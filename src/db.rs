@@ -94,6 +94,16 @@ pub total_tokens: i64,
 pub request_count: i64,
 }
 
+/// Hourly token usage for today's bar chart.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HourlyTokenUsage {
+pub hour: String,
+pub prompt_tokens: i64,
+pub completion_tokens: i64,
+pub total_tokens: i64,
+pub request_count: i64,
+}
+
 /// Token totals summary.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TokenTotals {
@@ -854,6 +864,237 @@ Ok(())
             })
         })?;
         Self::collect_rows(rows)
+    }
+
+    /// Get daily token usage for an upstream, optionally filtered by model, over the last N days.
+    pub fn get_upstream_token_stats_filtered(
+        &self,
+        upstream_id: &str,
+        model: Option<&str>,
+        days: i32,
+    ) -> Result<Vec<DailyTokenUsage>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let offset = format!("-{} days", days);
+
+        let (sql, params_vec): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match model {
+            Some(m) => (
+                "SELECT date(created_at) as day,
+                        COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
+                        COALESCE(SUM(completion_tokens), 0) as completion_tokens,
+                        COALESCE(SUM(total_tokens), 0) as total_tokens,
+                        COUNT(*) as request_count
+                 FROM request_logs
+                 WHERE upstream_id = ?1
+                   AND model = ?2
+                   AND created_at >= datetime('now', ?3)
+                 GROUP BY date(created_at)
+                 ORDER BY day ASC"
+                    .to_string(),
+                vec![
+                    Box::new(upstream_id.to_string()),
+                    Box::new(m.to_string()),
+                    Box::new(offset),
+                ],
+            ),
+            None => (
+                "SELECT date(created_at) as day,
+                        COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
+                        COALESCE(SUM(completion_tokens), 0) as completion_tokens,
+                        COALESCE(SUM(total_tokens), 0) as total_tokens,
+                        COUNT(*) as request_count
+                 FROM request_logs
+                 WHERE upstream_id = ?1
+                   AND created_at >= datetime('now', ?2)
+                 GROUP BY date(created_at)
+                 ORDER BY day ASC"
+                    .to_string(),
+                vec![
+                    Box::new(upstream_id.to_string()),
+                    Box::new(offset),
+                ],
+            ),
+        };
+
+        let mut stmt = conn.prepare(&sql)?;
+        let params: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+        let rows = stmt.query_map(params.as_slice(), |row| {
+            Ok(DailyTokenUsage {
+                date: row.get(0)?,
+                prompt_tokens: row.get(1)?,
+                completion_tokens: row.get(2)?,
+                total_tokens: row.get(3)?,
+                request_count: row.get(4)?,
+            })
+        })?;
+        Self::collect_rows(rows)
+    }
+
+    /// Get hourly token usage for today, optionally filtered by model.
+    /// Returns 24 rows (one per hour, 00–23).
+    pub fn get_upstream_hourly_stats(
+        &self,
+        upstream_id: &str,
+        model: Option<&str>,
+    ) -> Result<Vec<HourlyTokenUsage>, AppError> {
+        let conn = self.conn.lock().unwrap();
+
+        let (sql, params_vec): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match model {
+            Some(m) => (
+                "SELECT strftime('%H', created_at) as hour,
+                        COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
+                        COALESCE(SUM(completion_tokens), 0) as completion_tokens,
+                        COALESCE(SUM(total_tokens), 0) as total_tokens,
+                        COUNT(*) as request_count
+                 FROM request_logs
+                 WHERE upstream_id = ?1
+                   AND model = ?2
+                   AND date(created_at) = date('now')
+                 GROUP BY hour
+                 ORDER BY hour ASC"
+                    .to_string(),
+                vec![
+                    Box::new(upstream_id.to_string()),
+                    Box::new(m.to_string()),
+                ],
+            ),
+            None => (
+                "SELECT strftime('%H', created_at) as hour,
+                        COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
+                        COALESCE(SUM(completion_tokens), 0) as completion_tokens,
+                        COALESCE(SUM(total_tokens), 0) as total_tokens,
+                        COUNT(*) as request_count
+                 FROM request_logs
+                 WHERE upstream_id = ?1
+                   AND date(created_at) = date('now')
+                 GROUP BY hour
+                 ORDER BY hour ASC"
+                    .to_string(),
+                vec![Box::new(upstream_id.to_string())],
+            ),
+        };
+
+        let mut stmt = conn.prepare(&sql)?;
+        let params: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+        let db_rows: std::collections::HashMap<String, HourlyTokenUsage> = stmt
+            .query_map(params.as_slice(), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    HourlyTokenUsage {
+                        hour: row.get(0)?,
+                        prompt_tokens: row.get(1)?,
+                        completion_tokens: row.get(2)?,
+                        total_tokens: row.get(3)?,
+                        request_count: row.get(4)?,
+                    },
+                ))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        // Fill all 24 hours
+        let mut result = Vec::with_capacity(24);
+        for h in 0..24 {
+            let key = format!("{:02}", h);
+            let entry = db_rows.get(&key).cloned().unwrap_or(HourlyTokenUsage {
+                hour: key.clone(),
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: 0,
+                request_count: 0,
+            });
+            result.push(entry);
+        }
+        Ok(result)
+    }
+
+    /// Get today's token totals for an upstream, optionally filtered by model.
+    pub fn get_upstream_today_tokens_filtered(
+        &self,
+        upstream_id: &str,
+        model: Option<&str>,
+    ) -> Result<TokenTotals, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let (sql, params_vec): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match model {
+            Some(m) => (
+                "SELECT COALESCE(SUM(prompt_tokens), 0),
+                        COALESCE(SUM(completion_tokens), 0),
+                        COALESCE(SUM(total_tokens), 0)
+                 FROM request_logs
+                 WHERE upstream_id = ?1 AND model = ?2
+                   AND date(created_at) = date('now')"
+                    .to_string(),
+                vec![
+                    Box::new(upstream_id.to_string()),
+                    Box::new(m.to_string()),
+                ],
+            ),
+            None => (
+                "SELECT COALESCE(SUM(prompt_tokens), 0),
+                        COALESCE(SUM(completion_tokens), 0),
+                        COALESCE(SUM(total_tokens), 0)
+                 FROM request_logs
+                 WHERE upstream_id = ?1
+                   AND date(created_at) = date('now')"
+                    .to_string(),
+                vec![Box::new(upstream_id.to_string())],
+            ),
+        };
+        let mut stmt = conn.prepare(&sql)?;
+        let params: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+        let result = stmt.query_row(params.as_slice(), |row| {
+            Ok(TokenTotals {
+                prompt_tokens: row.get(0)?,
+                completion_tokens: row.get(1)?,
+                total_tokens: row.get(2)?,
+            })
+        })?;
+        Ok(result)
+    }
+
+    /// Get all-time token totals for an upstream, optionally filtered by model.
+    pub fn get_upstream_total_tokens_filtered(
+        &self,
+        upstream_id: &str,
+        model: Option<&str>,
+    ) -> Result<TokenTotals, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let (sql, params_vec): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match model {
+            Some(m) => (
+                "SELECT COALESCE(SUM(prompt_tokens), 0),
+                        COALESCE(SUM(completion_tokens), 0),
+                        COALESCE(SUM(total_tokens), 0)
+                 FROM request_logs
+                 WHERE upstream_id = ?1 AND model = ?2"
+                    .to_string(),
+                vec![
+                    Box::new(upstream_id.to_string()),
+                    Box::new(m.to_string()),
+                ],
+            ),
+            None => (
+                "SELECT COALESCE(SUM(prompt_tokens), 0),
+                        COALESCE(SUM(completion_tokens), 0),
+                        COALESCE(SUM(total_tokens), 0)
+                 FROM request_logs
+                 WHERE upstream_id = ?1"
+                    .to_string(),
+                vec![Box::new(upstream_id.to_string())],
+            ),
+        };
+        let mut stmt = conn.prepare(&sql)?;
+        let params: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+        let result = stmt.query_row(params.as_slice(), |row| {
+            Ok(TokenTotals {
+                prompt_tokens: row.get(0)?,
+                completion_tokens: row.get(1)?,
+                total_tokens: row.get(2)?,
+            })
+        })?;
+        Ok(result)
     }
 
     // ========================================================================

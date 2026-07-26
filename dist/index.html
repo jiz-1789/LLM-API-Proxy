@@ -255,6 +255,9 @@
         }
         .badge-green { background: var(--success-subtle); color: var(--success); }
         .badge-blue { background: var(--accent-subtle); color: var(--accent); }
+.token-model-tab { display:inline-flex; align-items:center; padding:5px 12px; border:1px solid var(--border); border-radius:var(--radius); background:var(--bg-tertiary); color:var(--text-secondary); font-size:12px; cursor:pointer; transition:all .15s; }
+.token-model-tab:hover { border-color:var(--accent); color:var(--accent); }
+.token-model-tab.active { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
         .badge-red { background: var(--danger-subtle); color: var(--danger); }
         .badge-yellow { background: var(--warning-subtle); color: var(--warning); }
 
@@ -1602,9 +1605,12 @@ if (page === 'settings') loadSettings();
     // Token Usage
     // ================================================================
     let currentTokenUpstreamId = null;
+    let currentTokenModels = [];      // list of model names from per_model
+    let currentTokenModel = null;     // null = all, or a specific model name
 
     async function openTokenModal(upstreamId, providerName) {
         currentTokenUpstreamId = upstreamId;
+        currentTokenModel = null;
         document.getElementById('token-provider-name').textContent = providerName;
         document.getElementById('token-modal-body').innerHTML = '<div class="empty-state">加载中...</div>';
         document.getElementById('token-reset-btn').style.display = 'none';
@@ -1616,11 +1622,49 @@ if (page === 'settings') loadSettings();
                 document.getElementById('token-modal-body').innerHTML = '<div class="empty-state">无法获取数据</div>';
                 return;
             }
-            renderTokenUsage(data);
+            currentTokenModels = (data.per_model || []).map(m => m.model);
+            // Load the "all models" detail (daily + hourly)
+            const detail = await cmd('get_upstream_model_detail', { upstreamId, model: null });
+            renderTokenUsage(data, detail);
             document.getElementById('token-reset-btn').style.display = '';
         } catch (e) {
             document.getElementById('token-modal-body').innerHTML = '<div class="empty-state">加载失败: ' + esc(String(e)) + '</div>';
         }
+    }
+
+    async function selectTokenModel(model) {
+        if (!currentTokenUpstreamId) return;
+        currentTokenModel = model;
+        const chartArea = document.getElementById('token-chart-area');
+        if (chartArea) chartArea.innerHTML = '<div class="empty-state">加载中...</div>';
+        try {
+            const detail = await cmd('get_upstream_model_detail', { upstreamId: currentTokenUpstreamId, model: model || null });
+            renderTokenDetail(detail);
+        } catch (e) {
+            if (chartArea) chartArea.innerHTML = '<div class="empty-state">加载失败: ' + esc(String(e)) + '</div>';
+        }
+    }
+
+    function renderTokenDetail(detail) {
+        const chartArea = document.getElementById('token-chart-area');
+        if (!chartArea) return;
+        const daily = detail.daily || [];
+        const hourly = detail.hourly || [];
+
+        // Update summary cards
+        const today = detail.today || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+        const total = detail.total || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+        const todayEl = document.getElementById('token-today');
+        const totalEl = document.getElementById('token-total');
+        if (todayEl) todayEl.innerHTML = `${fmtNum(today.total_tokens)}<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">输入 ${fmtNum(today.prompt_tokens)} · 输出 ${fmtNum(today.completion_tokens)}</div>`;
+        if (totalEl) totalEl.innerHTML = `${fmtNum(total.total_tokens)}<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">输入 ${fmtNum(total.prompt_tokens)} · 输出 ${fmtNum(total.completion_tokens)}</div>`;
+
+        chartArea.innerHTML = `
+            <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:10px;">近 30 天趋势</div>
+            ${renderTokenChart(daily)}
+            <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin:16px 0 10px;">今日各时段消耗</div>
+            ${renderTokenHourlyChart(hourly)}
+        `;
     }
 
     async function resetTokenStats() {
@@ -1629,9 +1673,12 @@ if (page === 'settings') loadSettings();
         try {
             await cmd('reset_upstream_token_stats', { upstreamId: currentTokenUpstreamId });
             toast('统计已重置', 'success');
-            // Reload data
+            // Reload everything
             const data = await cmd('get_upstream_token_usage', { upstreamId: currentTokenUpstreamId });
-            if (data) renderTokenUsage(data);
+            currentTokenModels = (data.per_model || []).map(m => m.model);
+            currentTokenModel = null;
+            const detail = await cmd('get_upstream_model_detail', { upstreamId: currentTokenUpstreamId, model: null });
+            renderTokenUsage(data, detail);
         } catch (e) {
             toast('重置失败: ' + e, 'error');
         }
@@ -1647,45 +1694,32 @@ if (page === 'settings') loadSettings();
         return String(n);
     }
 
-    function renderTokenUsage(data) {
+    function renderTokenUsage(data, detail) {
         const today = data.today || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
         const total = data.total || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
-        const daily = data.daily || [];
         const perModel = data.per_model || [];
 
         const body = document.getElementById('token-modal-body');
         body.innerHTML = `
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
                 <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:16px;">
                     <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">今日消耗</div>
-                    <div style="font-size:24px;font-weight:700;color:var(--text-primary);">${fmtNum(today.total_tokens)}</div>
-                    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">
-                        输入 ${fmtNum(today.prompt_tokens)} · 输出 ${fmtNum(today.completion_tokens)}
-                    </div>
+                    <div id="token-today" style="font-size:24px;font-weight:700;color:var(--text-primary);">${fmtNum(today.total_tokens)}<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">输入 ${fmtNum(today.prompt_tokens)} · 输出 ${fmtNum(today.completion_tokens)}</div></div>
                 </div>
                 <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:16px;">
                     <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">累计消耗</div>
-                    <div style="font-size:24px;font-weight:700;color:var(--text-primary);">${fmtNum(total.total_tokens)}</div>
-                    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">
-                        输入 ${fmtNum(total.prompt_tokens)} · 输出 ${fmtNum(total.completion_tokens)}
-                    </div>
+                    <div id="token-total" style="font-size:24px;font-weight:700;color:var(--text-primary);">${fmtNum(total.total_tokens)}<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">输入 ${fmtNum(total.prompt_tokens)} · 输出 ${fmtNum(total.completion_tokens)}</div></div>
                 </div>
             </div>
             ${perModel.length > 0 ? `
-            <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:10px;">按模型统计</div>
-            <div class="table-wrap" style="margin-bottom:20px;">
+            <div class="table-wrap" style="margin-bottom:16px;">
                 <table>
                     <thead>
-                        <tr>
-                            <th>模型</th>
-                            <th>今日消耗</th>
-                            <th>累计消耗</th>
-                            <th>请求数</th>
-                        </tr>
+                        <tr><th>模型</th><th>今日消耗</th><th>累计消耗</th><th>请求数</th></tr>
                     </thead>
                     <tbody>
                         ${perModel.map(m => `
-                            <tr>
+                            <tr style="cursor:pointer;" onclick="selectTokenModel('${esc(m.model).replace(/'/g,"\\'")}')">
                                 <td><span class="badge badge-blue">${esc(m.model)}</span></td>
                                 <td style="color:var(--text-primary);font-weight:500;">${fmtNum(m.today_tokens)}</td>
                                 <td style="color:var(--text-primary);font-weight:500;">${fmtNum(m.total_tokens)}</td>
@@ -1696,37 +1730,35 @@ if (page === 'settings') loadSettings();
                 </table>
             </div>
             ` : ''}
-            <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:10px;">近 30 天趋势</div>
-            ${renderTokenChart(daily)}
-            <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin:16px 0 10px;">每日消耗（柱状图）</div>
-            ${renderTokenBarChart(daily)}
-            ${daily.length === 0 ? '<div class="empty-state" style="margin-top:8px;">暂无消耗记录</div>' : ''}
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;">
+                <button class="token-model-tab ${currentTokenModel === null ? 'active' : ''}" onclick="selectTokenModel(null)">全部模型</button>
+                ${currentTokenModels.map(m => `<button class="token-model-tab ${currentTokenModel === m ? 'active' : ''}" onclick="selectTokenModel('${esc(m).replace(/'/g,"\\'")}')">${esc(m)}</button>`).join('')}
+            </div>
+            <div id="token-chart-area"></div>
         `;
+        renderTokenDetail(detail);
     }
 
     function renderTokenChart(daily) {
-        if (!daily || daily.length === 0) return '';
+        if (!daily || daily.length === 0) return '<div class="empty-state" style="margin-top:8px;">暂无消耗记录</div>';
         const W = 600, H = 200, P = 40;
-        const chartW = W - P * 2, chartH = H - P * 2 - 20; // leave room for legend
+        const chartW = W - P * 2, chartH = H - P * 2 - 20;
 
         const maxVal = Math.max(...daily.map(d => Math.max(d.prompt_tokens, d.completion_tokens)), 1);
         const n = daily.length;
         const stepX = n > 1 ? chartW / (n - 1) : 0;
 
-        // Build points for prompt_tokens line
         const promptPoints = daily.map((d, i) => {
             const x = P + i * stepX;
             const y = P + chartH - (d.prompt_tokens / maxVal) * chartH;
             return `${x},${y}`;
         });
-        // Build points for completion_tokens line
         const compPoints = daily.map((d, i) => {
             const x = P + i * stepX;
             const y = P + chartH - (d.completion_tokens / maxVal) * chartH;
             return `${x},${y}`;
         });
 
-        // Y-axis labels (4 ticks)
         const yTicks = [];
         for (let i = 0; i <= 3; i++) {
             const val = Math.round(maxVal * (3 - i) / 3);
@@ -1737,7 +1769,6 @@ if (page === 'settings') loadSettings();
             `);
         }
 
-        // X-axis labels (show first, middle, last)
         const xLabels = [];
         const labelIndices = n <= 1 ? [0] : n <= 10 ? daily.map((_, i) => i) : [0, Math.floor(n / 2), n - 1];
         labelIndices.forEach(i => {
@@ -1747,7 +1778,6 @@ if (page === 'settings') loadSettings();
             xLabels.push(`<text x="${x}" y="${P + chartH + 14}" text-anchor="middle" font-size="10" fill="var(--text-muted)">${dateStr}</text>`);
         });
 
-        // Data points with hover tooltips
         const promptDots = daily.map((d, i) => {
             const x = P + i * stepX;
             const y = P + chartH - (d.prompt_tokens / maxVal) * chartH;
@@ -1780,17 +1810,16 @@ if (page === 'settings') loadSettings();
         `;
     }
 
-    function renderTokenBarChart(daily) {
-        if (!daily || daily.length === 0) return '';
-        const W = 600, H = 160, P = 40;
+    function renderTokenHourlyChart(hourly) {
+        if (!hourly || hourly.length === 0) return '<div class="empty-state" style="margin-top:8px;">今日暂无消耗记录</div>';
+        const W = 600, H = 180, P = 40;
         const chartW = W - P * 2, chartH = H - P * 2;
+        const n = hourly.length; // 24
+        const gap = 2;
+        const barW = Math.max((chartW - gap * (n - 1)) / n, 2);
 
-        const maxVal = Math.max(...daily.map(d => d.total_tokens), 1);
-        const n = daily.length;
-        const gap = 4;
-        const barW = n > 0 ? Math.max((chartW - gap * (n - 1)) / n, 2) : 0;
+        const maxVal = Math.max(...hourly.map(d => d.total_tokens), 1);
 
-        // Y-axis labels
         const yTicks = [];
         for (let i = 0; i <= 3; i++) {
             const val = Math.round(maxVal * (3 - i) / 3);
@@ -1801,25 +1830,22 @@ if (page === 'settings') loadSettings();
             `);
         }
 
-        // Bars
-        const bars = daily.map((d, i) => {
+        const bars = hourly.map((d, i) => {
             const x = P + i * (barW + gap);
             const h = (d.total_tokens / maxVal) * chartH;
             const y = P + chartH - h;
-            return `<rect x="${x}" y="${y}" width="${barW}" height="${h}" rx="2" fill="var(--accent)" opacity="0.8">
-                <title>${d.date}\n消耗: ${fmtNum(d.total_tokens)}\n请求: ${d.request_count}</title>
+            const hasData = d.total_tokens > 0;
+            return `<rect x="${x}" y="${y}" width="${barW}" height="${hasData ? h : 2}" rx="1.5" fill="${hasData ? 'var(--accent)' : 'var(--border)'}" opacity="${hasData ? 0.85 : 0.4}">
+                <title>${d.hour}:00 — ${d.hour}:59\n输入: ${fmtNum(d.prompt_tokens)}\n输出: ${fmtNum(d.completion_tokens)}\n总计: ${fmtNum(d.total_tokens)}\n请求: ${d.request_count}</title>
             </rect>`;
         });
 
-        // X-axis labels
+        // X-axis labels every 4 hours
         const xLabels = [];
-        const labelIndices = n <= 1 ? [0] : n <= 10 ? daily.map((_, i) => i) : [0, Math.floor(n / 2), n - 1];
-        labelIndices.forEach(i => {
-            if (i < 0 || i >= n) return;
-            const x = P + i * (barW + gap) + barW / 2;
-            const dateStr = daily[i].date.substring(5);
-            xLabels.push(`<text x="${x}" y="${H - P + 14}" text-anchor="middle" font-size="10" fill="var(--text-muted)">${dateStr}</text>`);
-        });
+        for (let h = 0; h < 24; h += 4) {
+            const x = P + h * (barW + gap) + barW / 2;
+            xLabels.push(`<text x="${x}" y="${H - P + 14}" text-anchor="middle" font-size="10" fill="var(--text-muted)">${h}:00</text>`);
+        }
 
         return `
             <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="max-width:100%;height:auto;">

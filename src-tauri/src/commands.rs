@@ -649,6 +649,43 @@ state
 .map_err(|e| e.to_string())
 }
 
+/// Token usage detail response filtered by model (or all models).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelDetailResponse {
+pub today: llm_api_proxy_lib::db::TokenTotals,
+pub total: llm_api_proxy_lib::db::TokenTotals,
+pub daily: Vec<llm_api_proxy_lib::db::DailyTokenUsage>,
+pub hourly: Vec<llm_api_proxy_lib::db::HourlyTokenUsage>,
+}
+
+/// Get token stats for an upstream filtered by model.
+/// When model is None or empty, returns aggregated stats for all models.
+#[tauri::command]
+pub fn get_upstream_model_detail(
+upstream_id: String,
+model: Option<String>,
+state: State<'_, AppState>,
+) -> Result<ModelDetailResponse, String> {
+let model_ref = model.as_deref().filter(|m| !m.is_empty());
+let today = state
+.db
+.get_upstream_today_tokens_filtered(&upstream_id, model_ref)
+.map_err(|e| e.to_string())?;
+let total = state
+.db
+.get_upstream_total_tokens_filtered(&upstream_id, model_ref)
+.map_err(|e| e.to_string())?;
+let daily = state
+.db
+.get_upstream_token_stats_filtered(&upstream_id, model_ref, 30)
+.map_err(|e| e.to_string())?;
+let hourly = state
+.db
+.get_upstream_hourly_stats(&upstream_id, model_ref)
+.map_err(|e| e.to_string())?;
+Ok(ModelDetailResponse { today, total, daily, hourly })
+}
+
 // ============================================================================
 // Health Check Commands
 // ============================================================================
