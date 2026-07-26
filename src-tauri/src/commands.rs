@@ -1221,6 +1221,13 @@ pub async fn download_update(
 
     let total_size = resp.content_length().unwrap_or(0);
 
+    // Emit initial progress event so the UI shows immediate feedback
+    let _ = app_handle.emit("update-progress", DownloadProgress {
+        downloaded: 0,
+        total: total_size,
+        percentage: 0.0,
+    });
+
     // Stream the download with progress reporting
     let mut file = std::fs::File::create(&downloading_path)
         .map_err(|e| format!("创建临时文件失败: {}", e))?;
@@ -1271,6 +1278,13 @@ pub async fn download_update(
     drop(file); // Ensure the file handle is closed before rename
 
     tracing::info!("Download complete: {} bytes", downloaded);
+
+    // Emit final 100% progress event
+    let _ = app_handle.emit("update-progress", DownloadProgress {
+        downloaded,
+        total: total_size,
+        percentage: 100.0,
+    });
 
     // Rename downloading file to pending file
     std::fs::rename(&downloading_path, &pending_path)

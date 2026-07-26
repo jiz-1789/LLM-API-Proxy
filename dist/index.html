@@ -3446,9 +3446,13 @@ function generateApiKey() {
         const btn = document.getElementById(btnId);
         const result = document.getElementById('update-result');
 
-        // Insert a progress bar into the result area
+        // Insert a progress bar into the result area FIRST
         let progressContainer = null;
         if (result) {
+            // Remove any existing progress container first
+            const existing = document.getElementById('update-progress-container');
+            if (existing) existing.remove();
+
             progressContainer = document.createElement('div');
             progressContainer.id = 'update-progress-container';
             progressContainer.style.cssText = 'margin-top:12px;';
@@ -3463,23 +3467,27 @@ function generateApiKey() {
             result.appendChild(progressContainer);
         }
 
-        // Listen for progress events from the backend
+        // Listen for progress events from the backend - AWAIT the listener setup
         let unlistenFn = null;
         const tauriEvent = window.__TAURI__?.event;
         if (tauriEvent?.listen) {
-            tauriEvent.listen('update-progress', (event) => {
-                const data = event.payload;
-                const bar = document.getElementById('update-progress-bar');
-                const text = document.getElementById('update-progress-text');
-                if (bar && data) {
-                    bar.style.width = (data.percentage || 0).toFixed(1) + '%';
-                }
-                if (text && data) {
-                    const dlMB = (data.downloaded / 1048576).toFixed(1);
-                    const totalMB = data.total > 0 ? (data.total / 1048576).toFixed(1) : '?';
-                    text.textContent = (data.percentage || 0).toFixed(0) + '%  (' + dlMB + ' / ' + totalMB + ' MB)';
-                }
-            }).then(fn => { unlistenFn = fn; });
+            try {
+                unlistenFn = await tauriEvent.listen('update-progress', (event) => {
+                    const data = event.payload;
+                    const bar = document.getElementById('update-progress-bar');
+                    const text = document.getElementById('update-progress-text');
+                    if (bar && data) {
+                        bar.style.width = (data.percentage || 0).toFixed(1) + '%';
+                    }
+                    if (text && data) {
+                        const dlMB = (data.downloaded / 1048576).toFixed(1);
+                        const totalMB = data.total > 0 ? (data.total / 1048576).toFixed(1) : '?';
+                        text.textContent = (data.percentage || 0).toFixed(0) + '%  (' + dlMB + ' / ' + totalMB + ' MB)';
+                    }
+                });
+            } catch (e) {
+                console.warn('Failed to listen for update-progress events:', e);
+            }
         }
 
         if (btn) {
