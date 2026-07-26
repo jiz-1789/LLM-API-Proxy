@@ -1433,11 +1433,11 @@ gap: 8px;
 
                 <div class="help-section">
                     <h3><span class="help-icon">🔄</span><span data-i18n="help_version_update">版本更新</span></h3>
-                    <p data-i18n="help_version_desc">便捷版不支持在线自动更新，如需升级到新版本请按以下步骤操作：</p>
+                    <p data-i18n="help_version_desc">程序支持在线检查更新并一键下载升级，操作步骤如下：</p>
                     <ul>
                         <li data-i18n="help_version_item_1">在「设置」页点击「检查更新」，程序会自动查询 GitHub 上的最新发布版本</li>
-                        <li data-i18n="help_version_item_2">如果有新版本，点击「前往下载」跳转到 GitHub Releases 页面</li>
-                        <li data-i18n-html="help_version_item_3">下载最新的 <code>.exe</code> 安装包，直接运行安装即可覆盖更新</li>
+                        <li data-i18n="help_version_item_2">如果有新版本，点击「下载并更新」按钮，程序会自动下载最新版本并重启</li>
+                        <li data-i18n-html="help_version_item_3">也可以手动访问 <code>github.com/jiz-1789/LLM-API-Proxy/releases</code> 下载 <code>.exe</code> 文件覆盖更新</li>
                         <li data-i18n-html="help_version_item_4">更新不会丢失数据 — 所有配置和日志存储在 <code>data/</code> 目录中，与程序文件分离</li>
                     </ul>
                     <div class="help-tip" data-i18n-html="help_version_tip">也可以直接访问 <code>github.com/jiz-1789/LLM-API-Proxy/releases</code> 手动查看所有版本。建议关注 Releases 页面或给仓库点 Star 以获取更新通知。</div>
@@ -1749,6 +1749,10 @@ print(response.choices[0].message.content)</code></pre>
         update_fail: { zh: '检查更新失败', en: 'Update check failed' },
         update_fail_network: { zh: '无法连接 GitHub API，请检查网络后重试。', en: 'Cannot connect to GitHub API. Please check your network.' },
         update_download: { zh: '前往下载', en: 'Download' },
+        update_download_btn: { zh: '下载并更新', en: 'Download & Update' },
+        update_downloading: { zh: '正在下载更新...', en: 'Downloading update...' },
+        update_download_success: { zh: '下载完成，正在重启更新...', en: 'Download complete, restarting...' },
+        update_download_fail: { zh: '下载更新失败: ', en: 'Download failed: ' },
         update_no_notes: { zh: '无更新说明', en: 'No release notes' },
         update_go_settings: { zh: '，请前往「设置」页面下载', en: '. Go to Settings to download.' },
         update_toast_latest: { zh: '已是最新版本', en: 'Already up to date' },
@@ -2019,10 +2023,10 @@ print(response.choices[0].message.content)</code></pre>
         help_health_item_1: { zh: '检测结果包含：连通状态、响应延迟、错误信息', en: 'Results include: connectivity status, response latency, error messages' },
         help_health_item_2: { zh: '健康检查会消耗少量上游 Token，请按需使用', en: 'Health checks consume a small amount of upstream tokens. Use as needed.' },
         help_health_item_3: { zh: '建议在添加新上游或修改配置后执行一次检测确认连通性', en: 'Recommended to run a check after adding new upstreams or changing configs' },
-        help_version_desc: { zh: '便捷版不支持在线自动更新，如需升级到新版本请按以下步骤操作：', en: 'The portable version does not support auto-update. To upgrade:' },
+        help_version_desc: { zh: '程序支持在线检查更新并一键下载升级，操作步骤如下：', en: 'The app supports online update check and one-click download upgrade. Steps:' },
         help_version_item_1: { zh: '在「设置」页点击「检查更新」，程序会自动查询 GitHub 上的最新发布版本', en: 'Click "Check for Updates" in Settings to query the latest GitHub release' },
-        help_version_item_2: { zh: '如果有新版本，点击「前往下载」跳转到 GitHub Releases 页面', en: 'If a new version is available, click "Download" to open GitHub Releases' },
-        help_version_item_3: { zh: '下载最新的 <code>.exe</code> 安装包，直接运行安装即可覆盖更新', en: 'Download the latest <code>.exe</code> installer and run it to update' },
+        help_version_item_2: { zh: '如果有新版本，点击「下载并更新」按钮，程序会自动下载最新版本并重启', en: 'If a new version is available, click "Download & Update" to auto-download and restart' },
+        help_version_item_3: { zh: '也可以手动访问 {github} 下载 {exe} 文件覆盖更新', en: 'Or manually visit {github} to download the {exe} file to overwrite' },
         help_version_item_4: { zh: '更新不会丢失数据 — 所有配置和日志存储在 <code>data/</code> 目录中，与程序文件分离', en: 'Updates do not lose data — all configs and logs are stored in the <code>data/</code> directory, separate from the program files' },
         help_version_tip: { zh: '也可以直接访问 <code>github.com/jiz-1789/LLM-API-Proxy/releases</code> 手动查看所有版本。建议关注 Releases 页面或给仓库点 Star 以获取更新通知。', en: 'You can also visit <code>github.com/jiz-1789/LLM-API-Proxy/releases</code> directly. Follow the Releases page or star the repo for update notifications.' },
         help_portability_desc: { zh: '所有数据存储在程序同目录的 <code>data/</code> 文件夹中，不会写入系统注册表或其他系统目录。', en: 'All data is stored in the <code>data/</code> folder next to the program. No registry entries or system directories are used.' },
@@ -2165,6 +2169,10 @@ if (page === 'upstreams') loadUpstreams();
 if (page === 'pools') loadPools();
 if (page === 'logs') { populatePoolFilter(); loadLogs(true); }
 if (page === 'settings') loadSettings();
+// Auto-render stored update info if available (from silent startup check)
+if (page === 'settings' && lastUpdateInfo) {
+    renderUpdateInfo(lastUpdateInfo);
+}
 });
 });
 
@@ -3277,6 +3285,64 @@ function generateApiKey() {
     // ================================================================
     // Update Check
     // ================================================================
+    let lastUpdateInfo = null; // Stores the latest update check result
+
+    // Show/hide the red dot indicator on sidebar check-update button
+    function updateSidebarBadge(show) {
+        const sidebarBtn = document.getElementById('sidebar-check-update');
+        if (!sidebarBtn) return;
+        let dot = sidebarBtn.querySelector('.update-dot');
+        if (show) {
+            if (!dot) {
+                dot = document.createElement('span');
+                dot.className = 'update-dot';
+                sidebarBtn.appendChild(dot);
+            }
+        } else {
+            if (dot) dot.remove();
+        }
+    }
+
+    // Render update info in the settings page
+    function renderUpdateInfo(info) {
+        const status = document.getElementById('update-status');
+        const result = document.getElementById('update-result');
+        if (!status || !result) return;
+        if (info.has_update) {
+            status.innerHTML = '<span style="color:var(--warning);">' + t('update_found') + ' v' + esc(info.latest_version) + '</span>';
+            const notes = info.release_notes ? esc(info.release_notes).replace(/\n/g, '<br>') : t('update_no_notes');
+            result.style.display = 'block';
+            const downloadBtn = info.download_url
+                ? '<button class="btn btn-primary btn-sm" id="btn-download-update" onclick="downloadAndUpdate(' + JSON.stringify(info.download_url) + ')">' + t('update_download_btn') + '</button>'
+                : '<button class="btn btn-ghost btn-sm" onclick="cmd(\'open_external_url\', { url: ' + JSON.stringify(info.release_url) + ' })">' + t('update_download') + '</button>';
+            result.innerHTML = '<div style="margin-bottom:10px;"><strong style="color:var(--text-primary);">v' + esc(info.latest_version) + '</strong>' + (info.published_at ? ' <span style="color:var(--text-muted);">· ' + esc(info.published_at.substring(0, 10)) + '</span>' : '') + '</div><div style="color:var(--text-secondary);margin-bottom:12px;max-height:200px;overflow-y:auto;">' + notes + '</div>' + downloadBtn;
+        } else {
+            status.innerHTML = '<span style="color:var(--success);">' + t('update_latest') + '</span>';
+            result.style.display = 'block';
+            result.innerHTML = '<div style="color:var(--text-secondary);">v' + esc(info.current_version) + ' ' + t('update_latest_detail') + '</div>';
+        }
+    }
+
+    // Download the new portable exe and auto-update
+    async function downloadAndUpdate(downloadUrl) {
+        const btn = document.getElementById('btn-download-update');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> ' + t('update_downloading');
+        }
+        try {
+            await cmd('download_and_update', { downloadUrl: downloadUrl });
+            // If we reach here, the app is about to exit for update
+            toast(t('update_download_success'), 'success');
+        } catch (e) {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = t('update_download_btn');
+            }
+            toast(t('update_download_fail') + e, 'error');
+        }
+    }
+
     async function checkForUpdates(fromSidebar) {
         const sidebarBtn = document.getElementById('sidebar-check-update');
         const settingsBtn = document.getElementById('btn-check-update');
@@ -3296,24 +3362,21 @@ function generateApiKey() {
         if (result) result.style.display = 'none';
         try {
             const info = await cmd('check_for_updates');
+            lastUpdateInfo = info;
             const sbVer = document.getElementById('app-version');
             if (sbVer) sbVer.textContent = info.current_version;
             const setVer = document.getElementById('settings-app-version');
             if (setVer) setVer.textContent = 'v' + info.current_version;
+            updateSidebarBadge(info.has_update);
             if (info.has_update) {
                 if (isSettings) {
-                    status.innerHTML = '<span style="color:var(--warning);">' + t('update_found') + ' v' + esc(info.latest_version) + '</span>';
-                    const notes = info.release_notes ? esc(info.release_notes).replace(/\n/g, '<br>') : t('update_no_notes');
-                    result.style.display = 'block';
-                    result.innerHTML = '<div style="margin-bottom:10px;"><strong style="color:var(--text-primary);">v' + esc(info.latest_version) + '</strong>' + (info.published_at ? ' <span style="color:var(--text-muted);">· ' + esc(info.published_at.substring(0, 10)) + '</span>' : '') + '</div><div style="color:var(--text-secondary);margin-bottom:12px;max-height:200px;overflow-y:auto;">' + notes + '</div><button class="btn btn-primary btn-sm" onclick="cmd(\'open_external_url\', { url: ' + JSON.stringify(info.release_url) + ' })">' + t('update_download') + '</button>';
+                    renderUpdateInfo(info);
                 } else {
                     toast(t('update_found') + ' v' + info.latest_version + t('update_go_settings'), 'info');
                 }
             } else {
                 if (isSettings) {
-                    status.innerHTML = '<span style="color:var(--success);">' + t('update_latest') + '</span>';
-                    result.style.display = 'block';
-                    result.innerHTML = '<div style="color:var(--text-secondary);">v' + esc(info.current_version) + ' ' + t('update_latest_detail') + '</div>';
+                    renderUpdateInfo(info);
                 } else {
                     toast(t('update_toast_latest'), 'success');
                 }
@@ -3333,6 +3396,10 @@ function generateApiKey() {
                     btn.textContent = t('check_update');
                 } else {
                     btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>';
+                    // Re-apply badge if update was found
+                    if (lastUpdateInfo && lastUpdateInfo.has_update) {
+                        updateSidebarBadge(true);
+                    }
                 }
             }
         }
@@ -3341,12 +3408,14 @@ function generateApiKey() {
     async function silentCheckForUpdates() {
         try {
             const info = await cmd('check_for_updates');
-const sbVer = document.getElementById('app-version');
-if (sbVer) sbVer.textContent = info.current_version;
-const setVer = document.getElementById('settings-app-version');
-if (setVer) setVer.textContent = 'v' + info.current_version;
-if (info.has_update) {
-toast(t('toast_update_found_toast').replace('{v}', info.latest_version), 'info');
+            lastUpdateInfo = info;
+            const sbVer = document.getElementById('app-version');
+            if (sbVer) sbVer.textContent = info.current_version;
+            const setVer = document.getElementById('settings-app-version');
+            if (setVer) setVer.textContent = 'v' + info.current_version;
+            if (info.has_update) {
+                updateSidebarBadge(true);
+                toast(t('toast_update_found_toast').replace('{v}', info.latest_version), 'info');
             }
         } catch (_) { /* silent fail on startup */ }
     }

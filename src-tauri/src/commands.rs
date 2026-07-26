@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{Manager, State};
 
 use llm_api_proxy_lib::AppState;
+
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 // ============================================================================
 // DTO Types (frontend <-> backend)
@@ -956,6 +959,7 @@ pub struct UpdateCheckResult {
     pub current_version: String,
     pub latest_version: String,
     pub release_url: String,
+    pub download_url: String,
     pub release_notes: String,
     pub published_at: String,
 }
@@ -1003,6 +1007,24 @@ pub async fn check_for_updates() -> Result<UpdateCheckResult, String> {
         .unwrap_or("https://github.com/jiz-1789/LLM-API-Proxy/releases")
         .to_string();
 
+    // Extract direct download URL for the portable exe asset
+    let download_url = json
+        .get("assets")
+        .and_then(|a| a.as_array())
+        .and_then(|assets| {
+            assets.iter().find_map(|asset| {
+                let name = asset.get("name")?.as_str()?;
+                // Prefer the portable exe asset
+                if name.contains("portable") && name.ends_with(".exe") {
+                    asset.get("browser_download_url")?.as_str()
+                } else {
+                    None
+                }
+            })
+        })
+        .unwrap_or("")
+        .to_string();
+
     let release_notes = json
         .get("body")
         .and_then(|v| v.as_str())
@@ -1022,6 +1044,7 @@ pub async fn check_for_updates() -> Result<UpdateCheckResult, String> {
         current_version: current_version.to_string(),
         latest_version,
         release_url,
+        download_url,
         release_notes,
         published_at,
     })
@@ -1047,4 +1070,92 @@ fn compare_versions(latest: &str, current: &str) -> bool {
         }
     }
     false
+}
+
+/// Download the new portable exe and replace the current one.
+/// Creates a batch updater script that waits for the app to exit,
+/// replaces the exe, and restarts the new version.
+#[tauri::command]
+pub async fn download_and_update(
+    download_url: String,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    // Validate URL scheme
+    if !download_url.starts_with("https://") {
+        return Err("下载地址无效，仅支持 HTTPS".to_string());
+    }
+
+    // Get current exe path and directory
+    let current_exe = std::env::current_exe()
+        .map_err(|e| format!("获取当前程序路径失败: {}", e))?;
+    let exe_dir = current_exe.parent()
+        .ok_or("无法获取程序目录")?;
+
+    // Download the new exe to a temp file in the same directory
+    let temp_path = exe_dir.join("_update_temp.exe");
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
+
+    let resp = client
+        .get(&download_url)
+        .header("User-Agent", "LLM-API-Proxy")
+        .send()
+        .await
+        .map_err(|e| format!("下载失败: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("下载失败: HTTP {}", resp.status()));
+    }
+
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("读取下载内容失败: {}", e))?;
+
+    std::fs::write(&temp_path, &bytes)
+        .map_err(|e| format!("写入临时文件失败: {}", e))?;
+
+    // Create a batch updater script that replaces the exe and restarts
+    let exe_name = current_exe.file_name()
+        .and_then(|n| n.to_str())
+        .ok_or("无法获取程序文件名")?;
+
+    let batch_content = format!(
+        "@echo off\r\n\
+         :: Wait for the app to fully exit\r\n\
+         timeout /t 2 /nobreak >nul\r\n\
+         :: Replace the old exe with the new one\r\n\
+         move /y \"_update_temp.exe\" \"{exe_name}\"\r\n\
+         :: Start the new version\r\n\
+         start \"\" \"{exe_name}\"\r\n\
+         :: Clean up this batch script\r\n\
+         del \"%~f0\"\r\n",
+        exe_name = exe_name
+    );
+
+    let batch_path = exe_dir.join("_updater.bat");
+    std::fs::write(&batch_path, batch_content)
+        .map_err(|e| format!("创建更新脚本失败: {}", e))?;
+
+    tracing::info!("Update script created at {}, exiting app to apply update", batch_path.display());
+
+    // Gracefully shut down the gateway server before exiting
+    let state = app_handle.state::<AppState>();
+    state.shutdown();
+
+    // Run the batch script in a detached process
+    std::process::Command::new("cmd")
+        .args(["/c", "start", "", "/b", "_updater.bat"])
+        .current_dir(exe_dir)
+        .creation_flags(0x00000008) // DETACHED_PROCESS
+        .spawn()
+        .map_err(|e| format!("启动更新脚本失败: {}", e))?;
+
+    // Exit the app so the batch script can replace the exe
+    app_handle.exit(0);
+
+    Ok(())
 }
