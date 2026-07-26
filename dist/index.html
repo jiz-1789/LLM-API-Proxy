@@ -258,6 +258,27 @@ gap: 8px;
             border-radius: 2px;
             background: var(--accent);
         }
+        .sidebar-footer {
+            margin-top: auto;
+            padding-top: 12px;
+            border-top: 1px solid var(--border);
+            color: var(--text-muted);
+            font-size: 11px;
+            text-align: center;
+            user-select: none;
+        }
+        .sidebar-footer .qq-label {
+            opacity: 0.6;
+        }
+        .sidebar-footer .qq-num {
+            color: var(--text-secondary);
+            font-weight: 500;
+            cursor: pointer;
+            transition: color var(--transition);
+        }
+        .sidebar-footer .qq-num:hover {
+            color: var(--accent);
+        }
         .main {
             flex: 1;
             display: flex;
@@ -595,6 +616,52 @@ gap: 8px;
             overflow-y: auto;
             white-space: pre-wrap;
             line-height: 1.6;
+        }
+        .recent-activity {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .activity-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            font-size: 12px;
+            line-height: 1.4;
+        }
+        .activity-time {
+            color: var(--text-muted);
+            font-family: "SF Mono", "Cascadia Code", "JetBrains Mono", monospace;
+            font-size: 11px;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .activity-status {
+            font-size: 10px;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+        .activity-status.success { background: var(--success-subtle); color: var(--success); }
+        .activity-status.error { background: var(--danger-subtle); color: var(--danger); }
+        .activity-desc {
+            color: var(--text-secondary);
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .activity-latency {
+            color: var(--text-muted);
+            font-family: "SF Mono", "Cascadia Code", "JetBrains Mono", monospace;
+            font-size: 11px;
+            flex-shrink: 0;
         }
 
         /* === Spinner === */
@@ -948,6 +1015,9 @@ gap: 8px;
             <div class="nav-item" data-page="settings">设置</div>
             <div class="nav-item" data-page="health">健康检查</div>
             <div class="nav-item" data-page="help">使用教程</div>
+            <div class="sidebar-footer">
+                <span class="qq-label">作者QQ：</span><span class="qq-num" onclick="copyQQ()" title="点击复制">3267245598</span>
+            </div>
         </div>
 
         <div class="main">
@@ -1002,7 +1072,9 @@ gap: 8px;
                     <div class="info-row"><span class="info-key">日志级别</span><span class="info-val">info</span></div>
                 </div>
                 <div class="section-title">最近活动</div>
-                <div id="log-output">网关已初始化，等待请求...</div>
+                <div id="log-output" class="recent-activity">
+                    <div style="color:var(--text-muted);text-align:center;padding:24px 0;">加载中...</div>
+                </div>
             </div>
 
             <!-- ==================== Upstreams ==================== -->
@@ -1049,12 +1121,11 @@ gap: 8px;
                                 <th>上游数</th>
                                 <th>最大并发</th>
                                 <th>思考模式</th>
-                                <th>熔断阈值</th>
                                 <th>操作</th>
                             </tr>
                         </thead>
                         <tbody id="pool-tbody">
-                            <tr><td colspan="7" class="empty-state">加载中...</td></tr>
+                            <tr><td colspan="6" class="empty-state">加载中...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -1062,7 +1133,7 @@ gap: 8px;
 
             <!-- ==================== Logs ==================== -->
             <div class="page" id="page-logs">
-                <div class="section-title">请求日志</div>
+                <div class="section-title">请求日志 <button class="btn btn-ghost btn-sm" style="margin-left:12px;" onclick="exportLogs()">导出日志</button></div>
                 <div class="filter-bar">
                     <label>模型池</label>
                     <select class="form-select" id="log-filter-pool" onchange="loadLogs(true)">
@@ -1071,7 +1142,7 @@ gap: 8px;
                     <label>状态码</label>
                     <select class="form-select" id="log-filter-status" onchange="loadLogs(true)">
                         <option value="">全部</option>
-                        <option value="200">2xx 成功</option>
+                        <option value="2">2xx 成功</option>
                         <option value="4">4xx 客户端错误</option>
                         <option value="5">5xx 服务端错误</option>
                     </select>
@@ -1083,11 +1154,11 @@ gap: 8px;
                             <tr>
                                 <th>时间</th>
                                 <th>模型池</th>
-                                <th>上游</th>
-                                <th>方法</th>
+                                <th>上游厂商</th>
+                                <th>模型</th>
                                 <th>状态码</th>
                                 <th>耗时</th>
-                                <th>流式</th>
+                                <th>失败详情</th>
                             </tr>
                         </thead>
                         <tbody id="logs-tbody">
@@ -1119,6 +1190,13 @@ gap: 8px;
                                 <button class="btn btn-ghost btn-sm" onclick="copyInput('set-apikey')">复制</button>
                                 <button class="btn btn-ghost btn-sm" onclick="regenerateApiKey()">重新生成</button>
                             </div>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <div class="section-title">可用模型池</div>
+                        <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">客户端请求时使用以下模型名称作为 <code>model</code> 参数，点击可复制。</p>
+                        <div id="settings-pool-list" style="display:flex;flex-direction:column;gap:8px;">
+                            <span style="font-size:12px;color:var(--text-muted);">加载中...</span>
                         </div>
                     </div>
                     <div class="settings-section">
@@ -1250,15 +1328,13 @@ gap: 8px;
                         <li><strong>多模型选择</strong>：按住 Ctrl（或 Shift）可为一个上游选择多个模型，网关会在这些模型之间轮询负载均衡</li>
                         <li><strong>最大并发</strong>：该池允许的最大并发请求数</li>
                         <li><strong>思考模式</strong>：开启后自动为支持的上游注入推理参数（如 OpenAI 的 <code>reasoning_effort</code>、Claude 的 <code>thinking</code>）</li>
-                        <li><strong>熔断阈值</strong>：连续失败达到此次数后，该上游被临时熔断跳过</li>
-                        <li><strong>熔断恢复时间</strong>：熔断后经过此秒数自动尝试恢复</li>
                     </ul>
                     <p><strong>负载均衡机制（两层轮询）：</strong></p>
                     <ul>
                         <li><strong>第一层 — 上游轮询</strong>：每次请求在上游列表中轮换起始位置，使请求均匀分布到不同上游</li>
                         <li><strong>第二层 — 模型轮询</strong>：若某上游关联了多个模型，每次请求到该上游时在模型间轮换</li>
                     </ul>
-                    <div class="help-tip">请求转发逻辑：轮询选择上游 → 跳过已禁用和已熔断的上游 → 失败时若开启故障转移则自动尝试下一个上游 → 全部失败则返回错误。右键删除模型池直接执行，无需二次确认。</div>
+                    <div class="help-tip">请求转发逻辑：轮询选择上游 → 跳过已禁用的上游 → 失败时若开启故障转移则自动尝试下一个上游 → 全部失败则返回错误。右键删除模型池直接执行，无需二次确认。日志自动保留最近5天且不超过200条，过期自动清理。</div>
                 </div>
 
                 <div class="help-section">
@@ -1400,28 +1476,18 @@ print(response.choices[0].message.content)</code></pre>
             <div class="form-row">
                 <div class="form-group">
                     <label class="form-label">模型名称 *</label>
-                    <input class="form-input" id="pf-name" placeholder="例如：gpt-4o">
+                    <input class="form-input" id="pf-name" placeholder="例如：gpt-4o" autocomplete="off">
                     <div class="form-hint">客户端请求时使用的模型名</div>
                 </div>
                 <div class="form-group">
                     <label class="form-label">显示名称</label>
-                    <input class="form-input" id="pf-display" placeholder="例如：GPT-4o 主力池">
+                    <input class="form-input" id="pf-display" placeholder="例如：GPT-4o 主力池" autocomplete="off">
                 </div>
             </div>
             <div class="form-row">
                 <div class="form-group">
                     <label class="form-label">最大并发</label>
                     <input class="form-input" id="pf-concurrency" type="number" value="5" min="1" max="50">
-                </div>
-                <div class="form-group">
-                    <label class="form-label">熔断阈值 (次)</label>
-                    <input class="form-input" id="pf-cb-threshold" type="number" value="3" min="1" max="20">
-                </div>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label class="form-label">熔断冷却 (秒)</label>
-                    <input class="form-input" id="pf-cb-duration" type="number" value="60" min="10" max="600">
                 </div>
                 <div class="form-group">
                     <label class="form-label">思考模式</label>
@@ -1559,6 +1625,18 @@ if (page === 'settings') loadSettings();
     }
 
     // ================================================================
+    // Copy QQ number
+    // ================================================================
+    async function copyQQ() {
+        try {
+            await navigator.clipboard.writeText('3267245598');
+            toast('已复制 QQ 号：3267245598', 'success');
+        } catch (e) {
+            toast('复制失败，请手动选中复制', 'error');
+        }
+    }
+
+    // ================================================================
     // Upstreams
     // ================================================================
     let upstreamsCache = [];
@@ -1588,14 +1666,14 @@ if (page === 'settings') loadSettings();
                 <td>${statusBadge(u.status)}</td>
                 <td>
                     <label class="toggle">
-                        <input type="checkbox" ${u.enabled ? 'checked' : ''} onchange="toggleUpstream('${u.id}', this.checked)">
+                        <input type="checkbox" ${u.enabled ? 'checked' : ''} onchange="toggleUpstream('${jsEsc(u.id)}', this.checked)">
                         <span class="slider"></span>
                     </label>
                 </td>
                 <td>
-                    <button class="btn btn-ghost btn-sm" onclick="openEditModal('${u.id}')">编辑</button>
-                    <button class="btn btn-ghost btn-sm" onclick="openTokenModal('${u.id}', '${esc(u.provider_name)}')">Token</button>
-                    <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="openDeleteModal('${u.id}')">删除</button>
+                    <button class="btn btn-ghost btn-sm" onclick="openEditModal('${jsEsc(u.id)}')">编辑</button>
+                    <button class="btn btn-ghost btn-sm" onclick="openTokenModal('${jsEsc(u.id)}', '${jsEsc(u.provider_name)}')">Token</button>
+                    <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="openDeleteModal('${jsEsc(u.id)}')">删除</button>
                 </td>
             </tr>
         `).join('');
@@ -1611,6 +1689,20 @@ if (page === 'settings') loadSettings();
         const d = document.createElement('div');
         d.textContent = s || '';
         return d.innerHTML;
+    }
+
+    // Escape for use inside JavaScript string literals within HTML attributes.
+    // esc() alone is NOT safe here — it doesn't escape single quotes,
+    // allowing attribute/JS-string breakout.
+    function jsEsc(s) {
+        return String(s || '')
+            .replace(/\\/g, '\\\\')
+            .replace(/'/g, "\\'")
+            .replace(/"/g, '\\"')
+            .replace(/</g, '\\x3c')
+            .replace(/>/g, '\\x3e')
+            .replace(/\n/g, '\\n')
+            .replace(/\r/g, '\\r');
     }
 
     // ================================================================
@@ -2093,10 +2185,9 @@ if (page === 'settings') loadSettings();
                 <td><span class="badge badge-blue">${p.upstream_count} 个上游</span></td>
                 <td>${p.max_concurrency}</td>
                 <td>${p.thinking_enabled ? '<span class="badge badge-green">开启</span>' : '<span style="color:var(--text-muted)">关闭</span>'}</td>
-                <td>${p.circuit_breaker_threshold} 次 / ${p.circuit_breaker_duration_seconds}s</td>
                 <td>
-                    <button class="btn btn-ghost btn-sm" onclick="openEditPoolModal('${p.id}')">编辑</button>
-                    <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="openPoolDeleteModal('${p.id}')">删除</button>
+                    <button class="btn btn-ghost btn-sm" onclick="openEditPoolModal('${jsEsc(p.id)}')">编辑</button>
+                    <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="openPoolDeleteModal('${jsEsc(p.id)}')">删除</button>
                 </td>
             </tr>
         `).join('');
@@ -2108,8 +2199,6 @@ if (page === 'settings') loadSettings();
         document.getElementById('pf-name').value = '';
         document.getElementById('pf-display').value = '';
         document.getElementById('pf-concurrency').value = '5';
-        document.getElementById('pf-cb-threshold').value = '3';
-        document.getElementById('pf-cb-duration').value = '60';
         document.getElementById('pf-thinking').checked = false;
         await loadPoolUpstreamCheckboxes(null);
         document.getElementById('pool-modal').classList.add('open');
@@ -2127,8 +2216,6 @@ if (page === 'settings') loadSettings();
             document.getElementById('pf-name').disabled = true;
             document.getElementById('pf-display').value = p.display_name;
             document.getElementById('pf-concurrency').value = p.max_concurrency;
-            document.getElementById('pf-cb-threshold').value = p.circuit_breaker_threshold;
-            document.getElementById('pf-cb-duration').value = p.circuit_breaker_duration_seconds;
             document.getElementById('pf-thinking').checked = p.thinking_enabled;
             await loadPoolUpstreamCheckboxes(poolUpstreams);
             document.getElementById('pool-modal').classList.add('open');
@@ -2154,22 +2241,57 @@ if (page === 'settings') loadSettings();
                 const models = u.available_models || (u.selected_model ? [u.selected_model] : []);
                 const isChecked = u.id in selectedMap;
                 const currentModels = selectedMap[u.id] || [];
-                const modelOptions = models.map(m =>
-                    `<option value="${esc(m)}" ${currentModels.includes(m) ? 'selected' : ''}>${esc(m)}</option>`
+                const modelChips = models.map(m =>
+                    `<label style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;font-size:11px;cursor:pointer;${currentModels.includes(m) ? 'background:var(--accent-subtle);color:var(--accent);border:1px solid var(--accent);' : 'background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);'}">
+                        <input type="checkbox" class="pool-model-cb" value="${esc(m)}" ${currentModels.includes(m) ? 'checked' : ''} style="display:none;">
+                        ${esc(m)}
+                    </label>`
                 ).join('');
                 return `
-                <div style="display:flex;align-items:flex-start;gap:8px;padding:5px 0;" class="pool-upstream-row">
-                    <input type="checkbox" class="pool-upstream-cb" value="${esc(u.id)}" ${isChecked ? 'checked' : ''}
-                        onchange="this.parentElement.querySelector('.pool-model-select').disabled=!this.checked" style="margin-top:4px;">
-                    <span style="flex:1;font-size:13px;color:var(--text-secondary);padding-top:2px;">
-                        ${esc(u.provider_name)}
-                    </span>
-                    <select multiple class="pool-model-select form-input" style="width:180px;padding:5px 8px;font-size:12px;min-height:60px;"
-                        data-upstream-id="${esc(u.id)}" ${!isChecked ? 'disabled' : ''}>
-                        ${modelOptions}
-                    </select>
+                <div style="padding:8px 0;border-bottom:1px solid var(--border);" class="pool-upstream-row" data-upstream-id="${esc(u.id)}">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                        <input type="checkbox" class="pool-upstream-cb" value="${esc(u.id)}" ${isChecked ? 'checked' : ''}>
+                        <span style="flex:1;font-size:13px;color:var(--text-secondary);font-weight:500;">
+                            ${esc(u.provider_name)}
+                        </span>
+                    </div>
+                    <div class="pool-model-chips" style="display:flex;flex-wrap:wrap;gap:6px;padding-left:24px;${!isChecked ? 'opacity:0.4;pointer-events:none;' : ''}">
+                        ${modelChips || '<span style="font-size:11px;color:var(--text-muted);">该上游暂无可用模型</span>'}
+                    </div>
                 </div>`;
             }).join('');
+
+            // Bind chip click to toggle visual state
+            container.querySelectorAll('.pool-model-cb').forEach(cb => {
+                cb.addEventListener('change', function() {
+                    const label = this.parentElement;
+                    if (this.checked) {
+                        label.style.background = 'var(--accent-subtle)';
+                        label.style.color = 'var(--accent)';
+                        label.style.border = '1px solid var(--accent)';
+                    } else {
+                        label.style.background = 'var(--bg-tertiary)';
+                        label.style.color = 'var(--text-secondary)';
+                        label.style.border = '1px solid var(--border)';
+                    }
+                });
+            });
+
+            // Toggle model chips enabled/disabled when upstream checkbox changes
+            container.querySelectorAll('.pool-upstream-cb').forEach(cb => {
+                cb.addEventListener('change', function() {
+                    const chips = this.parentElement.parentElement.querySelector('.pool-model-chips');
+                    if (chips) {
+                        if (this.checked) {
+                            chips.style.opacity = '1';
+                            chips.style.pointerEvents = 'auto';
+                        } else {
+                            chips.style.opacity = '0.4';
+                            chips.style.pointerEvents = 'none';
+                        }
+                    }
+                });
+            });
         } catch (e) {
             container.innerHTML = '<span style="color:var(--danger);font-size:12px;">加载上游列表失败</span>';
         }
@@ -2186,15 +2308,13 @@ if (page === 'settings') loadSettings();
         const display_name = document.getElementById('pf-display').value.trim() || name;
         const max_concurrency = parseInt(document.getElementById('pf-concurrency').value) || 5;
         const thinking_enabled = document.getElementById('pf-thinking').checked;
-        const circuit_breaker_threshold = parseInt(document.getElementById('pf-cb-threshold').value) || 3;
-        const circuit_breaker_duration_seconds = parseInt(document.getElementById('pf-cb-duration').value) || 60;
 
         const upstreams = [];
         document.querySelectorAll('.pool-upstream-row').forEach(row => {
             const cb = row.querySelector('.pool-upstream-cb');
-            const select = row.querySelector('.pool-model-select');
             if (cb.checked) {
-                const selectedModels = [...select.selectedOptions].map(o => o.value).filter(v => v);
+                const modelCbs = row.querySelectorAll('.pool-model-cb:checked');
+                const selectedModels = [...modelCbs].map(c => c.value).filter(v => v);
                 upstreams.push({ upstream_id: cb.value, model: selectedModels.join(',') });
             }
         });
@@ -2208,7 +2328,7 @@ if (page === 'settings') loadSettings();
         try {
             if (id) {
                 await cmd('update_pool', {
-                    id, req: { display_name, max_concurrency, thinking_enabled, circuit_breaker_threshold, circuit_breaker_duration_seconds }
+                    id, req: { display_name, max_concurrency, thinking_enabled }
                 });
                 const currentUpstreams = await cmd('get_pool_upstreams', { poolId: id }) || [];
                 for (const u of currentUpstreams) {
@@ -2269,9 +2389,9 @@ const statusFilter = document.getElementById('log-filter-status')?.value || '';
 const pageLimit = 20;
 const args = { limit: pageLimit, offset: logCurrentPage * pageLimit };
 if (poolFilter) args.poolName = poolFilter;
-if (statusFilter === '200') args.statusCode = 200;
-else if (statusFilter === '4') args.statusCode = 400;
-else if (statusFilter === '5') args.statusCode = 500;
+if (statusFilter === '2') args.statusPrefix = 2;
+else if (statusFilter === '4') args.statusPrefix = 4;
+else if (statusFilter === '5') args.statusPrefix = 5;
 
 const logs = await cmd('get_request_logs', args) || [];
 const tbody = document.getElementById('logs-tbody');
@@ -2284,20 +2404,72 @@ tbody.innerHTML = logs.map(l => {
 const codeBadge = l.status_code >= 200 && l.status_code < 300
 ? `<span class="badge badge-green">${l.status_code}</span>`
 : `<span class="badge badge-red">${l.status_code}</span>`;
+// Resolve upstream provider name from cache
+const upstreamName = l.upstream_id ? (upstreamsCache.find(u => u.id === l.upstream_id)?.provider_name || l.upstream_id.substring(0,8)) : '-';
+// Parse failed_upstreams JSON
+let failDetail = '-';
+if (l.failed_upstreams && l.failed_upstreams !== '[]') {
+try {
+const fails = JSON.parse(l.failed_upstreams);
+if (fails.length > 0) {
+failDetail = fails.map(f => `${esc(f.provider||'')}(${esc(f.model||'')}): ${esc(f.error||'')}`).join('; ');
+}
+} catch(_) {}
+}
 return `<tr>
 <td style="font-size:12px;">${esc(l.created_at)}</td>
 <td>${esc(l.pool_name || '-')}</td>
-<td style="font-family:'SF Mono','Cascadia Code',monospace;font-size:11px;">${esc(l.upstream_id ? l.upstream_id.substring(0,12)+'...' : '-')}</td>
-<td>${esc(l.method)}</td>
+<td>${esc(upstreamName)}</td>
+<td style="font-family:'SF Mono','Cascadia Code',monospace;font-size:11px;">${esc(l.model || '-')}</td>
 <td>${codeBadge}</td>
 <td>${l.response_time_ms}ms</td>
-<td>${l.is_streaming ? '是' : '否'}</td>
+<td style="font-size:11px;color:var(--text-muted);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(failDetail)}">${failDetail}</td>
 </tr>`;
 }).join('');
 updateLogPagination(logCurrentPage, pageLimit, logs.length === pageLimit);
 } catch (e) {
 toast('加载日志失败: ' + e, 'error');
 }
+}
+
+async function exportLogs() {
+    try {
+        // Fetch recent 50 logs for export
+        const logs = await cmd('get_request_logs', { limit: 50, offset: 0 }) || [];
+        if (logs.length === 0) {
+            toast('暂无日志可导出', 'info');
+            return;
+        }
+
+        // Resolve upstream names
+        const upstreams = await cmd('list_upstreams') || [];
+        const upstreamMap = {};
+        upstreams.forEach(u => { upstreamMap[u.id] = u.provider_name; });
+
+        // Build CSV content
+        const header = '时间,模型池,上游厂商,模型,状态码,耗时(ms),流式,失败详情\n';
+        const rows = logs.map(l => {
+            const upstreamName = l.upstream_id ? (upstreamMap[l.upstream_id] || l.upstream_id) : '-';
+            let failDetail = '';
+            if (l.failed_upstreams && l.failed_upstreams !== '[]') {
+                try {
+                    const fails = JSON.parse(l.failed_upstreams);
+                    failDetail = fails.map(f => `${f.provider||''}(${f.model||''}): ${f.error||''}`).join('; ');
+                } catch(_) {}
+            }
+            // Escape CSV fields containing commas/quotes
+            const esc_csv = (s) => { s = String(s||''); return s.includes(',') || s.includes('"') ? `"${s.replace(/"/g,'""')}"` : s; };
+            return [l.created_at, l.pool_name||'-', upstreamName, l.model||'-', l.status_code, l.response_time_ms, l.is_streaming?'是':'否', failDetail]
+                .map(esc_csv).join(',');
+        }).join('\n');
+
+        const csv = '\uFEFF' + header + rows; // BOM for Excel UTF-8
+        const filename = `request_logs_${new Date().toISOString().slice(0,10)}.csv`;
+        const savedPath = await cmd('save_file_dialog', { filename, content: csv });
+        toast(`已导出 ${logs.length} 条日志到: ${savedPath}`, 'success');
+    } catch (e) {
+        toast('导出失败: ' + e, 'error');
+    }
 }
 
 let logCurrentPage = 0;
@@ -2344,9 +2516,10 @@ loadLogs(false);
 
     async function refreshDashboard() {
         try {
-            const [stats, gwInfo] = await Promise.all([
+            const [stats, gwInfo, recentLogs] = await Promise.all([
                 cmd('get_stats').catch(() => null),
                 cmd('get_gateway_info').catch(() => null),
+                cmd('get_request_logs', { limit: 8, offset: 0 }).catch(() => null),
             ]);
             if (stats) {
                 document.getElementById('dash-upstream-count').textContent = stats.upstream_count;
@@ -2361,7 +2534,33 @@ loadLogs(false);
                 document.getElementById('cfg-addr').textContent = addr;
                 document.getElementById('cfg-openai').textContent = gwInfo.openai_base_url;
             }
+            renderRecentActivity(recentLogs);
         } catch (e) { /* ignore */ }
+    }
+
+    function renderRecentActivity(logs) {
+        const container = document.getElementById('log-output');
+        if (!container) return;
+        if (!logs || logs.length === 0) {
+            container.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:24px 0;">暂无请求记录</div>';
+            return;
+        }
+        container.innerHTML = logs.map(l => {
+            const isSuccess = l.status_code >= 200 && l.status_code < 300;
+            const statusCls = isSuccess ? 'success' : 'error';
+            const statusText = isSuccess ? '成功' : '失败';
+            const upstreamName = l.upstream_id ? (upstreamsCache.find(u => u.id === l.upstream_id)?.provider_name || l.upstream_id.substring(0, 8)) : '-';
+            const model = esc(l.model || '-');
+            const pool = esc(l.pool_name || '-');
+            const latency = l.response_time_ms != null ? esc(String(l.response_time_ms)) + 'ms' : '';
+            const time = esc(l.created_at || '');
+            return `<div class="activity-item">
+                <span class="activity-time">${time}</span>
+                <span class="activity-status ${statusCls}">${statusText}</span>
+                <span class="activity-desc">${pool} · ${esc(upstreamName)} · ${model}</span>
+                <span class="activity-latency">${latency}</span>
+            </div>`;
+        }).join('');
     }
 
     // ================================================================
@@ -2444,6 +2643,24 @@ function generateApiKey() {
             const minimizeCb = document.getElementById('set-minimize');
             minimizeCb.checked = s.minimize_to_tray !== false;
             updateMinimizeLabel();
+
+            // Load pool list for quick copy
+            const poolList = document.getElementById('settings-pool-list');
+            try {
+                const pools = await cmd('list_pools') || [];
+                if (pools.length === 0) {
+                    poolList.innerHTML = '<span style="font-size:12px;color:var(--text-muted);">暂无模型池，请先在「模型池」页面创建</span>';
+                } else {
+                    poolList.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:8px;">' + pools.map(p => `
+                        <span style="display:inline-flex;align-items:center;gap:4px;padding:5px 10px;background:var(--bg-tertiary);border:1px solid var(--border-strong);border-radius:6px;font-size:12px;color:var(--text-primary);font-family:'SF Mono','Cascadia Code',monospace;">
+                            ${esc(p.name)}
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2" style="cursor:pointer;margin-left:2px;" onclick="doCopy('${esc(p.name)}')"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                        </span>
+                    `).join('') + '</div>';
+                }
+            } catch (e) {
+                poolList.innerHTML = '<span style="font-size:12px;color:var(--danger);">加载模型池列表失败</span>';
+            }
         } catch (e) {
             toast('加载设置失败: ' + e, 'error');
         }
@@ -2648,12 +2865,28 @@ function generateApiKey() {
 // ================================================================
 const carouselSlides = [
     {
-        title: '广告位招租',
-        desc: '点击复制QQ号 3267245598 · 说明来意自带价格',
-        copyText: '3267245598',
-        copyToast: 'QQ号已复制到剪贴板，请手动添加好友',
-        gradient: 'linear-gradient(135deg, #1a1a2e 0%, #444 50%, #666 100%)',
-        icon: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="rgba(255,215,0,0.9)" stroke-width="1.5"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/><circle cx="9" cy="14" r="1" fill="rgba(255,215,0,0.9)"/><circle cx="15" cy="14" r="1" fill="rgba(255,215,0,0.9)"/></svg>`,
+        title: '一个入口，聚合所有大模型',
+        desc: 'DeepSeek · OpenAI · 智谱 · Grok · Claude — 统一管理，无需反复切换',
+        gradient: 'linear-gradient(135deg, #0a2e5c 0%, #0a84ff 50%, #409cff 100%)',
+        icon: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.9)" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>`,
+    },
+    {
+        title: '自动故障转移，永不停摆',
+        desc: '某家厂商挂了？自动切换下一个上游，全程无感知',
+        gradient: 'linear-gradient(135deg, #0a3d2e 0%, #1a8a5c 50%, #34c759 100%)',
+        icon: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.9)" stroke-width="1.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>`,
+    },
+    {
+        title: '双击即用，U 盘便携',
+        desc: '无需 Docker、无需命令行，整个文件夹复制到任意电脑直接运行',
+        gradient: 'linear-gradient(135deg, #3d1a5c 0%, #7c3aed 50%, #a855f7 100%)',
+        icon: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.9)" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12"/></svg>`,
+    },
+    {
+        title: 'API Key 加密存储，安全无忧',
+        desc: 'AES-256-GCM 加密，明文不落盘，即使数据泄露也无法逆向',
+        gradient: 'linear-gradient(135deg, #5c1a1a 0%, #d4380d 50%, #ff7a45 100%)',
+        icon: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.9)" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`,
     },
 ];
 

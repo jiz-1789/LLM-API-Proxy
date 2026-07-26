@@ -1,4 +1,3 @@
-pub mod circuit_breaker;
 pub mod round_robin;
 pub mod thinking;
 
@@ -10,7 +9,7 @@ pub trait PoolRouter {
     /// Record that an upstream succeeded (for round-robin progress).
     fn record_success(&mut self, pool_id: &str, upstream_id: &str);
 
-    /// Record that an upstream failed (may trigger circuit breaker).
+    /// Record that an upstream failed.
     fn record_failure(&mut self, pool_id: &str, upstream_id: &str, error: &str);
 }
 
@@ -36,10 +35,8 @@ mod tests {
         let pool = "test-pool";
         router.add_upstreams(pool, vec!["upstream-a".to_string(), "upstream-b".to_string()]);
 
-        // Simulate upstream-a being in circuit breaker
-        router.record_failure(pool, "upstream-a", "timeout");
-        router.record_failure(pool, "upstream-a", "timeout");
-        router.record_failure(pool, "upstream-a", "timeout");
+        // Disable "upstream-a"
+        router.set_upstream_enabled(pool, "upstream-a", false);
 
         // Now only upstream-b should be selected
         assert_eq!(router.select_upstream(pool), Some("upstream-b".to_string()));

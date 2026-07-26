@@ -59,6 +59,7 @@ commands::fetch_upstream_models_by_id,
             commands::set_theme,
             commands::open_external_url,
             commands::read_clipboard,
+            commands::save_file_dialog,
         ])
         .setup(|app| {
             // Build system tray menu

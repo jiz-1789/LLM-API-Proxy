@@ -66,7 +66,8 @@ impl UpstreamClient {
 
     /// Forward a streaming request and return the raw HTTP response.
     /// The caller is responsible for consuming the response body as a byte stream.
-    /// No per-request timeout is applied so the stream can remain open indefinitely.
+    /// A 60-second timeout is applied to the initial connection + response headers;
+    /// the body stream itself is not bounded (streams may be long-lived).
     pub async fn forward_stream_request(
         &self,
         base_url: &str,
@@ -77,14 +78,18 @@ impl UpstreamClient {
         let url = format!("{}/v1/chat/completions", base_url.trim_end_matches('/'));
         debug!("Forwarding streaming request to upstream: {}", url);
 
-        let response = self.http_client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("Content-Type", "application/json")
-            .json(body)
-            .send()
-            .await
-            .map_err(|e| AppError::UpstreamFailed(format!("stream connection error: {}", e)))?;
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            self.http_client
+                .post(&url)
+                .header("Authorization", format!("Bearer {}", api_key))
+                .header("Content-Type", "application/json")
+                .json(body)
+                .send(),
+        )
+        .await
+        .map_err(|_| AppError::UpstreamFailed("stream request timed out (60s)".to_string()))?
+        .map_err(|e| AppError::UpstreamFailed(format!("stream connection error: {}", e)))?;
 
         let status = response.status();
         if !status.is_success() {
@@ -99,10 +104,6 @@ impl UpstreamClient {
         Ok(response)
     }
 
-    /// Record a failure for circuit breaker tracking.
-    pub fn record_failure(&self, _upstream_id: &str) {
-        // This will be handled by the engine layer
-    }
 }
 
 impl Default for UpstreamClient {

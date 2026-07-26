@@ -20,7 +20,6 @@ use tracing::{info, warn};
 
 use crate::crypto::KeyManager;
 use crate::db::Database;
-use crate::pool::circuit_breaker::CircuitBreaker;
 use crate::pool::thinking;
 use crate::proxy::failover::UpstreamClient;
 
@@ -37,7 +36,6 @@ pub fn create_router(
         db,
         proxy_client,
         crypto,
-        circuit_breaker: Arc::new(CircuitBreaker::new()),
         rr_counters: Arc::new(Mutex::new(HashMap::new())),
     };
 
@@ -55,7 +53,6 @@ struct GatewayState {
     db: Arc<Database>,
     proxy_client: Arc<UpstreamClient>,
     crypto: Arc<KeyManager>,
-    circuit_breaker: Arc<CircuitBreaker>,
     rr_counters: RoundRobinCounters,
 }
 
@@ -113,14 +110,12 @@ fn extract_usage(resp: &serde_json::Value) -> (i64, i64, i64) {
 /// Routing logic:
 /// 1. Round-robin: If `round_robin_strategy == "round_robin"`, rotate the
 ///    starting upstream per request. Otherwise always start from index 0.
-/// 2. Circuit breaker: Each upstream is checked against the circuit breaker
-///    (threshold & duration from pool config). Open circuits are skipped.
-/// 3. Failover: If `failover_enabled` is true, subsequent upstreams are tried
+/// 2. Failover: If `failover_enabled` is true, subsequent upstreams are tried
 ///    on failure. Otherwise only the selected upstream is attempted.
-/// 4. Thinking mode: Injected **per-upstream** based on each upstream's
+/// 3. Thinking mode: Injected **per-upstream** based on each upstream's
 ///    `provider_name`, not the first upstream's. A client may override with
 ///    `"reasoning": false` to disable thinking entirely.
-/// 5. Timeout: Uses `pool.timeout_seconds` for non-streaming requests.
+/// 4. Timeout: Uses `pool.timeout_seconds` for non-streaming requests.
 async fn handle_chat_completions(
     State(state): State<GatewayState>,
     headers: HeaderMap,
@@ -218,14 +213,8 @@ async fn handle_chat_completions(
     // Number of upstreams to try
     let max_attempts = if pool.failover_enabled { n } else { 1 };
 
-    // Generate a request ID for logging
-    let request_id = format!(
-        "req_{:x}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .subsec_nanos()
-    );
+    // Generate a request ID for logging (UUID to avoid collisions)
+    let request_id = format!("req_{}", uuid::Uuid::new_v4().simple());
 
     // ── Failover loop ──────────────────────────────────────────────────
 
@@ -257,27 +246,6 @@ async fn handle_chat_completions(
             continue;
         }
 
-        // Ensure circuit breaker is registered with pool-specific config
-        state.circuit_breaker.ensure_registered(
-            &upstream.id,
-            pool.circuit_breaker_threshold as u32,
-            pool.circuit_breaker_duration_seconds as u64,
-        );
-
-        // Check circuit breaker — skip if open
-        if !state.circuit_breaker.allow_request(&upstream.id) {
-            warn!(
-                "Upstream {} circuit open, skipping (failures={})",
-                upstream.provider_name,
-                state.circuit_breaker.get_failure_count(&upstream.id)
-            );
-            failed_upstreams_json.push(json!({
-                "provider": upstream.provider_name,
-                "error": "circuit breaker open"
-            }));
-            continue;
-        }
-
         attempted_any = true;
 
         // Decrypt the API key
@@ -290,6 +258,7 @@ async fn handle_chat_completions(
                 );
                 failed_upstreams_json.push(json!({
                     "provider": upstream.provider_name,
+                    "model": upstream.selected_model,
                     "error": "key decryption failed"
                 }));
                 continue;
@@ -359,14 +328,10 @@ async fn handle_chat_completions(
                 .await
             {
                 Ok(upstream_response) => {
-                    // Record success for circuit breaker
-                    state.circuit_breaker.record_success(&upstream.id);
-
                     let elapsed = start_time.elapsed().as_millis() as i32;
 
                     // Log successful stream start
-                    let log_id =
-                        format!("log_{:x}", elapsed as u32 ^ request_id.len() as u32);
+                    let log_id = format!("log_{}", uuid::Uuid::new_v4().simple());
                     let _ = state.db.insert_request_log(
                         &log_id,
                         &request_id,
@@ -406,6 +371,7 @@ async fn handle_chat_completions(
                         let reader = BufReader::new(stream_reader);
                         let mut lines = reader.lines();
                         let mut last_usage: Option<(i64, i64, i64)> = None;
+                        let mut stream_error: Option<String> = None;
                         while let Ok(Some(line)) = lines.next_line().await {
                             let output = if let Some(json_str) = line.strip_prefix("data: ") {
                                 let trimmed = json_str.trim();
@@ -416,6 +382,19 @@ async fn handle_chat_completions(
                                     let (chunk, usage) = stream::process_sse_chunk(trimmed, &display_name);
                                     if let Some(u) = usage {
                                         last_usage = Some(u);
+                                    }
+                                    // Detect error in stream chunk
+                                    if stream_error.is_none() {
+                                        if let Ok(v) = serde_json::from_str::<Value>(trimmed) {
+                                            if let Some(err) = v.get("error") {
+                                                let msg = if let Some(m) = err.get("message").and_then(|m| m.as_str()) {
+                                                    m.to_string()
+                                                } else {
+                                                    err.to_string()
+                                                };
+                                                stream_error = Some(msg);
+                                            }
+                                        }
                                     }
                                     chunk
                                 }
@@ -430,7 +409,12 @@ async fn handle_chat_completions(
                             }
                         }
 
-                        // After stream completes, update the log with token usage if found
+                        // After stream completes, update the log:
+                        // - If an error was detected mid-stream, update status to 500
+                        // - Update token usage if found
+                        if let Some(ref _err) = stream_error {
+                            let _ = db_clone.update_request_log_status(&log_id_clone, 500);
+                        }
                         if let Some((prompt, completion, total)) = last_usage {
                             let _ = db_clone.update_request_log_tokens(
                                 &log_id_clone,
@@ -456,9 +440,9 @@ async fn handle_chat_completions(
                 }
                 Err(e) => {
                     warn!("Stream upstream {} failed: {}", upstream.provider_name, e);
-                    state.circuit_breaker.record_failure(&upstream.id);
                     failed_upstreams_json.push(json!({
                         "provider": upstream.provider_name,
+                        "model": model_str,
                         "error": e.to_string()
                     }));
                     last_error = Some(e.to_string());
@@ -479,9 +463,6 @@ async fn handle_chat_completions(
                 .await
             {
                 Ok(response) => {
-                    // Record success for circuit breaker
-                    state.circuit_breaker.record_success(&upstream.id);
-
                     let elapsed = start_time.elapsed().as_millis() as i32;
 
                     // Replace model name in response with the pool's display name
@@ -493,12 +474,29 @@ async fn handle_chat_completions(
                         );
                     }
 
+                    // Check if the response body contains an error field.
+                    // Some providers return HTTP 200 but embed an error in the body.
+                    if let Some(err_obj) = resp_body.get("error") {
+                        let err_msg = if let Some(msg) = err_obj.get("message").and_then(|m| m.as_str()) {
+                            msg.to_string()
+                        } else {
+                            err_obj.to_string()
+                        };
+                        warn!("Upstream {} returned error in body: {}", upstream.provider_name, err_msg);
+                        failed_upstreams_json.push(json!({
+                            "provider": upstream.provider_name,
+                            "model": model_str,
+                            "error": err_msg
+                        }));
+                        last_error = Some(err_msg);
+                        continue;
+                    }
+
                     // Extract token usage from response
                     let (prompt_tokens, completion_tokens, total_tokens) = extract_usage(&resp_body);
 
                     // Log successful request
-                    let log_id =
-                        format!("log_{:x}", elapsed as u32 ^ request_id.len() as u32);
+                    let log_id = format!("log_{}", uuid::Uuid::new_v4().simple());
                     let _ = state.db.insert_request_log(
                         &log_id,
                         &request_id,
@@ -520,9 +518,9 @@ async fn handle_chat_completions(
                 }
                 Err(e) => {
                     warn!("Upstream {} failed: {}", upstream.provider_name, e);
-                    state.circuit_breaker.record_failure(&upstream.id);
                     failed_upstreams_json.push(json!({
                         "provider": upstream.provider_name,
+                        "model": model_str,
                         "error": e.to_string()
                     }));
                     last_error = Some(e.to_string());
@@ -534,7 +532,7 @@ async fn handle_chat_completions(
 
     // All upstreams exhausted — log the failure
     let elapsed = start_time.elapsed().as_millis() as i32;
-    let log_id = format!("log_fail_{:x}", elapsed as u32);
+    let log_id = format!("log_fail_{}", uuid::Uuid::new_v4().simple());
     let _ = state.db.insert_request_log(
         &log_id,
         &request_id,
@@ -552,8 +550,8 @@ async fn handle_chat_completions(
         0,
     );
 
-    // If we never actually attempted any upstream (all were disabled or
-    // circuit-broken), return 503 instead of 502.
+    // If we never actually attempted any upstream (all were disabled),
+    // return 503 instead of 502.
     let status = if !attempted_any {
         StatusCode::SERVICE_UNAVAILABLE
     } else {
@@ -561,7 +559,7 @@ async fn handle_chat_completions(
     };
 
     let error_msg = if !attempted_any {
-        "all upstreams are disabled or circuit-broken"
+        "all upstreams are disabled"
     } else {
         "all upstreams failed"
     };

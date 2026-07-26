@@ -78,12 +78,15 @@ impl RoundRobinRouter {
         // Round-robin naturally advances on select_upstream
     }
 
-    /// Record a failure for circuit breaker tracking.
-    pub fn record_failure(&self, pool_id: &str, upstream_id: &str, _error: &str) {
-        self.set_upstream_enabled(pool_id, upstream_id, false);
+    /// Record a failure for an upstream.
+    /// No longer disables the upstream — network fluctuations may recover,
+    /// so we always give every upstream a chance on the next request.
+    /// Failure info is recorded in the request logs instead.
+    pub fn record_failure(&self, _pool_id: &str, _upstream_id: &str, _error: &str) {
+        // No-op: circuit breaker removed. Failover still tries all upstreams.
     }
 
-    /// Re-enable an upstream (e.g. after cooldown).
+    /// Re-enable an upstream.
     pub fn reenable_upstream(&self, pool_id: &str, upstream_id: &str) {
         self.set_upstream_enabled(pool_id, upstream_id, true);
     }
@@ -123,12 +126,12 @@ mod tests {
     }
 
     #[test]
-    fn test_skips_disabled_upstreams() {
+    fn test_round_robin_skips_disabled_upstreams() {
         let router = RoundRobinRouter::new();
         let pool = "pool-2";
         router.add_upstreams(pool, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
 
-        // Disable "b"
+        // Disable "b" manually (e.g. user disabled the upstream)
         router.set_upstream_enabled(pool, "b", false);
 
         assert_eq!(router.select_upstream(pool), Some("a".to_string()));

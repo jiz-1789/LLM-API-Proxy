@@ -357,8 +357,6 @@ pub struct UpdatePoolRequest {
     pub display_name: String,
     pub max_concurrency: i32,
     pub thinking_enabled: bool,
-    pub circuit_breaker_threshold: i32,
-    pub circuit_breaker_duration_seconds: i32,
 }
 
 fn default_concurrency() -> i32 {
@@ -376,8 +374,6 @@ pub struct PoolVO {
     pub timeout_seconds: i32,
     pub max_concurrency: i32,
     pub thinking_enabled: bool,
-    pub circuit_breaker_threshold: i32,
-    pub circuit_breaker_duration_seconds: i32,
     pub upstream_count: usize,
     pub created_at: String,
     pub updated_at: String,
@@ -393,8 +389,6 @@ fn pool_to_vo(p: &llm_api_proxy_lib::db::Pool, upstream_count: usize) -> PoolVO 
         timeout_seconds: p.timeout_seconds,
         max_concurrency: p.max_concurrency,
         thinking_enabled: p.thinking_enabled,
-        circuit_breaker_threshold: p.circuit_breaker_threshold,
-        circuit_breaker_duration_seconds: p.circuit_breaker_duration_seconds,
         upstream_count,
         created_at: p.created_at.clone(),
         updated_at: p.updated_at.clone(),
@@ -475,8 +469,6 @@ pub fn update_pool(
             &req.display_name,
             req.max_concurrency,
             req.thinking_enabled,
-            req.circuit_breaker_threshold,
-            req.circuit_breaker_duration_seconds,
         )
         .map_err(|e| e.to_string())?;
 
@@ -583,7 +575,8 @@ pub fn get_request_logs(
     start_date: Option<String>,
     end_date: Option<String>,
     pool_name: Option<String>,
-    status_code: Option<i32>,
+    // Status code prefix for range filtering (2 = 2xx, 4 = 4xx, 5 = 5xx).
+    status_prefix: Option<i32>,
     limit: Option<i64>,
     offset: Option<i64>,
     state: State<'_, AppState>,
@@ -592,7 +585,7 @@ pub fn get_request_logs(
         start_date,
         end_date,
         pool_name,
-        status_code,
+        status_prefix,
         limit: limit.unwrap_or(50),
         offset: offset.unwrap_or(0),
     };
@@ -773,10 +766,13 @@ pub async fn check_all_upstreams_health(
 
     let mut handles = Vec::new();
     for u in upstreams {
-        let api_key = state
-            .crypto
-            .decrypt_api_key(&u.api_key_encrypted)
-            .unwrap_or_default();
+        let api_key = match state.crypto.decrypt_api_key(&u.api_key_encrypted) {
+            Ok(k) => k,
+            Err(e) => {
+                tracing::warn!("Skipping upstream {}: key decryption failed: {}", u.provider_name, e);
+                continue;
+            }
+        };
         let base_url = u.base_url.clone();
         let upstream_id = u.id.clone();
         let provider_name = u.provider_name.clone();
@@ -876,8 +872,14 @@ pub fn set_theme(theme: String, state: State<'_, AppState>) -> Result<(), String
 }
 
 /// Open a URL in the system's default browser.
+/// Only http/https URLs are allowed to prevent command injection.
 #[tauri::command]
 pub fn open_external_url(url: String) -> Result<(), String> {
+    // Validate URL scheme to prevent command injection
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err("仅允许打开 http:// 或 https:// 开头的链接".to_string());
+    }
+
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("rundll32")
@@ -910,4 +912,26 @@ pub fn read_clipboard() -> Result<String, String> {
     let text = clipboard.get_text()
         .map_err(|e| format!("Failed to read clipboard: {}", e))?;
     Ok(text)
+}
+
+/// Show a native file save dialog and write the given content to the chosen file.
+/// Returns the chosen file path, or an error if the user cancelled or writing failed.
+#[tauri::command]
+pub async fn save_file_dialog(
+    filename: String,
+    content: String,
+) -> Result<String, String> {
+    let file_handle = rfd::AsyncFileDialog::new()
+        .set_file_name(&filename)
+        .add_filter("CSV 文件", &["csv"])
+        .add_filter("所有文件", &["*"])
+        .save_file()
+        .await
+        .ok_or_else(|| "用户取消了保存".to_string())?;
+
+    let path = file_handle.path().to_path_buf();
+    std::fs::write(&path, content.as_bytes())
+        .map_err(|e| format!("写入文件失败: {}", e))?;
+
+    Ok(path.to_string_lossy().to_string())
 }

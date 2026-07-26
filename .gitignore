@@ -2,13 +2,26 @@
 target/
 dist/node_modules/
 src-tauri/target/
+src-tauri/gen/schemas/
 Cargo.lock
 
 # Runtime data (随 exe 移动，不提交)
 data/
 *.db
+*.db-shm
+*.db-wal
 master_key.bin
 logs/
+
+# 内部设计文档（不公开）
+DEVELOPMENT.md
+LLM-API-Proxy-PRD.md
+LLM-API-Proxy-TECHDESIGN.md
+plan.md
+
+# 测试数据 / 导出文件
+*.csv
+*.exe
 
 # IDE
 .idea/

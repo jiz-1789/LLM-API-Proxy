@@ -3,7 +3,8 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Mutex;
-use tracing::{debug, info};
+use std::sync::atomic::{AtomicU64, Ordering};
+use tracing::{debug, info, warn};
 
 // ============================================================================
 // Public Data Types
@@ -38,8 +39,6 @@ pub struct Pool {
     pub timeout_seconds: i32,
     pub max_concurrency: i32,
     pub thinking_enabled: bool,
-    pub circuit_breaker_threshold: i32,
-    pub circuit_breaker_duration_seconds: i32,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -137,7 +136,8 @@ pub struct LogFilter {
     pub start_date: Option<String>,
     pub end_date: Option<String>,
     pub pool_name: Option<String>,
-    pub status_code: Option<i32>,
+    /// Status code prefix for range filtering (e.g. 2 = 2xx, 4 = 4xx, 5 = 5xx).
+    pub status_prefix: Option<i32>,
     pub limit: i64,
     pub offset: i64,
 }
@@ -150,6 +150,8 @@ pub struct LogFilter {
 /// All configuration and request logs are stored here.
 pub struct Database {
     conn: Mutex<Connection>,
+    /// Counter to trigger periodic log cleanup (every 100 inserts).
+    log_insert_counter: AtomicU64,
 }
 
 impl Database {
@@ -158,7 +160,7 @@ impl Database {
         let conn = Connection::open(path)?;
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
         debug!("Opened SQLite database at {:?}", path);
-        Ok(Self { conn: Mutex::new(conn) })
+        Ok(Self { conn: Mutex::new(conn), log_insert_counter: AtomicU64::new(0) })
     }
 
     /// Create an in-memory database (for testing).
@@ -166,14 +168,20 @@ impl Database {
     fn open_in_memory() -> Result<Self, AppError> {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch("PRAGMA foreign_keys=ON;")?;
-        Ok(Self { conn: Mutex::new(conn) })
+        Ok(Self { conn: Mutex::new(conn), log_insert_counter: AtomicU64::new(0) })
     }
 
     /// Initialize all tables and run migrations. Safe to call multiple times.
+    /// Also performs automatic cleanup of old request logs.
     pub fn initialize(&self) -> Result<(), AppError> {
         self.create_schema()?;
         self.run_migrations()?;
         info!("Database schema initialized (version {})", self.get_schema_version()?);
+        // Clean up old logs on startup: keep 5 days, cap at 200 entries
+        let deleted = self.cleanup_old_logs(5, 200)?;
+        if deleted > 0 {
+            info!("Startup log cleanup: removed {} old log entries", deleted);
+        }
         Ok(())
     }
 
@@ -206,13 +214,11 @@ impl Database {
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL UNIQUE,
                 display_name TEXT NOT NULL,
-                round_robin_strategy TEXT NOT NULL DEFAULT 'sequential',
+                round_robin_strategy TEXT NOT NULL DEFAULT 'round_robin',
                 failover_enabled INTEGER NOT NULL DEFAULT 1,
                 timeout_seconds INTEGER NOT NULL DEFAULT 30,
                 max_concurrency INTEGER NOT NULL DEFAULT 5,
                 thinking_enabled INTEGER NOT NULL DEFAULT 0,
-                circuit_breaker_threshold INTEGER NOT NULL DEFAULT 3,
-                circuit_breaker_duration_seconds INTEGER NOT NULL DEFAULT 60,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
@@ -268,6 +274,7 @@ impl Database {
                  ALTER TABLE request_logs ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0;
                  ALTER TABLE request_logs ADD COLUMN total_tokens INTEGER NOT NULL DEFAULT 0;"),
             (4, "ALTER TABLE request_logs ADD COLUMN model TEXT;"),
+            (5, "UPDATE pools SET round_robin_strategy = 'round_robin' WHERE round_robin_strategy = 'sequential';"),
         ];
         for (version, sql) in migrations {
             if current < version {
@@ -408,9 +415,9 @@ impl Database {
     /// Bulk-delete multiple upstreams in a single transaction.
     pub fn bulk_delete_upstreams(&self, ids: &[String]) -> Result<usize, AppError> {
         let mut total = 0usize;
-        self.with_transaction(|| {
+        self.with_transaction(|conn| {
             for id in ids {
-                let rows = self.conn.lock().unwrap().execute("DELETE FROM upstreams WHERE id=?", params![id])?;
+                let rows = conn.execute("DELETE FROM upstreams WHERE id=?", params![id])?;
                 total += rows;
             }
             Ok(())
@@ -470,7 +477,6 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, name, display_name, round_robin_strategy, failover_enabled,
                     timeout_seconds, max_concurrency, thinking_enabled,
-                    circuit_breaker_threshold, circuit_breaker_duration_seconds,
                     created_at, updated_at
              FROM pools ORDER BY created_at DESC"
         )?;
@@ -484,7 +490,6 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, name, display_name, round_robin_strategy, failover_enabled,
                     timeout_seconds, max_concurrency, thinking_enabled,
-                    circuit_breaker_threshold, circuit_breaker_duration_seconds,
                     created_at, updated_at
              FROM pools WHERE id = ?1"
         )?;
@@ -502,7 +507,6 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, name, display_name, round_robin_strategy, failover_enabled,
                     timeout_seconds, max_concurrency, thinking_enabled,
-                    circuit_breaker_threshold, circuit_breaker_duration_seconds,
                     created_at, updated_at
              FROM pools WHERE name = ?1"
         )?;
@@ -521,16 +525,12 @@ impl Database {
         display_name: &str,
         max_concurrency: i32,
         thinking_enabled: bool,
-        circuit_breaker_threshold: i32,
-        circuit_breaker_duration_seconds: i32,
     ) -> Result<(), AppError> {
         let rows = self.conn.lock().unwrap().execute(
             "UPDATE pools SET display_name=?1, max_concurrency=?2, thinking_enabled=?3,
-             circuit_breaker_threshold=?4, circuit_breaker_duration_seconds=?5,
-             updated_at=datetime('now') WHERE id=?6",
+             updated_at=datetime('now') WHERE id=?4",
             params![
-                display_name, max_concurrency, thinking_enabled as i32,
-                circuit_breaker_threshold, circuit_breaker_duration_seconds, id
+                display_name, max_concurrency, thinking_enabled as i32, id
             ],
         )?;
         if rows == 0 {
@@ -605,9 +605,9 @@ impl Database {
         pool_id: &str,
         ordered_upstream_ids: &[String],
     ) -> Result<(), AppError> {
-        self.with_transaction(|| {
+        self.with_transaction(|conn| {
             for (idx, uid) in ordered_upstream_ids.iter().enumerate() {
-                self.conn.lock().unwrap().execute(
+                conn.execute(
                     "UPDATE pool_upstreams SET sort_order=?1 WHERE pool_id=?2 AND upstream_id=?3",
                     params![idx as i32, pool_id, uid],
                 )?;
@@ -663,6 +663,8 @@ impl Database {
     // ========================================================================
 
     /// Insert a request log entry.
+    /// Automatically triggers periodic cleanup every 100 inserts to prevent
+    /// unbounded database growth.
 pub fn insert_request_log(
 &self,
 id: &str,
@@ -690,7 +692,16 @@ method, endpoint, status_code, response_time_ms, is_streaming as i32,
 prompt_tokens, completion_tokens, total_tokens
 ],
 )?;
-Ok(())
+
+        // Periodic cleanup: every 100 inserts, remove old logs
+        let count = self.log_insert_counter.fetch_add(1, Ordering::Relaxed) + 1;
+        if count % 100 == 0 {
+            if let Err(e) = self.cleanup_old_logs(5, 200) {
+                warn!("Periodic log cleanup failed: {}", e);
+            }
+        }
+
+        Ok(())
 }
 
     /// Update token usage for an existing request log entry.
@@ -705,6 +716,20 @@ Ok(())
         self.conn.lock().unwrap().execute(
             "UPDATE request_logs SET prompt_tokens=?1, completion_tokens=?2, total_tokens=?3 WHERE id=?4",
             params![prompt_tokens, completion_tokens, total_tokens, log_id],
+        )?;
+        Ok(())
+    }
+
+    /// Update the status code of an existing request log entry.
+    /// Used for streaming requests where the error is only detected mid-stream.
+    pub fn update_request_log_status(
+        &self,
+        log_id: &str,
+        status_code: i32,
+    ) -> Result<(), AppError> {
+        self.conn.lock().unwrap().execute(
+            "UPDATE request_logs SET status_code=?1 WHERE id=?2",
+            params![status_code, log_id],
         )?;
         Ok(())
     }
@@ -726,9 +751,12 @@ Ok(())
             param_values.push(Box::new(pool.clone()));
             conditions.push(format!("pool_name = ?{}", param_values.len()));
         }
-        if let Some(code) = filter.status_code {
-            param_values.push(Box::new(code));
-            conditions.push(format!("status_code = ?{}", param_values.len()));
+        if let Some(prefix) = filter.status_prefix {
+            param_values.push(Box::new(prefix * 100));
+            let lower_idx = param_values.len();
+            param_values.push(Box::new((prefix + 1) * 100));
+            let upper_idx = param_values.len();
+            conditions.push(format!("status_code >= ?{} AND status_code < ?{}", lower_idx, upper_idx));
         }
 
         let where_clause = if conditions.is_empty() {
@@ -764,6 +792,43 @@ Ok(())
     pub fn clear_logs(&self) -> Result<i64, AppError> {
         let rows = self.conn.lock().unwrap().execute("DELETE FROM request_logs", [])?;
         Ok(rows as i64)
+    }
+
+    /// Automatically clean up old request logs to prevent unbounded database growth.
+    /// Deletes logs older than `max_age_days` and caps total entries to `max_count`.
+    /// Returns the total number of deleted rows.
+    pub fn cleanup_old_logs(&self, max_age_days: i32, max_count: i64) -> Result<i64, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut total_deleted: i64 = 0;
+
+        // 1. Delete logs older than max_age_days
+        let deleted_by_age = conn.execute(
+            "DELETE FROM request_logs WHERE created_at < datetime('now', ?1)",
+            params![format!("-{} days", max_age_days)],
+        )? as i64;
+        total_deleted += deleted_by_age;
+
+        // 2. If still over max_count, delete the oldest excess entries
+        let remaining: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM request_logs", [], |row| row.get(0)
+        )?;
+        if remaining > max_count {
+            let excess = remaining - max_count;
+            let deleted_by_count = conn.execute(
+                "DELETE FROM request_logs WHERE id IN (
+                    SELECT id FROM request_logs ORDER BY created_at ASC LIMIT ?1
+                )",
+                params![excess],
+            )? as i64;
+            total_deleted += deleted_by_count;
+        }
+
+        if total_deleted > 0 {
+            debug!("Log cleanup: removed {} entries ({} by age, remaining {})",
+                   total_deleted, deleted_by_age, remaining.saturating_sub(total_deleted - deleted_by_age));
+        }
+
+        Ok(total_deleted)
     }
 
     /// Delete all request logs for a specific upstream (reset its token stats).
@@ -1198,19 +1263,22 @@ Ok(())
     // ========================================================================
 
     /// Execute a closure within a database transaction.
+    /// The connection lock is held for the entire transaction duration to
+    /// prevent other threads from interleaving statements within the transaction.
     /// If the closure returns an error, the transaction is rolled back.
     pub fn with_transaction<F>(&self, f: F) -> Result<(), AppError>
     where
-        F: FnOnce() -> Result<(), AppError>,
+        F: FnOnce(&Connection) -> Result<(), AppError>,
     {
-        self.conn.lock().unwrap().execute_batch("BEGIN TRANSACTION")?;
-        match f() {
+        let conn = self.conn.lock().unwrap();
+        conn.execute_batch("BEGIN TRANSACTION")?;
+        match f(&conn) {
             Ok(()) => {
-                self.conn.lock().unwrap().execute_batch("COMMIT")?;
+                conn.execute_batch("COMMIT")?;
                 Ok(())
             }
             Err(e) => {
-                self.conn.lock().unwrap().execute_batch("ROLLBACK")?;
+                conn.execute_batch("ROLLBACK")?;
                 Err(e)
             }
         }
@@ -1248,10 +1316,8 @@ Ok(())
             timeout_seconds: row.get(5)?,
             max_concurrency: row.get(6)?,
             thinking_enabled: row.get::<_, i32>(7)? != 0,
-            circuit_breaker_threshold: row.get(8)?,
-            circuit_breaker_duration_seconds: row.get(9)?,
-            created_at: row.get(10)?,
-            updated_at: row.get(11)?,
+            created_at: row.get(8)?,
+            updated_at: row.get(9)?,
         })
     }
 
@@ -1524,13 +1590,11 @@ mod tests {
         let id = sample_pool_id();
         db.create_pool(&id, "my-pool", "My Pool", 5, false).unwrap();
 
-        db.update_pool(&id, "Updated Pool", 20, true, 5, 120).unwrap();
+        db.update_pool(&id, "Updated Pool", 20, true).unwrap();
         let p = db.get_pool_by_id(&id).unwrap().unwrap();
         assert_eq!(p.display_name, "Updated Pool");
         assert_eq!(p.max_concurrency, 20);
         assert!(p.thinking_enabled);
-        assert_eq!(p.circuit_breaker_threshold, 5);
-        assert_eq!(p.circuit_breaker_duration_seconds, 120);
     }
 
     #[test]
@@ -1765,7 +1829,7 @@ db.insert_request_log("l1", "r1", None, None, None, "[]", "POST", "/", 200, 50, 
 db.insert_request_log("l2", "r2", None, None, None, "[]", "POST", "/", 500, 50, false, 0, 0, 0).unwrap();
 db.insert_request_log("l3", "r3", None, None, None, "[]", "POST", "/", 200, 50, false, 0, 0, 0).unwrap();
 
-        let filter = LogFilter { status_code: Some(500), limit: 100, ..Default::default() };
+        let filter = LogFilter { status_prefix: Some(5), limit: 100, ..Default::default() };
         let logs = db.get_recent_logs(&filter).unwrap();
         assert_eq!(logs.len(), 1);
         assert_eq!(logs[0].status_code, 500);
@@ -1869,9 +1933,15 @@ db.insert_request_log(&format!("l{}", i), &format!("r{}", i), None, None, None,
         let id1 = sample_upstream_id();
         let id2 = sample_upstream_id();
 
-        db.with_transaction(|| {
-            db.create_upstream(&id1, "Tx1", "http://1", b"k", "m", "[]", true, "")?;
-            db.create_upstream(&id2, "Tx2", "http://2", b"k", "m", "[]", true, "")?;
+        db.with_transaction(|conn| {
+            conn.execute(
+                "INSERT INTO upstreams (id, provider_name, base_url, api_key_encrypted, selected_model, available_models, enabled, remark) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![id1, "Tx1", "http://1", b"k", "m", "[]", 1, ""],
+            )?;
+            conn.execute(
+                "INSERT INTO upstreams (id, provider_name, base_url, api_key_encrypted, selected_model, available_models, enabled, remark) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![id2, "Tx2", "http://2", b"k", "m", "[]", 1, ""],
+            )?;
             Ok(())
         }).unwrap();
 
@@ -1883,8 +1953,11 @@ db.insert_request_log(&format!("l{}", i), &format!("r{}", i), None, None, None,
         let db = test_db();
         let id = sample_upstream_id();
 
-        let result = db.with_transaction(|| {
-            db.create_upstream(&id, "Tx1", "http://1", b"k", "m", "[]", true, "")?;
+        let result = db.with_transaction(|conn| {
+            conn.execute(
+                "INSERT INTO upstreams (id, provider_name, base_url, api_key_encrypted, selected_model, available_models, enabled, remark) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![id, "Tx1", "http://1", b"k", "m", "[]", 1, ""],
+            )?;
             // Simulate an error
             Err(AppError::Internal("simulated failure".to_string()))
         });
