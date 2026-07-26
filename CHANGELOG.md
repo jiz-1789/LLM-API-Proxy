@@ -7,6 +7,20 @@
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-07-27
+
+### 新增
+- 下载进度实时显示：流式下载通过 Tauri 事件推送进度条（百分比 + MB）
+- 下载完成后弹出确认对话框：选择「立即更新」或「下次启动时更新」
+- 标题栏新增语言切换按钮（中 / EN），无需进入设置即可切换界面语言
+- 侧边栏检查更新按钮有新版本时变为绿色下载箭头，点击跳转设置页底部
+- 启动时自动检测上次「稍后更新」的下载文件并自动应用
+
+### 变更
+- 更新流程拆分为两个阶段：download_update（仅下载）+ apply_update（退出并执行替换）
+- 下载文件使用 _update_downloading.exe（下载中）和 _update_pending.exe（待安装）两阶段命名
+- 下载中断时自动清理临时文件，避免残留
+
 ## [0.1.5] - 2026-07-27
 
 ### 修复
@@ -80,7 +94,8 @@
 - **数据便携**：所有数据存储在程序同目录 `data/` 文件夹，U 盘携带即走
 - **开源治理**：AGPL-3.0 双轨许可、CLA 贡献者协议、CONTRIBUTING.md 贡献指南
 
-[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.6
 [0.1.5]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.5
 [0.1.4]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.4
 [0.1.3]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.3
