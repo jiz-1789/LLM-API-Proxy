@@ -812,6 +812,28 @@ gap: 8px;
         }
         .settings-row .form-input, .settings-row .form-select { flex: 1; }
 
+        /* === Language toggle in titlebar === */
+        .lang-toggle {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 5px 10px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            transition: all var(--transition);
+            -webkit-app-region: no-drag;
+            font-family: inherit;
+            min-width: 36px;
+            text-align: center;
+        }
+        .lang-toggle:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+            border-color: var(--border-strong);
+        }
         /* === Theme toggle in titlebar === */
         .theme-toggle {
             background: var(--bg-tertiary);
@@ -830,6 +852,21 @@ gap: 8px;
             background: var(--bg-hover);
             color: var(--text-primary);
             border-color: var(--border-strong);
+        }
+
+        /* === Green download arrow on sidebar update button === */
+        .sidebar-footer .update-arrow {
+            color: #22c55e;
+            display: inline-flex;
+            align-items: center;
+            animation: bounce-down 1.2s ease-in-out infinite;
+        }
+        .sidebar-footer .check-update-btn.has-update {
+            color: #22c55e;
+        }
+        @keyframes bounce-down {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(2px); }
         }
 
         /* === Window controls === */
@@ -1028,7 +1065,8 @@ gap: 8px;
 <body>
 <div class="titlebar">
 <h1><img class="app-logo" width="20" height="20" src="data:image/png;base64,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" alt="logo"><span class="status-dot"></span>LLM-API-Proxy</h1>
-        <div style="display:flex;align-items:center;gap:12px;-webkit-app-region:no-drag;">
+        <div style="display:flex;align-items:center;gap:8px;-webkit-app-region:no-drag;">
+            <button class="lang-toggle" onclick="toggleLanguage()" id="lang-btn" title="Switch Language">中 / EN</button>
             <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn" data-i18n="theme_light">亮色模式</button>
             <div class="win-controls">
                 <button class="win-btn" onclick="winMinimize()" title="最小化" data-i18n-title="win_minimize">
@@ -1056,7 +1094,7 @@ gap: 8px;
             <div class="sidebar-footer">
                 <div class="version-row">
                     <span class="version-label">v</span><span class="version-num" id="app-version">0.1.0</span>
-                    <button class="check-update-btn" onclick="checkForUpdates(true)" id="sidebar-check-update" title="检查更新" data-i18n-title="check_update">
+                    <button class="check-update-btn" onclick="handleSidebarUpdateClick()" id="sidebar-check-update" title="检查更新" data-i18n-title="check_update">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
                     </button>
                 </div>
@@ -1754,10 +1792,20 @@ print(response.choices[0].message.content)</code></pre>
         update_downloading: { zh: '正在下载更新...', en: 'Downloading update...' },
         update_download_success: { zh: '下载完成，正在重启更新...', en: 'Download complete, restarting...' },
         update_download_fail: { zh: '下载更新失败: ', en: 'Download failed: ' },
+        update_progress_label: { zh: '下载进度', en: 'Download progress' },
+        update_preparing: { zh: '正在准备下载...', en: 'Preparing download...' },
+        update_apply_title: { zh: '下载完成', en: 'Download Complete' },
+        update_apply_question: { zh: '新版本已下载完成，是否立即更新？', en: 'New version downloaded. Apply update now?' },
+        update_apply_now: { zh: '立即更新', en: 'Update Now' },
+        update_apply_later: { zh: '下次启动时更新', en: 'Update on Next Launch' },
+        update_applying: { zh: '正在应用更新...', en: 'Applying update...' },
+        update_apply_fail: { zh: '应用更新失败: ', en: 'Failed to apply update: ' },
+        update_pending_toast: { zh: '检测到已下载的更新，正在自动应用...', en: 'Pending update detected, applying automatically...' },
         update_no_notes: { zh: '无更新说明', en: 'No release notes' },
         update_go_settings: { zh: '，请前往「设置」页面下载', en: '. Go to Settings to download.' },
         update_toast_latest: { zh: '已是最新版本', en: 'Already up to date' },
         update_toast_fail: { zh: '检查更新失败: ', en: 'Update check failed: ' },
+        update_sidebar_tip: { zh: '有新版本可用，点击下载', en: 'New version available, click to download' },
 
         // ── Modal: Upstream ──
         modal_add_upstream: { zh: '新增上游', en: 'Add Upstream' },
@@ -2091,6 +2139,8 @@ print(response.choices[0].message.content)</code></pre>
     async function setLanguage(lang) {
         currentLang = lang;
         applyI18n();
+        // Update language button text
+        updateLangBtn();
         try {
             const current = await cmd('get_settings') || {};
             const req = {
@@ -2104,6 +2154,21 @@ print(response.choices[0].message.content)</code></pre>
             };
             await cmd('update_settings', { req });
         } catch (e) { /* best effort */ }
+    }
+
+    // Toggle between Chinese and English
+    function toggleLanguage() {
+        const newLang = currentLang === 'zh' ? 'en' : 'zh';
+        setLanguage(newLang);
+    }
+
+    // Update language button appearance based on current language
+    function updateLangBtn() {
+        const btn = document.getElementById('lang-btn');
+        if (btn) {
+            btn.textContent = currentLang === 'zh' ? 'EN' : '中';
+            btn.title = currentLang === 'zh' ? 'Switch to English' : '切换到中文';
+        }
     }
 
     // ================================================================
@@ -3288,20 +3353,55 @@ function generateApiKey() {
     // ================================================================
     let lastUpdateInfo = null; // Stores the latest update check result
 
-    // Show/hide the red dot indicator on sidebar check-update button
+    // Show/hide the green download arrow indicator on sidebar check-update button
     function updateSidebarBadge(show) {
         const sidebarBtn = document.getElementById('sidebar-check-update');
         if (!sidebarBtn) return;
-        let dot = sidebarBtn.querySelector('.update-dot');
+        // Remove old dot if exists
+        const oldDot = sidebarBtn.querySelector('.update-dot');
+        if (oldDot) oldDot.remove();
+
+        // Check if the green arrow SVG is already present
+        let arrow = sidebarBtn.querySelector('.update-arrow');
         if (show) {
-            if (!dot) {
-                dot = document.createElement('span');
-                dot.className = 'update-dot';
-                sidebarBtn.appendChild(dot);
+            if (!arrow) {
+                arrow = document.createElement('span');
+                arrow.className = 'update-arrow';
+                arrow.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+                sidebarBtn.appendChild(arrow);
+                sidebarBtn.classList.add('has-update');
             }
         } else {
-            if (dot) dot.remove();
+            sidebarBtn.classList.remove('has-update');
         }
+    }
+
+    // Navigate to settings page and scroll to the update section
+    function navigateToUpdateSection() {
+        // Switch to settings page
+        document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+        const settingsNav = document.querySelector('.nav-item[data-page="settings"]');
+        if (settingsNav) settingsNav.classList.add('active');
+        document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
+        const settingsPage = document.getElementById('page-settings');
+        if (settingsPage) settingsPage.classList.add('active');
+
+        // Auto-render update info if already fetched
+        if (lastUpdateInfo && lastUpdateInfo.has_update) {
+            renderUpdateInfo(lastUpdateInfo);
+        } else {
+            // Trigger a check to populate the section
+            checkForUpdates(false);
+        }
+
+        // Scroll to the update section (near the bottom of settings)
+        setTimeout(() => {
+            const updateSection = document.getElementById('update-result');
+            const scrollContainer = document.querySelector('.page.active');
+            if (updateSection && scrollContainer) {
+                updateSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }, 200);
     }
 
     // Render update info in the settings page
@@ -3340,24 +3440,127 @@ function generateApiKey() {
         }
     }
 
-    // Download the new portable exe and auto-update
+    // Download the new portable exe (without applying it yet)
     async function downloadAndUpdate(downloadUrl, source) {
         const btnId = source === 'gitee' ? 'btn-download-gitee' : 'btn-download-github';
         const btn = document.getElementById(btnId);
+        const result = document.getElementById('update-result');
+
+        // Insert a progress bar into the result area
+        let progressContainer = null;
+        if (result) {
+            progressContainer = document.createElement('div');
+            progressContainer.id = 'update-progress-container';
+            progressContainer.style.cssText = 'margin-top:12px;';
+            progressContainer.innerHTML =
+                '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
+                '<span style="color:var(--text-secondary);font-size:12px;">' + t('update_progress_label') + '</span>' +
+                '<span id="update-progress-text" style="color:var(--text-primary);font-size:12px;font-weight:600;">' + t('update_preparing') + '</span>' +
+                '</div>' +
+                '<div style="width:100%;height:8px;background:var(--bg-tertiary);border-radius:4px;overflow:hidden;">' +
+                '<div id="update-progress-bar" style="width:0%;height:100%;background:var(--primary);border-radius:4px;transition:width 0.3s ease;"></div>' +
+                '</div>';
+            result.appendChild(progressContainer);
+        }
+
+        // Listen for progress events from the backend
+        let unlistenFn = null;
+        const tauriEvent = window.__TAURI__?.event;
+        if (tauriEvent?.listen) {
+            tauriEvent.listen('update-progress', (event) => {
+                const data = event.payload;
+                const bar = document.getElementById('update-progress-bar');
+                const text = document.getElementById('update-progress-text');
+                if (bar && data) {
+                    bar.style.width = (data.percentage || 0).toFixed(1) + '%';
+                }
+                if (text && data) {
+                    const dlMB = (data.downloaded / 1048576).toFixed(1);
+                    const totalMB = data.total > 0 ? (data.total / 1048576).toFixed(1) : '?';
+                    text.textContent = (data.percentage || 0).toFixed(0) + '%  (' + dlMB + ' / ' + totalMB + ' MB)';
+                }
+            }).then(fn => { unlistenFn = fn; });
+        }
+
         if (btn) {
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner"></span> ' + t('update_downloading');
         }
         try {
-            await cmd('download_and_update', { downloadUrl: downloadUrl });
-            // If we reach here, the app is about to exit for update
-            toast(t('update_download_success'), 'success');
+            // Phase 1: Download only (does not exit the app)
+            await cmd('download_update', { downloadUrl: downloadUrl });
+            // Download completed — show confirmation dialog
+            showUpdateConfirmDialog();
         } catch (e) {
             if (btn) {
                 btn.disabled = false;
                 btn.textContent = source === 'gitee' ? t('update_download_gitee') : t('update_download_github');
             }
+            if (progressContainer) progressContainer.remove();
             toast(t('update_download_fail') + e, 'error');
+        } finally {
+            if (unlistenFn) unlistenFn();
+        }
+    }
+
+    // Show a modal-like confirmation dialog after download completes
+    function showUpdateConfirmDialog() {
+        // Remove any existing dialog
+        const existing = document.getElementById('update-confirm-dialog');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'update-confirm-dialog';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;';
+        overlay.innerHTML =
+            '<div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;max-width:360px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.3);">' +
+            '<div style="font-size:16px;font-weight:600;color:var(--text-primary);margin-bottom:12px;">' + t('update_apply_title') + '</div>' +
+            '<div style="font-size:13px;color:var(--text-secondary);margin-bottom:20px;line-height:1.6;">' + t('update_apply_question') + '</div>' +
+            '<div style="display:flex;gap:10px;justify-content:flex-end;">' +
+            '<button class="btn btn-ghost btn-sm" id="btn-update-later">' + t('update_apply_later') + '</button>' +
+            '<button class="btn btn-primary btn-sm" id="btn-update-now">' + t('update_apply_now') + '</button>' +
+            '</div>' +
+            '</div>';
+        document.body.appendChild(overlay);
+
+        document.getElementById('btn-update-later').onclick = () => {
+            overlay.remove();
+            toast(t('update_apply_later') + ' ✓', 'info');
+        };
+        document.getElementById('btn-update-now').onclick = async () => {
+            overlay.remove();
+            try {
+                toast(t('update_applying'), 'info');
+                // Phase 2: Apply the update (exits the app and restarts)
+                await cmd('apply_update');
+            } catch (e) {
+                toast(t('update_apply_fail') + e, 'error');
+            }
+        };
+    }
+
+    // Check for pending update on startup and auto-apply it
+    async function checkAndApplyPendingUpdate() {
+        try {
+            const hasPending = await cmd('check_pending_update');
+            if (hasPending) {
+                toast(t('update_pending_toast'), 'info');
+                // Small delay so the toast is visible before the app exits
+                setTimeout(async () => {
+                    try {
+                        await cmd('apply_update');
+                    } catch (_) { /* ignore */ }
+                }, 1500);
+            }
+        } catch (_) { /* ignore */ }
+    }
+
+    // Handle sidebar update button click: navigate to update section if update available, otherwise check
+    function handleSidebarUpdateClick() {
+        if (lastUpdateInfo && lastUpdateInfo.has_update) {
+            navigateToUpdateSection();
+        } else {
+            checkForUpdates(true);
         }
     }
 
@@ -3721,11 +3924,14 @@ function restartCarouselTimer() {
 // ================================================================
     (async function init() {
         await loadTheme();
+        updateLangBtn();
         renderCarousel();
         startCarouselTimer();
         // Dashboard is the default active page — start its timer
         refreshDashboard();
         dashboardTimer = setInterval(refreshDashboard, 30000);
+        // Check for pending update first (from a previous "later" choice)
+        await checkAndApplyPendingUpdate();
         // Silently check for updates on startup
         silentCheckForUpdates();
     })();

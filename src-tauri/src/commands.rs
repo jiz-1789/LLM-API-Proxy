@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 use llm_api_proxy_lib::AppState;
 
@@ -1153,11 +1153,38 @@ fn compare_versions(latest: &str, current: &str) -> bool {
     false
 }
 
-/// Download the new portable exe and replace the current one.
-/// Creates a batch updater script that waits for the app to exit,
-/// replaces the exe, and restarts the new version.
+/// Download progress payload sent to the frontend via Tauri events.
+#[derive(Clone, Serialize)]
+pub struct DownloadProgress {
+    pub downloaded: u64,
+    pub total: u64,
+    pub percentage: f64,
+}
+
+/// Check if a pending update (downloaded but not yet applied) exists.
+/// Also cleans up any stale partial download file.
 #[tauri::command]
-pub async fn download_and_update(
+pub fn check_pending_update() -> Result<bool, String> {
+    let current_exe = std::env::current_exe()
+        .map_err(|e| format!("获取当前程序路径失败: {}", e))?;
+    let exe_dir = current_exe.parent()
+        .ok_or("无法获取程序目录")?;
+
+    // Clean up stale partial download if exists
+    let downloading = exe_dir.join("_update_downloading.exe");
+    if downloading.exists() {
+        let _ = std::fs::remove_file(&downloading);
+    }
+
+    let pending = exe_dir.join("_update_pending.exe");
+    Ok(pending.exists())
+}
+
+/// Download the new portable exe (download only, does not exit the app).
+/// Streams the download with progress events via Tauri events.
+/// The file is saved as _update_pending.exe on completion.
+#[tauri::command]
+pub async fn download_update(
     download_url: String,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
@@ -1172,11 +1199,12 @@ pub async fn download_and_update(
     let exe_dir = current_exe.parent()
         .ok_or("无法获取程序目录")?;
 
-    // Download the new exe to a temp file in the same directory
-    let temp_path = exe_dir.join("_update_temp.exe");
+    // Download to _update_downloading.exe first, rename to _update_pending.exe on success
+    let downloading_path = exe_dir.join("_update_downloading.exe");
+    let pending_path = exe_dir.join("_update_pending.exe");
 
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(300))
+        .timeout(std::time::Duration::from_secs(600))
         .build()
         .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
 
@@ -1191,18 +1219,91 @@ pub async fn download_and_update(
         return Err(format!("下载失败: HTTP {}", resp.status()));
     }
 
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| format!("读取下载内容失败: {}", e))?;
+    let total_size = resp.content_length().unwrap_or(0);
 
-    std::fs::write(&temp_path, &bytes)
-        .map_err(|e| format!("写入临时文件失败: {}", e))?;
+    // Stream the download with progress reporting
+    let mut file = std::fs::File::create(&downloading_path)
+        .map_err(|e| format!("创建临时文件失败: {}", e))?;
 
-    // Create a batch updater script that replaces the exe and restarts
+    use std::io::Write;
+    let mut resp = resp;
+    let mut downloaded: u64 = 0;
+    let mut last_report: u64 = 0;
+
+    loop {
+        let chunk = resp.chunk()
+            .await
+            .map_err(|e| {
+                // Clean up partial download on error
+                let _ = std::fs::remove_file(&downloading_path);
+                format!("读取下载数据失败: {}", e)
+            })?
+            .unwrap_or_default();
+
+        if chunk.is_empty() {
+            break;
+        }
+
+        file.write_all(&chunk)
+            .map_err(|e| {
+                let _ = std::fs::remove_file(&downloading_path);
+                format!("写入临时文件失败: {}", e)
+            })?;
+
+        downloaded += chunk.len() as u64;
+
+        // Report progress at most every 100KB to avoid flooding the event bus
+        if downloaded - last_report >= 102_400 || (total_size > 0 && downloaded == total_size) {
+            last_report = downloaded;
+            let percentage = if total_size > 0 {
+                (downloaded as f64 / total_size as f64) * 100.0
+            } else {
+                0.0
+            };
+            let _ = app_handle.emit("update-progress", DownloadProgress {
+                downloaded,
+                total: total_size,
+                percentage,
+            });
+        }
+    }
+
+    drop(file); // Ensure the file handle is closed before rename
+
+    tracing::info!("Download complete: {} bytes", downloaded);
+
+    // Rename downloading file to pending file
+    std::fs::rename(&downloading_path, &pending_path)
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&downloading_path);
+            format!("重命名下载文件失败: {}", e)
+        })?;
+
+    Ok(())
+}
+
+/// Apply a pending update: create a batch updater script, shut down the
+/// gateway, and exit the app. The batch script replaces the exe and
+/// restarts the new version. This works regardless of minimize-to-tray
+/// settings — the app fully exits.
+#[tauri::command]
+pub fn apply_update(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let current_exe = std::env::current_exe()
+        .map_err(|e| format!("获取当前程序路径失败: {}", e))?;
+    let exe_dir = current_exe.parent()
+        .ok_or("无法获取程序目录")?;
+
+    // Verify the pending update file exists
+    let pending_path = exe_dir.join("_update_pending.exe");
+    if !pending_path.exists() {
+        return Err("未找到待安装的更新文件，请重新下载".to_string());
+    }
+
     let exe_name = current_exe.file_name()
         .and_then(|n| n.to_str())
         .ok_or("无法获取程序文件名")?;
+
+    let exe_path = current_exe.to_string_lossy().to_string();
 
     let batch_content = format!(
         "@echo off\r\n\
@@ -1216,16 +1317,20 @@ pub async fn download_and_update(
              goto retry\r\n\
          )\r\n\
          :: Move the new exe into place\r\n\
-         move /y \"_update_temp.exe\" \"{exe_name}\"\r\n\
+         move /y \"_update_pending.exe\" \"{exe_name}\"\r\n\
          :: Delete the old exe backup\r\n\
          del \"{exe_name}.bak\" 2>nul\r\n\
+         :: Ensure a desktop shortcut exists (create if missing)\r\n\
+         powershell -NoProfile -Command \"$desktop=[Environment]::GetFolderPath('Desktop'); $lnk=Join-Path $desktop 'LLM-API-Proxy.lnk'; if (-not (Test-Path $lnk)) {{ $ws=New-Object -ComObject WScript.Shell; $s=$ws.CreateShortcut($lnk); $s.TargetPath='{exe_path}'; $s.WorkingDirectory='{exe_dir}'; $s.IconLocation='{exe_path},0'; $s.Description='LLM-API-Proxy'; $s.Save() }}\" 2>nul\r\n\
          :: Refresh Windows icon cache to fix desktop shortcuts\r\n\
          ie4uinit.exe -show 2>nul\r\n\
          :: Start the new version\r\n\
          start \"\" \"{exe_name}\"\r\n\
          :: Clean up this batch script\r\n\
          del \"%~f0\"\r\n",
-        exe_name = exe_name
+        exe_name = exe_name,
+        exe_path = exe_path,
+        exe_dir = exe_dir.to_string_lossy(),
     );
 
     let batch_path = exe_dir.join("_updater.bat");

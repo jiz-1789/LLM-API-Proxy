@@ -61,7 +61,9 @@ commands::fetch_upstream_models_by_id,
             commands::read_clipboard,
             commands::save_file_dialog,
             commands::check_for_updates,
-            commands::download_and_update,
+            commands::download_update,
+            commands::apply_update,
+            commands::check_pending_update,
         ])
         .setup(|app| {
             // Read language setting for bilingual tray menu
