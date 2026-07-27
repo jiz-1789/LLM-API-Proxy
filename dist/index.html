@@ -3414,22 +3414,24 @@ function generateApiKey() {
             const notes = info.release_notes ? esc(info.release_notes).replace(/\n/g, '<br>') : t('update_no_notes');
             result.style.display = 'block';
             // Build download buttons: GitHub + Gitee
+            // Helper: escape URL for use in HTML onclick attribute with double quotes
+            const escUrl = (url) => url.replace(/"/g, '&quot;');
             var buttons = [];
             if (info.github_download_url) {
-                buttons.push('<button class="btn btn-primary btn-sm" id="btn-download-github" onclick="downloadAndUpdate(' + JSON.stringify(info.github_download_url) + ', \'github\')">' + t('update_download_github') + '</button>');
+                buttons.push('<button class="btn btn-primary btn-sm" id="btn-download-github" onclick="downloadAndUpdate(&quot;' + escUrl(info.github_download_url) + '&quot;, &#39;github&#39;)">' + t('update_download_github') + '</button>');
             } else if (info.github_release_url) {
-                buttons.push('<button class="btn btn-ghost btn-sm" onclick="cmd(\'open_external_url\', { url: ' + JSON.stringify(info.github_release_url) + ' })">' + t('update_download_github') + '</button>');
+                buttons.push('<button class="btn btn-ghost btn-sm" onclick="cmd(&#39;open_external_url&#39;, { url: &quot;' + escUrl(info.github_release_url) + '&quot; })">' + t('update_download_github') + '</button>');
             }
             if (info.gitee_download_url) {
-                buttons.push('<button class="btn btn-primary btn-sm" id="btn-download-gitee" onclick="downloadAndUpdate(' + JSON.stringify(info.gitee_download_url) + ', \'gitee\')">' + t('update_download_gitee') + '</button>');
+                buttons.push('<button class="btn btn-primary btn-sm" id="btn-download-gitee" onclick="downloadAndUpdate(&quot;' + escUrl(info.gitee_download_url) + '&quot;, &#39;gitee&#39;)">' + t('update_download_gitee') + '</button>');
             } else if (info.gitee_release_url) {
-                buttons.push('<button class="btn btn-ghost btn-sm" onclick="cmd(\'open_external_url\', { url: ' + JSON.stringify(info.gitee_release_url) + ' })">' + t('update_download_gitee') + '</button>');
+                buttons.push('<button class="btn btn-ghost btn-sm" onclick="cmd(&#39;open_external_url&#39;, { url: &quot;' + escUrl(info.gitee_release_url) + '&quot; })">' + t('update_download_gitee') + '</button>');
             }
             // Fallback: if no download buttons at all, show release page link
             if (buttons.length === 0) {
                 var fallbackUrl = info.github_release_url || info.gitee_release_url || '';
                 if (fallbackUrl) {
-                    buttons.push('<button class="btn btn-ghost btn-sm" onclick="cmd(\'open_external_url\', { url: ' + JSON.stringify(fallbackUrl) + ' })">' + t('update_download') + '</button>');
+                    buttons.push('<button class="btn btn-ghost btn-sm" onclick="cmd(&#39;open_external_url&#39;, { url: &quot;' + escUrl(fallbackUrl) + '&quot; })">' + t('update_download') + '</button>');
                 }
             }
             result.innerHTML = '<div style="margin-bottom:10px;"><strong style="color:var(--text-primary);">v' + esc(info.latest_version) + '</strong>' + (info.published_at ? ' <span style="color:var(--text-muted);">· ' + esc(info.published_at.substring(0, 10)) + '</span>' : '') + '</div><div style="color:var(--text-secondary);margin-bottom:12px;max-height:200px;overflow-y:auto;">' + notes + '</div><div style="display:flex;gap:8px;flex-wrap:wrap;">' + buttons.join('') + '</div>';
