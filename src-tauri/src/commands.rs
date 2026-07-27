@@ -1347,35 +1347,38 @@ pub fn apply_update(app_handle: tauri::AppHandle) -> Result<(), String> {
 
     let exe_path = current_exe.to_string_lossy().to_string();
 
+    let batch_path = exe_dir.join("_updater.bat");
+
     let batch_content = format!(
         "@echo off\r\n\
+         cd /d \"{exe_dir}\"\r\n\
          :: Wait for the app to fully exit\r\n\
          timeout /t 2 /nobreak >nul\r\n\
          :: Retry loop: rename old exe to .bak to verify it is unlocked\r\n\
          :retry\r\n\
-         ren \"{exe_name}\" \"{exe_name}.bak\" 2>nul\r\n\
+         ren \"{exe_path}\" \"{exe_name}.bak\" 2>nul\r\n\
          if errorlevel 1 (\r\n\
              timeout /t 1 /nobreak >nul\r\n\
              goto retry\r\n\
          )\r\n\
          :: Move the new exe into place\r\n\
-         move /y \"_update_pending.exe\" \"{exe_name}\"\r\n\
+         move /y \"{exe_dir}\\_update_pending.exe\" \"{exe_path}\"\r\n\
          :: Delete the old exe backup\r\n\
-         del \"{exe_name}.bak\" 2>nul\r\n\
+         del \"{exe_dir}\\{exe_name}.bak\" 2>nul\r\n\
          :: Ensure a desktop shortcut exists (create if missing)\r\n\
          powershell -NoProfile -Command \"$desktop=[Environment]::GetFolderPath('Desktop'); $lnk=Join-Path $desktop 'LLM-API-Proxy.lnk'; if (-not (Test-Path $lnk)) {{ $ws=New-Object -ComObject WScript.Shell; $s=$ws.CreateShortcut($lnk); $s.TargetPath='{exe_path}'; $s.WorkingDirectory='{exe_dir}'; $s.IconLocation='{exe_path},0'; $s.Description='LLM-API-Proxy'; $s.Save() }}\" 2>nul\r\n\
          :: Refresh Windows icon cache to fix desktop shortcuts\r\n\
          ie4uinit.exe -show 2>nul\r\n\
          :: Start the new version\r\n\
-         start \"\" \"{exe_name}\"\r\n\
+         start \"\" \"{exe_path}\"\r\n\
          :: Clean up this batch script\r\n\
-         del \"%~f0\"\r\n",
+         del \"{batch_path}\" 2>nul\r\n",
         exe_name = exe_name,
         exe_path = exe_path,
         exe_dir = exe_dir.to_string_lossy(),
+        batch_path = batch_path.to_string_lossy(),
     );
 
-    let batch_path = exe_dir.join("_updater.bat");
     std::fs::write(&batch_path, batch_content)
         .map_err(|e| format!("创建更新脚本失败: {}", e))?;
 
@@ -1386,8 +1389,9 @@ pub fn apply_update(app_handle: tauri::AppHandle) -> Result<(), String> {
     state.shutdown();
 
     // Run the batch script in a detached process
+    let batch_path_str = batch_path.to_string_lossy().to_string();
     std::process::Command::new("cmd")
-        .args(["/c", "start", "", "/b", "_updater.bat"])
+        .args(["/c", "start", "", "/b", &batch_path_str])
         .current_dir(exe_dir)
         .creation_flags(0x00000008) // DETACHED_PROCESS
         .spawn()
