@@ -5,6 +5,7 @@ use axum::{
     body::Body,
     extract::State,
     http::{HeaderMap, StatusCode},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -13,7 +14,7 @@ use bytes::Bytes;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio_util::io::StreamReader;
 use tracing::{info, warn};
@@ -26,17 +27,62 @@ use crate::proxy::failover::UpstreamClient;
 /// Per-pool round-robin counters (pool_id → next index).
 type RoundRobinCounters = Arc<Mutex<HashMap<String, usize>>>;
 
+/// Simple in-memory rate limiter: client IP → (count, window_start).
+/// Allows 60 requests per minute per IP by default.
+#[derive(Clone)]
+struct RateLimiter {
+    requests: Arc<Mutex<HashMap<String, (u32, Instant)>>>,
+    max_requests: u32,
+    window: Duration,
+}
+
+impl RateLimiter {
+    fn new(max_requests: u32, window: Duration) -> Self {
+        Self {
+            requests: Arc::new(Mutex::new(HashMap::new())),
+            max_requests,
+            window,
+        }
+    }
+
+    /// Check if the given client IP is allowed to make a request.
+    /// Returns true if within rate limit, false if exceeded.
+    fn is_allowed(&self, client_ip: &str) -> bool {
+        let mut requests = self.requests.lock().unwrap();
+        let now = Instant::now();
+
+        if let Some((count, window_start)) = requests.get_mut(client_ip) {
+            if now.duration_since(*window_start) > self.window {
+                // Window expired, reset
+                *count = 1;
+                *window_start = now;
+                true
+            } else if *count < self.max_requests {
+                *count += 1;
+                true
+            } else {
+                false
+            }
+        } else {
+            requests.insert(client_ip.to_string(), (1, now));
+            true
+        }
+    }
+}
+
 /// Build the API Gateway router.
 pub fn create_router(
     db: Arc<Database>,
     proxy_client: Arc<UpstreamClient>,
     crypto: Arc<KeyManager>,
 ) -> Router {
+    let rate_limiter = RateLimiter::new(60, Duration::from_secs(60));
     let state = GatewayState {
         db,
         proxy_client,
         crypto,
         rr_counters: Arc::new(Mutex::new(HashMap::new())),
+        rate_limiter,
     };
 
     Router::new()
@@ -45,7 +91,49 @@ pub fn create_router(
         .route("/v1/chat/completions", post(handle_chat_completions))
         // Health check for monitoring
         .route("/api/health", get(handle_health))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            rate_limit_middleware,
+        ))
         .with_state(state)
+}
+
+/// Rate limiting middleware: checks if client IP is within rate limits.
+/// Uses X-Forwarded-For header if present (for reverse proxy setups),
+/// otherwise falls back to connection remote address.
+async fn rate_limit_middleware(
+    State(state): State<GatewayState>,
+    req: axum::http::Request<Body>,
+    next: Next,
+) -> Response {
+    let client_ip = req
+        .headers()
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(',').next().map(|s| s.trim().to_string()))
+        .unwrap_or_else(|| {
+            req.extensions()
+                .get::<std::net::SocketAddr>()
+                .map(|addr| addr.ip().to_string())
+                .unwrap_or_else(|| "unknown".to_string())
+        });
+
+    if !state.rate_limiter.is_allowed(&client_ip) {
+        warn!("Rate limit exceeded for client {}", client_ip);
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(json!({
+                "error": {
+                    "message": "Rate limit exceeded. Please try again later.",
+                    "type": "rate_limit_error",
+                    "code": "rate_limit_exceeded"
+                }
+            })),
+        )
+            .into_response();
+    }
+
+    next.run(req).await
 }
 
 #[derive(Clone)]
@@ -54,6 +142,7 @@ struct GatewayState {
     proxy_client: Arc<UpstreamClient>,
     crypto: Arc<KeyManager>,
     rr_counters: RoundRobinCounters,
+    rate_limiter: RateLimiter,
 }
 
 /// GET /api/health — Returns gateway status.
@@ -332,7 +421,7 @@ async fn handle_chat_completions(
 
                     // Log successful stream start
                     let log_id = format!("log_{}", uuid::Uuid::new_v4().simple());
-                    let _ = state.db.insert_request_log(
+                    if let Err(e) = state.db.insert_request_log(
                         &log_id,
                         &request_id,
                         Some(&pool.name),
@@ -347,7 +436,9 @@ async fn handle_chat_completions(
                         0,
                         0,
                         0,
-                    );
+                    ) {
+                        warn!("Failed to insert request log: {}", e);
+                    }
 
                     info!(
                         "Streaming from {} (model={}) for pool={}",
@@ -413,15 +504,19 @@ async fn handle_chat_completions(
                         // - If an error was detected mid-stream, update status to 500
                         // - Update token usage if found
                         if let Some(ref _err) = stream_error {
-                            let _ = db_clone.update_request_log_status(&log_id_clone, 500);
+                            if let Err(e) = db_clone.update_request_log_status(&log_id_clone, 500) {
+                                warn!("Failed to update request log status: {}", e);
+                            }
                         }
                         if let Some((prompt, completion, total)) = last_usage {
-                            let _ = db_clone.update_request_log_tokens(
+                            if let Err(e) = db_clone.update_request_log_tokens(
                                 &log_id_clone,
                                 prompt,
                                 completion,
                                 total,
-                            );
+                            ) {
+                                warn!("Failed to update request log tokens: {}", e);
+                            }
                         }
                     });
 
@@ -429,14 +524,19 @@ async fn handle_chat_completions(
                     let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
                     let body = Body::from_stream(stream);
 
-                    return Response::builder()
+                    match Response::builder()
                         .status(StatusCode::OK)
                         .header("Content-Type", "text/event-stream")
                         .header("Cache-Control", "no-cache")
                         .header("Connection", "keep-alive")
                         .body(body)
-                        .unwrap()
-                        .into_response();
+                    {
+                        Ok(resp) => return resp.into_response(),
+                        Err(e) => {
+                            warn!("Failed to build stream response: {}", e);
+                            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "failed to build response"}))).into_response();
+                        }
+                    }
                 }
                 Err(e) => {
                     warn!("Stream upstream {} failed: {}", upstream.provider_name, e);
@@ -497,7 +597,7 @@ async fn handle_chat_completions(
 
                     // Log successful request
                     let log_id = format!("log_{}", uuid::Uuid::new_v4().simple());
-                    let _ = state.db.insert_request_log(
+                    if let Err(e) = state.db.insert_request_log(
                         &log_id,
                         &request_id,
                         Some(&pool.name),
@@ -512,7 +612,9 @@ async fn handle_chat_completions(
                         prompt_tokens,
                         completion_tokens,
                         total_tokens,
-                    );
+                    ) {
+                        warn!("Failed to insert request log: {}", e);
+                    }
 
                     return (StatusCode::OK, Json(resp_body)).into_response();
                 }
@@ -533,7 +635,7 @@ async fn handle_chat_completions(
     // All upstreams exhausted — log the failure
     let elapsed = start_time.elapsed().as_millis() as i32;
     let log_id = format!("log_fail_{}", uuid::Uuid::new_v4().simple());
-    let _ = state.db.insert_request_log(
+    if let Err(e) = state.db.insert_request_log(
         &log_id,
         &request_id,
         Some(&pool.name),
@@ -548,7 +650,9 @@ async fn handle_chat_completions(
         0,
         0,
         0,
-    );
+    ) {
+        warn!("Failed to insert failure request log: {}", e);
+    }
 
     // If we never actually attempted any upstream (all were disabled),
     // return 503 instead of 502.

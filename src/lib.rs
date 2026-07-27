@@ -113,21 +113,33 @@ pub fn initialize_backend() -> anyhow::Result<AppState> {
     let crypto_for_gw = crypto.clone();
 
     std::thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                tracing::error!("Failed to create tokio runtime: {}", e);
+                return;
+            }
+        };
         rt.block_on(async move {
             let router = gateway::create_router(db_for_gw, proxy_client, crypto_for_gw);
             let addr = format!("{}:{}", listen_addr, listen_port);
             tracing::info!("Gateway server listening on {}", addr);
-            let listener = tokio::net::TcpListener::bind(&addr)
-                .await
-                .expect("failed to bind gateway port");
-            axum::serve(listener, router)
+            let listener = match tokio::net::TcpListener::bind(&addr).await {
+                Ok(l) => l,
+                Err(e) => {
+                    tracing::error!("Failed to bind gateway port {}: {}", addr, e);
+                    return;
+                }
+            };
+            if let Err(e) = axum::serve(listener, router)
                 .with_graceful_shutdown(async move {
                     shutdown_for_server.notified().await;
                     tracing::info!("Gateway server received shutdown signal");
                 })
                 .await
-                .expect("gateway server error");
+            {
+                tracing::error!("Gateway server error: {}", e);
+            }
             tracing::info!("Gateway server stopped, port released");
         });
     });

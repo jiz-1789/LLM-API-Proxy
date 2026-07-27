@@ -7,6 +7,20 @@
 
 ## [Unreleased]
 
+## [0.1.21] - 2026-07-27
+
+### 新增
+- 添加请求速率限制功能——每 IP 每分钟最多 60 个请求，防止恶意刷接口
+- 支持 `X-Forwarded-For` 头识别真实客户端 IP（反向代理场景）
+
+### 优化
+- 完善日志错误处理——数据库写入失败时记录 warning 日志，不再静默忽略
+- 优化 SQLite 性能——启用 `synchronous=NORMAL`、`cache_size=-64000`、`temp_store=MEMORY`
+- 补充边界测试——新增 null message 场景测试，修复 model_filter 中的 unwrap
+
+### 修复
+- 修复 stream response 构建时的 unwrap，改为安全错误处理
+
 ## [0.1.20] - 2026-07-27
 
 ### 修复

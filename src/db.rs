@@ -155,11 +155,25 @@ pub struct Database {
 }
 
 impl Database {
+    /// Helper to acquire the database connection lock safely.
+    /// Returns an error if the mutex is poisoned (another thread panicked while holding it).
+    fn get_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>, AppError> {
+        self.conn.lock()
+            .map_err(|_| AppError::Internal("Database connection lock poisoned".into()))
+    }
+
     /// Open or create the SQLite database at the given path.
+    /// Configures WAL mode for better concurrent read/write performance.
     pub fn open(path: &Path) -> Result<Self, AppError> {
         let conn = Connection::open(path)?;
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
-        debug!("Opened SQLite database at {:?}", path);
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             PRAGMA foreign_keys=ON;
+             PRAGMA synchronous=NORMAL;
+             PRAGMA cache_size=-64000;
+             PRAGMA temp_store=MEMORY;"
+        )?;
+        debug!("Opened SQLite database at {:?} (WAL mode)", path);
         Ok(Self { conn: Mutex::new(conn), log_insert_counter: AtomicU64::new(0) })
     }
 
@@ -190,7 +204,7 @@ impl Database {
     // ========================================================================
 
     fn create_schema(&self) -> Result<(), AppError> {
-        self.conn.lock().unwrap().execute_batch(
+        self.get_conn()?.execute_batch(
             "CREATE TABLE IF NOT EXISTS schema_version (
                 version INTEGER NOT NULL DEFAULT 0
             );
@@ -255,11 +269,11 @@ impl Database {
         )?;
 
         // Ensure schema_version has a row
-        let count: i64 = self.conn.lock().unwrap().query_row(
+        let count: i64 = self.get_conn()?.query_row(
             "SELECT COUNT(*) FROM schema_version", [], |row| row.get(0)
         )?;
         if count == 0 {
-            self.conn.lock().unwrap().execute("INSERT INTO schema_version (version) VALUES (0)", [])?;
+            self.get_conn()?.execute("INSERT INTO schema_version (version) VALUES (0)", [])?;
         }
         Ok(())
     }
@@ -279,9 +293,9 @@ impl Database {
         for (version, sql) in migrations {
             if current < version {
                 if !sql.is_empty() {
-                    self.conn.lock().unwrap().execute_batch(sql)?;
+                    self.get_conn()?.execute_batch(sql)?;
                 }
-                self.conn.lock().unwrap().execute(
+                self.get_conn()?.execute(
                     "UPDATE schema_version SET version = ?1",
                     params![version],
                 )?;
@@ -293,7 +307,7 @@ impl Database {
 
     /// Get the current schema version.
     pub fn get_schema_version(&self) -> Result<i32, AppError> {
-        let result = self.conn.lock().unwrap().query_row(
+        let result = self.get_conn()?.query_row(
             "SELECT version FROM schema_version LIMIT 1",
             [],
             |row| row.get::<_, i32>(0),
@@ -321,7 +335,7 @@ impl Database {
         enabled: bool,
         remark: &str,
     ) -> Result<(), AppError> {
-        self.conn.lock().unwrap().execute(
+        self.get_conn()?.execute(
             "INSERT INTO upstreams (id, provider_name, base_url, api_key_encrypted, selected_model, available_models, enabled, remark)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![id, provider_name, base_url, api_key_encrypted, selected_model, available_models, enabled as i32, remark],
@@ -331,7 +345,7 @@ impl Database {
 
     /// Get all upstreams ordered by creation time (newest first).
     pub fn get_upstreams(&self) -> Result<Vec<Upstream>, AppError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, provider_name, base_url, api_key_encrypted, selected_model,
                     available_models, enabled, remark, status, failure_count, last_failure_time,
@@ -344,7 +358,7 @@ impl Database {
 
     /// Get a single upstream by its ID.
     pub fn get_upstream_by_id(&self, id: &str) -> Result<Option<Upstream>, AppError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, provider_name, base_url, api_key_encrypted, selected_model,
                     available_models, enabled, remark, status, failure_count, last_failure_time,
@@ -372,7 +386,7 @@ impl Database {
              FROM upstreams WHERE id IN ({})",
             placeholders.join(",")
         );
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
         let mut stmt = conn.prepare(&sql)?;
         let params: Vec<&dyn rusqlite::types::ToSql> = ids
             .iter()
@@ -394,7 +408,7 @@ impl Database {
         enabled: bool,
         remark: &str,
     ) -> Result<(), AppError> {
-        let rows = self.conn.lock().unwrap().execute(
+        let rows = self.get_conn()?.execute(
             "UPDATE upstreams SET provider_name=?1, base_url=?2, api_key_encrypted=?3,
              selected_model=?4, available_models=?5, enabled=?6, remark=?7, updated_at=datetime('now', 'localtime')
              WHERE id=?8",
@@ -408,7 +422,7 @@ impl Database {
 
     /// Delete an upstream by ID.
     pub fn delete_upstream(&self, id: &str) -> Result<(), AppError> {
-        self.conn.lock().unwrap().execute("DELETE FROM upstreams WHERE id=?", params![id])?;
+        self.get_conn()?.execute("DELETE FROM upstreams WHERE id=?", params![id])?;
         Ok(())
     }
 
@@ -427,7 +441,7 @@ impl Database {
 
     /// Toggle an upstream's enabled state.
     pub fn toggle_upstream(&self, id: &str, enabled: bool) -> Result<(), AppError> {
-        self.conn.lock().unwrap().execute(
+        self.get_conn()?.execute(
             "UPDATE upstreams SET enabled=?, updated_at=datetime('now', 'localtime') WHERE id=?",
             params![enabled as i32, id],
         )?;
@@ -442,7 +456,7 @@ impl Database {
         failure_count: i32,
         last_failure_time: Option<String>,
     ) -> Result<(), AppError> {
-        self.conn.lock().unwrap().execute(
+        self.get_conn()?.execute(
             "UPDATE upstreams SET status=?, failure_count=?, last_failure_time=?, updated_at=datetime('now', 'localtime')
              WHERE id=?",
             params![status, failure_count, last_failure_time, id],
@@ -463,7 +477,7 @@ impl Database {
         max_concurrency: i32,
         thinking_enabled: bool,
     ) -> Result<(), AppError> {
-        self.conn.lock().unwrap().execute(
+        self.get_conn()?.execute(
             "INSERT INTO pools (id, name, display_name, max_concurrency, thinking_enabled)
              VALUES (?1, ?2, ?3, ?4, ?5)",
             params![id, name, display_name, max_concurrency, thinking_enabled as i32],
@@ -473,7 +487,7 @@ impl Database {
 
     /// Get all pools ordered by creation time (newest first).
     pub fn get_pools(&self) -> Result<Vec<Pool>, AppError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, name, display_name, round_robin_strategy, failover_enabled,
                     timeout_seconds, max_concurrency, thinking_enabled,
@@ -486,7 +500,7 @@ impl Database {
 
     /// Get a single pool by its ID.
     pub fn get_pool_by_id(&self, id: &str) -> Result<Option<Pool>, AppError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, name, display_name, round_robin_strategy, failover_enabled,
                     timeout_seconds, max_concurrency, thinking_enabled,
@@ -503,7 +517,7 @@ impl Database {
 
     /// Get a pool by its unique model name.
     pub fn get_pool_by_name(&self, name: &str) -> Result<Option<Pool>, AppError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, name, display_name, round_robin_strategy, failover_enabled,
                     timeout_seconds, max_concurrency, thinking_enabled,
@@ -526,7 +540,7 @@ impl Database {
         max_concurrency: i32,
         thinking_enabled: bool,
     ) -> Result<(), AppError> {
-        let rows = self.conn.lock().unwrap().execute(
+        let rows = self.get_conn()?.execute(
             "UPDATE pools SET display_name=?1, max_concurrency=?2, thinking_enabled=?3,
              updated_at=datetime('now', 'localtime') WHERE id=?4",
             params![
@@ -541,7 +555,7 @@ impl Database {
 
     /// Delete a pool by ID (cascade removes pool_upstreams associations).
     pub fn delete_pool(&self, id: &str) -> Result<(), AppError> {
-        self.conn.lock().unwrap().execute("DELETE FROM pools WHERE id=?", params![id])?;
+        self.get_conn()?.execute("DELETE FROM pools WHERE id=?", params![id])?;
         Ok(())
     }
 
@@ -557,7 +571,7 @@ impl Database {
         sort_order: i32,
         model: &str,
     ) -> Result<(), AppError> {
-        self.conn.lock().unwrap().execute(
+        self.get_conn()?.execute(
             "INSERT OR IGNORE INTO pool_upstreams (pool_id, upstream_id, sort_order, model)
              VALUES (?1, ?2, ?3, ?4)",
             params![pool_id, upstream_id, sort_order, model],
@@ -571,7 +585,7 @@ impl Database {
         pool_id: &str,
         upstream_id: &str,
     ) -> Result<(), AppError> {
-        self.conn.lock().unwrap().execute(
+        self.get_conn()?.execute(
             "DELETE FROM pool_upstreams WHERE pool_id=?1 AND upstream_id=?2",
             params![pool_id, upstream_id],
         )?;
@@ -580,7 +594,7 @@ impl Database {
 
     /// Get all upstreams for a pool, ordered by sort_order.
     pub fn get_pool_upstreams(&self, pool_id: &str) -> Result<Vec<PoolUpstreamInfo>, AppError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
         let mut stmt = conn.prepare(
             "SELECT u.id, u.provider_name, pu.model, pu.sort_order
              FROM pool_upstreams pu
@@ -622,7 +636,7 @@ impl Database {
 
     /// Save a setting (insert or update).
     pub fn save_setting(&self, key: &str, value: &str) -> Result<(), AppError> {
-        self.conn.lock().unwrap().execute(
+        self.get_conn()?.execute(
             "INSERT INTO settings (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value=?2, updated_at=datetime('now', 'localtime')",
             params![key, value],
@@ -632,7 +646,7 @@ impl Database {
 
     /// Get a setting value by key.
     pub fn get_setting(&self, key: &str) -> Result<Option<String>, AppError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
         let mut stmt = conn.prepare("SELECT value FROM settings WHERE key=?1")?;
         let result = stmt.query_row(params![key], |row| row.get::<_, String>(0));
         match result {
@@ -644,7 +658,7 @@ impl Database {
 
     /// Get all settings as key-value pairs.
     pub fn get_all_settings(&self) -> Result<Vec<(String, String)>, AppError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
         let mut stmt = conn.prepare("SELECT key, value FROM settings ORDER BY key")?;
         let rows = stmt.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -654,7 +668,7 @@ impl Database {
 
     /// Delete a setting by key.
     pub fn delete_setting(&self, key: &str) -> Result<(), AppError> {
-        self.conn.lock().unwrap().execute("DELETE FROM settings WHERE key=?", params![key])?;
+        self.get_conn()?.execute("DELETE FROM settings WHERE key=?", params![key])?;
         Ok(())
     }
 
@@ -682,7 +696,7 @@ prompt_tokens: i64,
 completion_tokens: i64,
 total_tokens: i64,
 ) -> Result<(), AppError> {
-self.conn.lock().unwrap().execute(
+self.get_conn()?.execute(
 "INSERT INTO request_logs (id, request_id, pool_name, upstream_id, model, failed_upstreams,
 method, endpoint, status_code, response_time_ms, is_streaming, prompt_tokens, completion_tokens, total_tokens)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
@@ -713,7 +727,7 @@ prompt_tokens, completion_tokens, total_tokens
         completion_tokens: i64,
         total_tokens: i64,
     ) -> Result<(), AppError> {
-        self.conn.lock().unwrap().execute(
+        self.get_conn()?.execute(
             "UPDATE request_logs SET prompt_tokens=?1, completion_tokens=?2, total_tokens=?3 WHERE id=?4",
             params![prompt_tokens, completion_tokens, total_tokens, log_id],
         )?;
@@ -727,7 +741,7 @@ prompt_tokens, completion_tokens, total_tokens
         log_id: &str,
         status_code: i32,
     ) -> Result<(), AppError> {
-        self.conn.lock().unwrap().execute(
+        self.get_conn()?.execute(
             "UPDATE request_logs SET status_code=?1 WHERE id=?2",
             params![status_code, log_id],
         )?;
@@ -778,7 +792,7 @@ prompt_tokens, completion_tokens, total_tokens
             param_values.len()
         );
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
         let mut stmt = conn.prepare(&sql)?;
         let params: Vec<&dyn rusqlite::types::ToSql> = param_values
             .iter()
@@ -790,7 +804,7 @@ prompt_tokens, completion_tokens, total_tokens
 
     /// Clear all request logs. Returns the number of deleted rows.
     pub fn clear_logs(&self) -> Result<i64, AppError> {
-        let rows = self.conn.lock().unwrap().execute("DELETE FROM request_logs", [])?;
+        let rows = self.get_conn()?.execute("DELETE FROM request_logs", [])?;
         Ok(rows as i64)
     }
 
@@ -798,7 +812,7 @@ prompt_tokens, completion_tokens, total_tokens
     /// Deletes logs older than `max_age_days` and caps total entries to `max_count`.
     /// Returns the total number of deleted rows.
     pub fn cleanup_old_logs(&self, max_age_days: i32, max_count: i64) -> Result<i64, AppError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
         let mut total_deleted: i64 = 0;
 
         // 1. Delete logs older than max_age_days
@@ -833,7 +847,7 @@ prompt_tokens, completion_tokens, total_tokens
 
     /// Delete all request logs for a specific upstream (reset its token stats).
     pub fn reset_upstream_token_stats(&self, upstream_id: &str) -> Result<i64, AppError> {
-        let rows = self.conn.lock().unwrap().execute(
+        let rows = self.get_conn()?.execute(
             "DELETE FROM request_logs WHERE upstream_id = ?1",
             params![upstream_id],
         )?;
@@ -842,7 +856,7 @@ prompt_tokens, completion_tokens, total_tokens
 
     /// Get daily token usage for an upstream over the last N days.
     pub fn get_upstream_token_stats(&self, upstream_id: &str, days: i32) -> Result<Vec<DailyTokenUsage>, AppError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
         let mut stmt = conn.prepare(
             "SELECT date(created_at) as day,
                     COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
@@ -870,7 +884,7 @@ prompt_tokens, completion_tokens, total_tokens
 
     /// Get today's token totals for an upstream.
     pub fn get_upstream_today_tokens(&self, upstream_id: &str) -> Result<TokenTotals, AppError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
         let result = conn.query_row(
             "SELECT COALESCE(SUM(prompt_tokens), 0),
                     COALESCE(SUM(completion_tokens), 0),
@@ -890,7 +904,7 @@ prompt_tokens, completion_tokens, total_tokens
 
     /// Get all-time token totals for an upstream.
     pub fn get_upstream_total_tokens(&self, upstream_id: &str) -> Result<TokenTotals, AppError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
         let result = conn.query_row(
             "SELECT COALESCE(SUM(prompt_tokens), 0),
                     COALESCE(SUM(completion_tokens), 0),
@@ -909,7 +923,7 @@ prompt_tokens, completion_tokens, total_tokens
 
     /// Get per-model token usage for an upstream (today + total + request count).
     pub fn get_upstream_model_token_stats(&self, upstream_id: &str) -> Result<Vec<ModelTokenUsage>, AppError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
         let mut stmt = conn.prepare(
             "SELECT COALESCE(NULLIF(model, ''), '未记录') as model,
                     COALESCE(SUM(CASE WHEN date(created_at) = date('now', 'localtime') THEN total_tokens ELSE 0 END), 0) as today_tokens,
@@ -938,7 +952,7 @@ prompt_tokens, completion_tokens, total_tokens
         model: Option<&str>,
         days: i32,
     ) -> Result<Vec<DailyTokenUsage>, AppError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
         let offset = format!("-{} days", days);
 
         let (sql, params_vec): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match model {
@@ -1002,7 +1016,7 @@ prompt_tokens, completion_tokens, total_tokens
         upstream_id: &str,
         model: Option<&str>,
     ) -> Result<Vec<HourlyTokenUsage>, AppError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
 
         let (sql, params_vec): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match model {
             Some(m) => (
@@ -1080,7 +1094,7 @@ prompt_tokens, completion_tokens, total_tokens
         upstream_id: &str,
         model: Option<&str>,
     ) -> Result<TokenTotals, AppError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
         let (sql, params_vec): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match model {
             Some(m) => (
                 "SELECT COALESCE(SUM(prompt_tokens), 0),
@@ -1125,7 +1139,7 @@ prompt_tokens, completion_tokens, total_tokens
         upstream_id: &str,
         model: Option<&str>,
     ) -> Result<TokenTotals, AppError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
         let (sql, params_vec): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match model {
             Some(m) => (
                 "SELECT COALESCE(SUM(prompt_tokens), 0),
@@ -1168,7 +1182,7 @@ prompt_tokens, completion_tokens, total_tokens
 
     /// Check if an upstream exists by ID.
     pub fn upstream_exists(&self, id: &str) -> Result<bool, AppError> {
-        let count: i64 = self.conn.lock().unwrap().query_row(
+        let count: i64 = self.get_conn()?.query_row(
             "SELECT COUNT(*) FROM upstreams WHERE id = ?1",
             params![id],
             |row| row.get(0),
@@ -1178,7 +1192,7 @@ prompt_tokens, completion_tokens, total_tokens
 
     /// Check if a pool exists by ID.
     pub fn pool_exists(&self, id: &str) -> Result<bool, AppError> {
-        let count: i64 = self.conn.lock().unwrap().query_row(
+        let count: i64 = self.get_conn()?.query_row(
             "SELECT COUNT(*) FROM pools WHERE id = ?1",
             params![id],
             |row| row.get(0),
@@ -1188,7 +1202,7 @@ prompt_tokens, completion_tokens, total_tokens
 
     /// Count total upstreams.
     pub fn count_upstreams(&self) -> Result<i64, AppError> {
-        let count: i64 = self.conn.lock().unwrap().query_row(
+        let count: i64 = self.get_conn()?.query_row(
             "SELECT COUNT(*) FROM upstreams", [], |row| row.get(0)
         )?;
         Ok(count)
@@ -1196,7 +1210,7 @@ prompt_tokens, completion_tokens, total_tokens
 
     /// Count total pools.
     pub fn count_pools(&self) -> Result<i64, AppError> {
-        let count: i64 = self.conn.lock().unwrap().query_row(
+        let count: i64 = self.get_conn()?.query_row(
             "SELECT COUNT(*) FROM pools", [], |row| row.get(0)
         )?;
         Ok(count)
@@ -1204,7 +1218,7 @@ prompt_tokens, completion_tokens, total_tokens
 
     /// Count active (enabled) upstreams.
     pub fn count_active_upstreams(&self) -> Result<i64, AppError> {
-        let count: i64 = self.conn.lock().unwrap().query_row(
+        let count: i64 = self.get_conn()?.query_row(
             "SELECT COUNT(*) FROM upstreams WHERE enabled = 1", [], |row| row.get(0)
         )?;
         Ok(count)
@@ -1212,7 +1226,7 @@ prompt_tokens, completion_tokens, total_tokens
 
     /// Get status summary for all upstreams.
     pub fn get_upstream_status_summary(&self) -> Result<Vec<UpstreamStatusSummary>, AppError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, provider_name, status, failure_count, last_failure_time
              FROM upstreams ORDER BY provider_name"
@@ -1235,15 +1249,15 @@ prompt_tokens, completion_tokens, total_tokens
         let active_upstream_count = self.count_active_upstreams()?;
         let pool_count = self.count_pools()?;
 
-        let today_request_count: i64 = self.conn.lock().unwrap().query_row(
+        let today_request_count: i64 = self.get_conn()?.query_row(
             "SELECT COUNT(*) FROM request_logs WHERE date(created_at) = date('now', 'localtime')",
             [], |row| row.get(0),
         )?;
-        let today_success_count: i64 = self.conn.lock().unwrap().query_row(
+        let today_success_count: i64 = self.get_conn()?.query_row(
             "SELECT COUNT(*) FROM request_logs WHERE date(created_at) = date('now', 'localtime') AND status_code >= 200 AND status_code < 300",
             [], |row| row.get(0),
         )?;
-        let today_error_count: i64 = self.conn.lock().unwrap().query_row(
+        let today_error_count: i64 = self.get_conn()?.query_row(
             "SELECT COUNT(*) FROM request_logs WHERE date(created_at) = date('now', 'localtime') AND status_code >= 400",
             [], |row| row.get(0),
         )?;
@@ -1270,7 +1284,7 @@ prompt_tokens, completion_tokens, total_tokens
     where
         F: FnOnce(&Connection) -> Result<(), AppError>,
     {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
         conn.execute_batch("BEGIN TRANSACTION")?;
         match f(&conn) {
             Ok(()) => {

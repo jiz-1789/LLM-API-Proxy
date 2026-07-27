@@ -16,10 +16,12 @@ pub fn replace_model_name(body: &mut Value, display_name: &str) {
             if let Some(msg) = choice.get_mut("message") {
                 if let Some(model_value) = msg.get("model") {
                     if let Some(_model_str) = model_value.as_str() {
-                        msg.as_object_mut().unwrap().insert(
-                            "model".to_string(),
-                            Value::String(display_name.to_string()),
-                        );
+                        if let Some(obj) = msg.as_object_mut() {
+                            obj.insert(
+                                "model".to_string(),
+                                Value::String(display_name.to_string()),
+                            );
+                        }
                     }
                 }
             }
@@ -69,5 +71,22 @@ mod tests {
         });
         replace_model_name(&mut body, "grok-4.5");
         assert_eq!(body["data"][0]["embedding"][0], 0.1);
+    }
+
+    #[test]
+    fn test_replace_model_with_null_message() {
+        let mut body = serde_json::json!({
+            "model": "old-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": null
+                }
+            ]
+        });
+        replace_model_name(&mut body, "new-model");
+        assert_eq!(body["model"], "new-model");
+        // message is null, should not panic
+        assert!(body["choices"][0]["message"].is_null());
     }
 }
