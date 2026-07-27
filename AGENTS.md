@@ -366,13 +366,13 @@ chore: gitignore internal docs and test data
 
 | 文件 | 字段 | 当前值 |
 |------|------|--------|
-| `Cargo.toml`（workspace） | `[workspace.package] version` | `0.1.2` |
-| `src-tauri/Cargo.toml` | `[package] version` | `0.1.2` |
-| `src-tauri/tauri.conf.json` | `"version"` | `0.1.2` |
+| `Cargo.toml`（workspace） | `[workspace.package] version` | `0.1.21` |
+| `src-tauri/Cargo.toml` | `[package] version` | `0.1.21` |
+| `src-tauri/tauri.conf.json` | `"version"` | `0.1.21` |
 
 > **⚠️ 每次推送到 `main` 分支必须递增版本号。** 无论是新功能、Bug 修复还是文档更新，合并到 main 前必须同步更新三处版本号和 `CHANGELOG.md`，确保每个 main 提交都对应一个唯一的发布版本。版本递增规则：Bug 修复 / 文档 → PATCH，新功能 → MINOR。
 
-**发布流程：**
+**发布流程（必须使用 `publish.ps1` 脚本）：**
 
 ```
 1. 在 feature/fix 分支完成开发并自测通过
@@ -383,13 +383,42 @@ chore: gitignore internal docs and test data
 6. 打 Git 标签：git tag vX.Y.Z
 7. 推送代码和标签：git push origin main && git push origin vX.Y.Z
 8. 构建便携版：cargo tauri build（仅生成 release exe，不打包安装程序）
-9. 清理旧版本：删除 target\release\bundle\ 下所有旧的 LLM-API-Proxy_*_x64_portable.exe
-10. 重命名 exe：copy target\release\llm-api-proxy-app.exe target\release\bundle\LLM-API-Proxy_vX.Y.Z_x64_portable.exe
-11. 在 GitHub Releases 页面创建发布，附带 CHANGELOG.md 中对应版本的内容
-12. 上传便携版 .exe 到 Release Assets
+9. 使用发布脚本发布（禁止手动发布）：
+   .\publish.ps1 X.Y.Z -GitHub -Gitee
 ```
 
-> **注意：发布到 GitHub 需要 Personal Access Token（PAT）。** Token 存储在 `.env` 文件中（已加入 `.gitignore`，不会提交到仓库）。获取 Token 后，复制 `.env.example` 为 `.env` 并填入 Token。发布时使用 `publish.ps1` 脚本自动读取 Token，无需每次手动提供。建议创建仅含 `repo` 权限的 Token，并在发布后定期轮换。
+**`publish.ps1` 脚本说明：**
+
+项目根目录提供 `publish.ps1` 脚本，统一处理发布流程：
+
+| 参数 | 说明 | 示例 |
+|------|------|------|
+| `Version` | **必填**，版本号（不带 `v` 前缀） | `0.1.21` |
+| `-GitHub` | 发布到 GitHub Releases | `-GitHub` |
+| `-Gitee` | 发布到 Gitee Releases | `-Gitee` |
+
+**脚本功能：**
+- 自动读取 `.env` 文件中的 Token（`GITHUB_TOKEN`、`GITEE_TOKEN`）
+- 自动从 `CHANGELOG.md` 解析对应版本的发布说明
+- 自动创建 Release 并上传便携版 exe
+- GitHub 使用 REST API 上传，Gitee 使用 curl 上传（更可靠）
+
+**使用示例：**
+
+```powershell
+# 同时发布到 GitHub 和 Gitee（推荐）
+.\publish.ps1 0.1.21 -GitHub -Gitee
+
+# 仅发布到 GitHub
+.\publish.ps1 0.1.21 -GitHub
+
+# 仅发布到 Gitee
+.\publish.ps1 0.1.21 -Gitee
+```
+
+> **⚠️ 强制规定：必须使用 `publish.ps1` 脚本发布，禁止手动调用 API 或网页上传。** 脚本确保发布流程标准化，避免人为错误（如版本号不一致、更新日志遗漏、上传文件错误等）。
+
+> **注意：发布需要 Personal Access Token（PAT）。** Token 存储在 `.env` 文件中（已加入 `.gitignore`，不会提交到仓库）。获取 Token 后，复制 `.env.example` 为 `.env` 并填入 Token。建议创建仅含 `repo` 权限的 Token，并在发布后定期轮换。
 
 **打包规则：**
 
