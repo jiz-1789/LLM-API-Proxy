@@ -1129,6 +1129,10 @@ gap: 8px;
             <div class="nav-item" data-page="health" data-i18n="nav_health">健康检查</div>
             <div class="nav-item" data-page="help" data-i18n="nav_help">使用教程</div>
             <div class="sidebar-footer">
+                <div class="star-hint" onclick="showStarDialog()">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="#f5a623" style="flex-shrink:0;"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                    <span data-i18n="star_hint">⭐ 请为本项目点一个 Star</span>
+                </div>
                 <div class="version-row">
                     <span class="version-label">v</span><span class="version-num" id="app-version">0.1.0</span>
                     <button class="check-update-btn" onclick="handleSidebarUpdateClick()" id="sidebar-check-update" title="检查更新" data-i18n-title="check_update">
@@ -1136,10 +1140,6 @@ gap: 8px;
                     </button>
                 </div>
                 <span class="qq-label" data-i18n="author_qq">作者QQ：</span><span class="qq-num" onclick="copyQQ()" title="点击复制" data-i18n-title="click_copy">3267245598</span>
-                <div class="star-hint" onclick="cmd('open_external_url', { url: 'https://github.com/jiz-1789/LLM-API-Proxy' })">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="#f5a623" style="flex-shrink:0;"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-                    <span data-i18n="star_hint">⭐ 请为本项目点一个 Star</span>
-                </div>
             </div>
         </div>
 
@@ -1371,7 +1371,7 @@ gap: 8px;
                     <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px;">
                         <button class="btn btn-primary" id="btn-save-settings" onclick="saveSettings()" data-i18n="settings_save">保存设置</button>
                     </div>
-                    <div class="star-hint" onclick="cmd('open_external_url', { url: 'https://github.com/jiz-1789/LLM-API-Proxy' })">
+                    <div class="star-hint" onclick="showStarDialog()">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="#f5a623" style="flex-shrink:0;"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
                         <span data-i18n="star_hint">⭐ 请为本项目点一个 Star</span>
                     </div>
@@ -1714,6 +1714,10 @@ print(response.choices[0].message.content)</code></pre>
         nav_help: { zh: '使用教程', en: 'Help' },
         ok: { zh: '确定', en: 'OK' },
         star_hint: { zh: '⭐ 请为本项目点一个 Star', en: '⭐ Star us on GitHub' },
+        star_dialog_title: { zh: '为我们点亮一颗星', en: 'Give us a Star' },
+        star_dialog_desc: { zh: '你的支持是我们持续改进的动力！', en: 'Your support keeps us going!' },
+        star_github: { zh: '前往 GitHub', en: 'Go to GitHub' },
+        star_gitee: { zh: '前往 Gitee', en: 'Go to Gitee' },
 
         // ── Theme toggle ──
         theme_light: { zh: '亮色模式', en: 'Dark Mode' },
@@ -3559,6 +3563,35 @@ function generateApiKey() {
         } finally {
             if (unlistenFn) unlistenFn();
         }
+    }
+
+    // Show a dialog asking user to choose GitHub or Gitee for starring
+    function showStarDialog() {
+        const existing = document.getElementById('star-dialog');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'star-dialog';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;';
+        overlay.innerHTML =
+            '<div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;max-width:320px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.3);">' +
+            '<div style="font-size:16px;font-weight:600;color:var(--text-primary);margin-bottom:8px;">' + t('star_dialog_title') + '</div>' +
+            '<div style="font-size:13px;color:var(--text-secondary);margin-bottom:20px;">' + t('star_dialog_desc') + '</div>' +
+            '<div style="display:flex;flex-direction:column;gap:10px;">' +
+            '<button class="btn btn-primary btn-sm" id="btn-star-github"><span style="display:inline-flex;align-items:center;justify-content:center;gap:6px;">🐙 ' + t('star_github') + '</span></button>' +
+            '<button class="btn btn-ghost btn-sm" id="btn-star-gitee"><span style="display:inline-flex;align-items:center;justify-content:center;gap:6px;">🔴 ' + t('star_gitee') + '</span></button>' +
+            '</div>' +
+            '</div>';
+        document.body.appendChild(overlay);
+
+        document.getElementById('btn-star-github').onclick = () => {
+            overlay.remove();
+            cmd('open_external_url', { url: 'https://github.com/jiz-1789/LLM-API-Proxy' });
+        };
+        document.getElementById('btn-star-gitee').onclick = () => {
+            overlay.remove();
+            cmd('open_external_url', { url: 'https://gitee.com/yilichenaiosi/LLM-API-Proxy' });
+        };
     }
 
     // Show a modal-like confirmation dialog after download completes
