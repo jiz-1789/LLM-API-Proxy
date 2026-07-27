@@ -1388,12 +1388,12 @@ pub fn apply_update(app_handle: tauri::AppHandle) -> Result<(), String> {
     let state = app_handle.state::<AppState>();
     state.shutdown();
 
-    // Run the batch script in a detached process
+    // Run the batch script without any window (completely silent)
     let batch_path_str = batch_path.to_string_lossy().to_string();
     std::process::Command::new("cmd")
-        .args(["/c", "start", "", "/b", &batch_path_str])
+        .args(["/c", &batch_path_str])
         .current_dir(exe_dir)
-        .creation_flags(0x00000008) // DETACHED_PROCESS
+        .creation_flags(0x08000008) // CREATE_NO_WINDOW | DETACHED_PROCESS
         .spawn()
         .map_err(|e| format!("启动更新脚本失败: {}", e))?;
 

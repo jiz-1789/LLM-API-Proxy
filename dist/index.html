@@ -1667,6 +1667,7 @@ print(response.choices[0].message.content)</code></pre>
         nav_settings: { zh: '设置', en: 'Settings' },
         nav_health: { zh: '健康检查', en: 'Health Check' },
         nav_help: { zh: '使用教程', en: 'Help' },
+        ok: { zh: '确定', en: 'OK' },
 
         // ── Theme toggle ──
         theme_light: { zh: '亮色模式', en: 'Dark Mode' },
@@ -1799,6 +1800,7 @@ print(response.choices[0].message.content)</code></pre>
         update_apply_now: { zh: '立即更新', en: 'Update Now' },
         update_apply_later: { zh: '下次启动时更新', en: 'Update on Next Launch' },
         update_applying: { zh: '正在应用更新...', en: 'Applying update...' },
+        update_applying_hint: { zh: '应用即将关闭并重启，请稍候', en: 'App will close and restart shortly' },
         update_apply_fail: { zh: '应用更新失败: ', en: 'Failed to apply update: ' },
         update_pending_toast: { zh: '检测到已下载的更新，正在自动应用...', en: 'Pending update detected, applying automatically...' },
         update_no_notes: { zh: '无更新说明', en: 'No release notes' },
@@ -3538,13 +3540,29 @@ function generateApiKey() {
             toast(t('update_apply_later') + ' ✓', 'info');
         };
         document.getElementById('btn-update-now').onclick = async () => {
-            overlay.remove();
+            // Replace dialog content with a progress indicator
+            const dialogBody = overlay.querySelector('div > div');
+            if (dialogBody) {
+                dialogBody.innerHTML =
+                    '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px 0;">' +
+                    '<div class="update-spinner" style="width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:16px;"></div>' +
+                    '<div style="font-size:14px;color:var(--text-primary);font-weight:500;">' + t('update_applying') + '</div>' +
+                    '<div style="font-size:12px;color:var(--text-muted);margin-top:6px;">' + t('update_applying_hint') + '</div>' +
+                    '</div>';
+            }
             try {
-                toast(t('update_applying'), 'info');
                 // Phase 2: Apply the update (exits the app and restarts)
                 await cmd('apply_update');
             } catch (e) {
-                toast(t('update_apply_fail') + e, 'error');
+                // Restore dialog with error message
+                if (dialogBody) {
+                    dialogBody.innerHTML =
+                        '<div style="font-size:16px;font-weight:600;color:var(--text-primary);margin-bottom:12px;">' + t('update_apply_title') + '</div>' +
+                        '<div style="font-size:13px;color:var(--danger);margin-bottom:20px;line-height:1.6;">' + t('update_apply_fail') + esc(String(e)) + '</div>' +
+                        '<div style="display:flex;gap:10px;justify-content:flex-end;">' +
+                        '<button class="btn btn-primary btn-sm" onclick="document.getElementById(\'update-confirm-dialog\').remove()">' + t('ok') + '</button>' +
+                        '</div>';
+                }
             }
         };
     }
