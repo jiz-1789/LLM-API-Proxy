@@ -255,4 +255,7 @@ src/db.rs                       ← 迁移 v6 + Upstream 结构体 + update_upst
 src/config.rs                   ← 新增限流/探测配置项                          ✅ 已完成
 DEVELOPMENT.md                  ← Schema 表 + 迁移历史更新                     ✅ 已完成
 dist/index.html                 ← 设置页新增限流/探测配置区域                  ✅ 已完成
+src/probe/mod.rs                ← 统一使用 config::ProbeSettings，删除重复代码  ✅ 已完成
+src/db.rs                       ← 新增 column_exists() + 迁移回归测试           ✅ 已完成
+CHANGELOG.md                    ← 新增 v0.1.22 变更记录                        ✅ 已完成
 ```
