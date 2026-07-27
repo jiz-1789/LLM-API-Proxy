@@ -1391,12 +1391,23 @@ pub fn apply_update(app_handle: tauri::AppHandle) -> Result<(), String> {
     let encoded_command = base64::engine::general_purpose::STANDARD.encode(&ps_bytes);
 
     // Run PowerShell with -EncodedCommand (most reliable for Unicode paths)
-    std::process::Command::new("powershell")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", &encoded_command])
-        .current_dir(exe_dir)
-        .creation_flags(0x08000008) // CREATE_NO_WINDOW | DETACHED_PROCESS
-        .spawn()
+    // Use CREATE_NO_WINDOW (0x08000000) to hide the PowerShell window.
+    // Do NOT use DETACHED_PROCESS — it can prevent the child from starting
+    // correctly when the parent exits immediately.
+    let mut cmd = std::process::Command::new("powershell");
+    cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", &encoded_command])
+        .current_dir(exe_dir);
+
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW only
+
+    cmd.spawn()
         .map_err(|e| format!("启动更新脚本失败: {}", e))?;
+
+    tracing::info!("Updater script spawned. Exiting app in 500ms to allow handoff.");
+
+    // Give the updater script a moment to establish itself before we exit.
+    std::thread::sleep(std::time::Duration::from_millis(500));
 
     // Exit the app so the batch script can replace the exe
     app_handle.exit(0);

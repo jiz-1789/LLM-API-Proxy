@@ -7,6 +7,11 @@
 
 ## [Unreleased]
 
+## [0.1.17] - 2026-07-27
+
+### 修复
+- 修复下载完成后无法自动更新的问题——移除 DETACHED_PROCESS 标志并添加 500ms 延迟确保更新脚本正确启动
+
 ## [0.1.16] - 2026-07-27
 
 ### 修复
@@ -148,7 +153,8 @@
 - **数据便携**：所有数据存储在程序同目录 `data/` 文件夹，U 盘携带即走
 - **开源治理**：AGPL-3.0 双轨许可、CLA 贡献者协议、CONTRIBUTING.md 贡献指南
 
-[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.1.16...HEAD
+[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.1.17...HEAD
+[0.1.17]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.17
 [0.1.16]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.16
 [0.1.15]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.15
 [0.1.7]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.7
