@@ -834,6 +834,24 @@ gap: 8px;
             color: var(--text-primary);
             border-color: var(--border-strong);
         }
+        /* === Icon buttons in titlebar (GitHub/Gitee) === */
+        .icon-btn {
+            background: none;
+            border: none;
+            padding: 4px;
+            cursor: pointer;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            transition: all var(--transition);
+            -webkit-app-region: no-drag;
+        }
+        .icon-btn:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
         /* === Theme toggle in titlebar === */
         .theme-toggle {
             background: var(--bg-tertiary);
@@ -1066,6 +1084,12 @@ gap: 8px;
 <div class="titlebar">
 <h1><img class="app-logo" width="20" height="20" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAIeElEQVR4nK1XCXBVZxX+t3vv2192sBCWLGWHBIWyVS2L1Bad2CLFaWtxGJTSOlNnEKqOgDiZKbVqZ9RabUew2DrWwWlnIMgyI2iFFGjipCRGlgYiSUjykrcv997//r/nvy9QkCWh7Ztk3su9ef855zvf951z8fJnVqCP88Lwg7F6Q0iqX4nEnXyffdSgBCMqJHJsgaUj3dgIriGNSEQxYpCFGEkyd5yAOtwSiGcswj1MohKvUxLWRSnBkqRsEu3P0u6YSbhBJfIyySA5/okloKqOQ+AynxN85O7EukVjsivLA3yyl4mQaoPp4ExvmnWc7PU07O3w//psVLsY0sWV9sibojlSDkAAkrKIeGBietVTs2K/DPl5KVJnq+Px0NkS58NAG4RF+R/ag9t2tYXqGdynBK7epCW0at7dI6pcBV8/M75lw5zBXxkY+a/U053Qzp4ZME5eimvtNifZAl2MQgTSkgjXjM0uqQ7ymUcu+d5U6ZF8unfWAtVzBfvXJiXXPzoz9iM7R01NF0bLZc/fXmsL/bBtUD+esbFQ+ai+TwjzyauqU5uXTkyt4VliL5iQfmiTjXduf7f4GwFNKBScESMAlZMsx05lAa+oXxQ5qKCmumR/bgvv2NZY/HhXmv6XESQNiphOXRHIvgyNHLroezuWo+cXlWdXOjbhVWXm7J6k1to6YLQqYkKyYkQJqL5bDpbfmxv9/SifrDzR7dvbcM7/0u9Oh+rhIOSBwBAVgyqUHAUkQ3XotU8T2onL3mboQnzOmNwDyMFoQpBP33/R/9JQcDwiEipcvToOzi7O3Pt+t2joN3XkMA8Kag7Jew6SGY7RKJ9TCAh4upK0R6d5wimOWJDUK0t7myoKrVoVcvPR0vuO93iOBDTpeoiL8m3JRwi10pnk4a5gw6XKJU/kFn31xZAhdPAdgfKyQ09MTW7cff/lzteWX77w/Xuir6o+wOGCEklzkNyhTt8uBEkpZcwqNe/jwrXNqwiQW4IPv8RKO6mq+Q9Hv/Lshb7F63flAmVVyMxamFA9C8SrLTPnr62J/cTDRACMSPvCpMTausrU02mbuEEYBD0T1U8hJx9mTIBXU3y9J9xKBZjwnIjMeeS5gZkPbiZWBmp2EM2lejG8I8UNqKSqwK5VZ1mcZhVfNJsYkwrtuVJeJTHKcJIEv4C+IOyh0o/x9X50AwISEwYBxUBt3bZIzZc301zSFsxA/q7Wk6Hzx18VmgHJSNdqW/qNo8qMdEN4NSYMNQFO9XkOEPwhh0K6U4RI3g0hmYSQ17eA/V/dlFoZnimf+blIzZe2skyMO7pPK27Z++OSpre2uNNOM4BgknsZov8e1Frrj5esXDM1Xg8Jefed9r/81wu+1/2aKhlJUAaaWmwtdDkAr84Ea5PydkYkoTbK0MCsFTuwAG0ZPlbUevCnpSf+tMXxhkieG3lnV0Tz6Vg7cNG75+9dnj1KggmTOBBcQY8huB02BF4+PrNWyVAV3dTvOaym5bUcINdWD32X2bKqedmSinsU0Y1Y9/ni5rc3Op7AUFzhQHtc+QAXJLaydkBHmjqeQ75BXVDlnOp2zKRo3fTE86NDdoUCvH1Abzwd0U+Cf2BxjRteRUCq8gRH2dGTlikU1Ct0vvEVIB7i3pAGAcETOYrO+OJ34lULNhBupYreb/hB4GJTA9I8FEu1FoAv2NhRGv12TWzLQ5MTGx0bc6pJtrM1/KwtlF2j6+yYXbNkSIkpssKjp7l/Ozby9H/wzlAymNg5mahauLp3/mM/IyaoAq73fPab+8btq5+kR7vOgBkz20F8dpk5b92M+AtTysyF3MI28wrtjy0F2//Z7TkKe8MN+8E1KnAxQIJ5wu4Nh3Mg5ACoIp8gtCQzZuoKzE0ErTJBHVmliOyo6sXEsdSKxGBuoLqq9DNT7souRPCZeYS2pzX8wsstoa1BIObNlhNy3aIF2GBhZ9x0CGWC6QHXcN3pCvBFLzULzaukqoE0veq6HutpkYS5BFYmE9CcAnVqf07reu5YyeoXmwq+62MSD7sRufVDlVoycs7VMNORWTi21tvTfso9HQKH24/+3Cwa9+lkec1q4thmUcu+7b7L/zkmNA8B/VgBA+vdGaOj8ZjxrYPntd9GHC/4gFC+L9CwG5FSATA8NX72/d2Ln9qvKvf2nTtWvv/5hRCAKgkgxXxwQjs8egLmVgaS7VNtcHMH6TEwMOX/WSOM6F0VS4ORc43CtlJX1XuzfePDcQz6pBRpqcEOSOIxMKBCO1harmXjl3xdre8J3a+r/RsRimk2ESXcTIMpUYkxIA/wc0tGpy59Mj1j2abUglW7BXw/ePad3ZIZND84h01A2TBl1EzBBiDiyYlz62AU8vTYGXV6KtLs7T3bBihJlYCkGpNEfRAOhZmh5Bn5zMP1/TA7zIIx0wSc86mjv3kQvh9V/38r+G9IQFUimU68/R/8C2CekS2rnA7y48mKuY86voJiPdXfBr4Qg2sCOOC6Zq60ck7fgq/vjFffu4ZlE6bUPGzUu29sCHQ2HQIUmPKH2y67NywkCmfotcq85/NPHkiOq10GkgMSejDI0jJiXc0sHe0ElWjQomqz4K5pgAxSKIB1o5Lmt7aXvPeXrUL3UjRM8FtvRLAKQBLuCIvU1u2ITVmySalCEdD1hasjQbr+oJDQ0oNRCPx06Ow/3oDK1cCSt4N+uJ1QqnVI2U+gs/lwoLv1TeX9wPhCQMYPrWLYgf3AyiQBkdOF7Ud+Udb4+uMg2ZPC8KvKR/x8ONyDCchLDSmTQ88B4gDh/sLxju4vUoOJ5ZK9LD3YA/eR2hkEkBMQ4Z/kw6lUBypicmbA1uVwLd7boUnRMbQ0gmMyzI2AO4zuNPjInw0BUqUQ13CYhvMkkEPmAfc+QuArr/8BFmhIo44ScwcAAAAASUVORK5CYII=" alt="logo"><span class="status-dot"></span>LLM-API-Proxy</h1>
         <div style="display:flex;align-items:center;gap:8px;-webkit-app-region:no-drag;">
+            <button class="icon-btn" onclick="cmd('open_external_url', { url: 'https://github.com/jiz-1789/LLM-API-Proxy' })" title="GitHub" aria-label="GitHub">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+            </button>
+            <button class="icon-btn" onclick="cmd('open_external_url', { url: 'https://gitee.com/yilichenaiosi/LLM-API-Proxy' })" title="Gitee" aria-label="Gitee">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm6.804 7.463a.5.5 0 0 1 .002.707l-3.498 3.516a.5.5 0 0 1-.708.002l-.002-.002-1.414-1.414a.5.5 0 0 1 .707-.707l1.06 1.06 3.146-3.16a.5.5 0 0 1 .707-.002zM12 18a6 6 0 1 1 0-12 6 6 0 0 1 0 12z"/></svg>
+            </button>
             <button class="lang-toggle" onclick="toggleLanguage()" id="lang-btn" title="Switch Language">中 / EN</button>
             <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn" data-i18n="theme_light">亮色模式</button>
             <div class="win-controls">
