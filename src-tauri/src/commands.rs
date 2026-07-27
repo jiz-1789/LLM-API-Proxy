@@ -1347,65 +1347,46 @@ pub fn apply_update(app_handle: tauri::AppHandle) -> Result<(), String> {
 
     let exe_path = current_exe.to_string_lossy().to_string();
 
-    let ps_path = exe_dir.join("_updater.ps1");
-
+    // Build PowerShell script content (avoids file encoding issues with Chinese paths)
     let ps_content = format!(
-        "Set-Location -LiteralPath '{exe_dir}'\r\n\
-         # Wait for the app to fully exit\r\n\
-         Start-Sleep -Seconds 2\r\n\
-         # Retry loop: rename old exe to .bak to verify it is unlocked\r\n\
-         $maxRetries = 10\r\n\
-         $retryCount = 0\r\n\
-         while ($retryCount -lt $maxRetries) {{\r\n\
-             try {{\r\n\
-                 Rename-Item -LiteralPath '{exe_path}' -NewName '{exe_name}.bak' -ErrorAction Stop\r\n\
-                 break\r\n\
-             }} catch {{\r\n\
-                 $retryCount++\r\n\
-                 Start-Sleep -Seconds 1\r\n\
-             }}\r\n\
-         }}\r\n\
-         # Move the new exe into place\r\n\
-         Move-Item -LiteralPath '{exe_dir}\\_update_pending.exe' -Destination '{exe_path}' -Force\r\n\
-         # Delete the old exe backup\r\n\
-         Remove-Item -LiteralPath '{exe_dir}\\{exe_name}.bak' -ErrorAction SilentlyContinue\r\n\
-         # Ensure a desktop shortcut exists (create if missing)\r\n\
-         $desktop = [Environment]::GetFolderPath('Desktop')\r\n\
-         $lnk = Join-Path $desktop 'LLM-API-Proxy.lnk'\r\n\
-         if (-not (Test-Path $lnk)) {{\r\n\
-             $ws = New-Object -ComObject WScript.Shell\r\n\
-             $s = $ws.CreateShortcut($lnk)\r\n\
-             $s.TargetPath = '{exe_path}'\r\n\
-             $s.WorkingDirectory = '{exe_dir}'\r\n\
-             $s.IconLocation = '{exe_path},0'\r\n\
-             $s.Description = 'LLM-API-Proxy'\r\n\
-             $s.Save()\r\n\
-         }}\r\n\
-         # Refresh Windows icon cache to fix desktop shortcuts\r\n\
-         ie4uinit.exe -show 2>$null\r\n\
-         # Start the new version\r\n\
-         Start-Process -FilePath '{exe_path}'\r\n\
-         # Clean up this script\r\n\
-         Remove-Item -LiteralPath '{ps_path}' -ErrorAction SilentlyContinue\r\n",
+        "Set-Location -LiteralPath '{exe_dir}'; \
+         Start-Sleep -Seconds 2; \
+         $maxRetries = 10; \
+         $retryCount = 0; \
+         while ($retryCount -lt $maxRetries) {{ \
+             try {{ Rename-Item -LiteralPath '{exe_path}' -NewName '{exe_name}.bak' -ErrorAction Stop; break; }} \
+             catch {{ $retryCount++; Start-Sleep -Seconds 1; }} \
+         }}; \
+         Move-Item -LiteralPath '{exe_dir}\\_update_pending.exe' -Destination '{exe_path}' -Force; \
+         Remove-Item -LiteralPath '{exe_dir}\\{exe_name}.bak' -ErrorAction SilentlyContinue; \
+         $desktop = [Environment]::GetFolderPath('Desktop'); \
+         $lnk = Join-Path $desktop 'LLM-API-Proxy.lnk'; \
+         if (-not (Test-Path $lnk)) {{ \
+             $ws = New-Object -ComObject WScript.Shell; \
+             $s = $ws.CreateShortcut($lnk); \
+             $s.TargetPath = '{exe_path}'; \
+             $s.WorkingDirectory = '{exe_dir}'; \
+             $s.IconLocation = '{exe_path},0'; \
+             $s.Description = 'LLM-API-Proxy'; \
+             $s.Save(); \
+         }}; \
+         ie4uinit.exe -show 2>$null; \
+         Start-Process -FilePath '{exe_path}'",
         exe_name = exe_name,
         exe_path = exe_path,
         exe_dir = exe_dir.to_string_lossy(),
-        ps_path = ps_path.to_string_lossy(),
     );
 
-    std::fs::write(&ps_path, ps_content)
-        .map_err(|e| format!("创建更新脚本失败: {}", e))?;
-
-    tracing::info!("Update script created at {}, exiting app to apply update", ps_path.display());
+    tracing::info!("Starting update process for {}", exe_path);
 
     // Gracefully shut down the gateway server before exiting
     let state = app_handle.state::<AppState>();
     state.shutdown();
 
-    // Run the PowerShell script without any window (completely silent)
-    let ps_path_str = ps_path.to_string_lossy().to_string();
+    // Run PowerShell command directly (avoids script file encoding issues)
+    let ps_command = format!("-NoProfile -ExecutionPolicy Bypass -Command \"{}\"", ps_content);
     std::process::Command::new("powershell")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", &ps_path_str])
+        .arg(&ps_command)
         .current_dir(exe_dir)
         .creation_flags(0x08000008) // CREATE_NO_WINDOW | DETACHED_PROCESS
         .spawn()
