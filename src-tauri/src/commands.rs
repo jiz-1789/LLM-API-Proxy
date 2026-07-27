@@ -976,6 +976,22 @@ struct ParsedRelease {
     published_at: String,
 }
 
+/// Construct a fallback GitHub download URL based on version.
+fn github_download_url_for_version(version: &str) -> String {
+    format!(
+        "https://github.com/jiz-1789/LLM-API-Proxy/releases/download/v{}/LLM-API-Proxy_v{}_x64_portable.exe",
+        version, version
+    )
+}
+
+/// Construct a fallback Gitee download URL based on version.
+fn gitee_download_url_for_version(version: &str) -> String {
+    format!(
+        "https://gitee.com/yilichenaiosi/LLM-API-Proxy/releases/download/v{}/LLM-API-Proxy_v{}_x64_portable.exe",
+        version, version
+    )
+}
+
 /// Extract the portable exe download URL from a JSON assets array.
 fn extract_portable_download_url(json: &serde_json::Value) -> String {
     json.get("assets")
@@ -1021,7 +1037,13 @@ async fn fetch_github_release(client: &reqwest::Client) -> Result<ParsedRelease,
         .and_then(|v| v.as_str())
         .unwrap_or("https://github.com/jiz-1789/LLM-API-Proxy/releases")
         .to_string();
+    // Use API download URL if available, otherwise construct fallback URL
     let download_url = extract_portable_download_url(&json);
+    let download_url = if download_url.is_empty() {
+        github_download_url_for_version(&latest_version)
+    } else {
+        download_url
+    };
     let release_notes = json.get("body").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let published_at = json.get("published_at").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
@@ -1060,7 +1082,13 @@ async fn fetch_gitee_release(client: &reqwest::Client) -> Result<ParsedRelease, 
         .and_then(|v| v.as_str())
         .unwrap_or("https://gitee.com/yilichenaiosi/LLM-API-Proxy/releases")
         .to_string();
+    // Use API download URL if available, otherwise construct fallback URL
     let download_url = extract_portable_download_url(&json);
+    let download_url = if download_url.is_empty() {
+        gitee_download_url_for_version(&latest_version)
+    } else {
+        download_url
+    };
     let release_notes = json.get("body").and_then(|v| v.as_str()).unwrap_or("").to_string();
     // Gitee uses "created_at" instead of "published_at"
     let published_at = json
