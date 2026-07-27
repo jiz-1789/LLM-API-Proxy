@@ -6,7 +6,7 @@ pub mod stream;
 use axum::{
     body::Body,
     extract::State,
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -31,6 +31,56 @@ use rate_limit::{RateLimitConfig, RateLimiter};
 
 /// Per-pool round-robin counters (pool_id → next index).
 type RoundRobinCounters = Arc<Mutex<HashMap<String, usize>>>;
+
+/// Default stream idle timeout: if no SSE chunk is received within this
+/// duration, the stream is considered stalled and will be terminated.
+const DEFAULT_STREAM_IDLE_TIMEOUT_SECS: u64 = 120;
+
+/// Header prefixes from upstream responses that should be passed through
+/// to the client. All other headers are filtered out for security and
+/// consistency.
+const PASSTHROUGH_HEADER_PREFIXES: &[&str] = &[
+    "x-ratelimit-",
+    "openai-",
+    "anthropic-",
+];
+
+/// Filter upstream response headers through the passthrough whitelist.
+///
+/// Only headers matching `PASSTHROUGH_HEADER_PREFIXES` are retained.
+/// This prevents leaking upstream-internal headers (like `Server`,
+/// `Set-Cookie`, etc.) to the client.
+fn filter_passthrough_headers(headers: &HeaderMap) -> HeaderMap {
+    let mut filtered = HeaderMap::new();
+    for (key, value) in headers.iter() {
+        let key_str = key.as_str();
+        if PASSTHROUGH_HEADER_PREFIXES
+            .iter()
+            .any(|prefix| key_str.starts_with(prefix))
+        {
+            filtered.insert(key.clone(), value.clone());
+        }
+    }
+    filtered
+}
+
+/// Attach `X-Request-Id` header to a response for end-to-end tracing.
+fn with_request_id(mut resp: Response, trace_id: &str) -> Response {
+    if let Ok(v) = HeaderValue::from_str(trace_id) {
+        resp.headers_mut().insert("x-request-id", v);
+    }
+    resp
+}
+
+/// Build a `HeaderMap` containing only the `X-Request-Id` header for
+/// injecting into upstream requests.
+fn build_trace_headers(trace_id: &str) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    if let Ok(v) = HeaderValue::from_str(trace_id) {
+        headers.insert("x-request-id", v);
+    }
+    headers
+}
 
 /// Build the API Gateway router.
 ///
@@ -83,8 +133,9 @@ async fn rate_limit_middleware(
         Ok(()) => next.run(req).await,
         Err(retry_after_secs) => {
             warn!(
-                "Rate limit exceeded for client {} (retry after {}s)",
-                client_ip, retry_after_secs
+                client_ip = %client_ip,
+                retry_after = retry_after_secs,
+                "Rate limit exceeded"
             );
             error_response::rate_limit_exceeded(retry_after_secs)
         }
@@ -155,7 +206,11 @@ fn extract_usage(resp: &serde_json::Value) -> (i64, i64, i64) {
 /// 3. Thinking mode: Injected **per-upstream** based on each upstream's
 ///    `provider_name`, not the first upstream's. A client may override with
 ///    `"reasoning": false` to disable thinking entirely.
-/// 4. Timeout: Uses `pool.timeout_seconds` for non-streaming requests.
+/// 4. Timeout: Uses `pool.timeout_seconds` for both streaming and non-streaming
+///    requests. Streaming also applies an idle timeout between chunks.
+/// 5. Trace ID: A UUID-based `trace_id` is generated per request, sent to
+///    upstream as `X-Request-Id` header, and returned to the client in the
+///    response header for end-to-end tracing.
 async fn handle_chat_completions(
     State(state): State<GatewayState>,
     headers: HeaderMap,
@@ -163,36 +218,52 @@ async fn handle_chat_completions(
 ) -> impl IntoResponse {
     let start_time = Instant::now();
 
+    // Generate trace ID for end-to-end request tracing.
+    // This ID is: (a) sent to upstream as X-Request-Id header,
+    // (b) included in structured log fields, (c) returned to client
+    // in the response header, and (d) used as request_id in the DB log.
+    let trace_id = uuid::Uuid::new_v4().simple().to_string();
+    let request_id = format!("req_{}", trace_id);
+    let trace_headers = build_trace_headers(&trace_id);
+
     // Authenticate Gateway Key
     let _api_key = match auth::validate_api_key(&headers, &state.db) {
         Ok(key) => key,
         Err(e) => {
             let msg = e.get("error").and_then(|v| v.as_str()).unwrap_or("authentication failed");
-            return error_response::authentication_error(msg);
+            return with_request_id(error_response::authentication_error(msg), &trace_id);
         }
     };
 
     let model = match body.get("model").and_then(|m| m.as_str()) {
         Some(m) => m.to_string(),
         None => {
-            return error_response::invalid_request("Missing required field: model", "missing_model");
+            return with_request_id(
+                error_response::invalid_request("Missing required field: model", "missing_model"),
+                &trace_id,
+            );
         }
     };
 
     let is_stream = body.get("stream").and_then(|s| s.as_bool()).unwrap_or(false);
     info!(
-        "Received chat completion request for model={}, stream={}",
-        model, is_stream
+        trace_id = %trace_id,
+        model = %model,
+        stream = is_stream,
+        "Received chat completion request"
     );
 
     // Find matching pool by model name
     let pool = match state.db.get_pool_by_name(&model) {
         Ok(Some(p)) => p,
         Ok(None) => {
-            return error_response::model_not_found(&model);
+            return with_request_id(error_response::model_not_found(&model), &trace_id);
         }
         Err(e) => {
-            return error_response::internal_error(&format!("database error: {}", e));
+            return with_request_id(
+                error_response::internal_error(&format!("database error: {}", e)),
+                &trace_id,
+            );
         }
     };
 
@@ -200,12 +271,18 @@ async fn handle_chat_completions(
     let pool_upstreams = match state.db.get_pool_upstreams(&pool.id) {
         Ok(u) => u,
         Err(e) => {
-            return error_response::internal_error(&format!("failed to load pool upstreams: {}", e));
+            return with_request_id(
+                error_response::internal_error(&format!("failed to load pool upstreams: {}", e)),
+                &trace_id,
+            );
         }
     };
 
     if pool_upstreams.is_empty() {
-        return error_response::no_available_upstream("pool has no associated upstreams");
+        return with_request_id(
+            error_response::no_available_upstream("pool has no associated upstreams"),
+            &trace_id,
+        );
     }
 
     // ── Pre-request configuration ──────────────────────────────────────
@@ -214,7 +291,8 @@ async fn handle_chat_completions(
     let client_reasoning_disabled =
         body.get("reasoning").and_then(|v| v.as_bool()) == Some(false);
 
-    // Pool-level timeout for non-streaming requests
+    // Pool-level timeout for both streaming and non-streaming requests.
+    // Falls back to 60 seconds if not configured (0 = unset).
     let timeout_secs = if pool.timeout_seconds > 0 {
         pool.timeout_seconds as u64
     } else {
@@ -236,9 +314,6 @@ async fn handle_chat_completions(
     // Number of upstreams to try
     let max_attempts = if pool.failover_enabled { n } else { 1 };
 
-    // Generate a request ID for logging (UUID to avoid collisions)
-    let request_id = format!("req_{}", uuid::Uuid::new_v4().simple());
-
     // ── Failover loop ──────────────────────────────────────────────────
 
     let mut last_error: Option<String> = None;
@@ -254,13 +329,20 @@ async fn handle_chat_completions(
             Ok(Some(u)) => u,
             Ok(None) => {
                 warn!(
-                    "Pool upstream {} references missing upstream {}",
-                    pool.name, pu.upstream_id
+                    trace_id = %trace_id,
+                    pool = %pool.name,
+                    upstream_id = %pu.upstream_id,
+                    "Pool upstream references missing upstream"
                 );
                 continue;
             }
             Err(e) => {
-                warn!("Failed to load upstream {}: {}", pu.upstream_id, e);
+                warn!(
+                    trace_id = %trace_id,
+                    upstream_id = %pu.upstream_id,
+                    error = %e,
+                    "Failed to load upstream"
+                );
                 continue;
             }
         };
@@ -279,8 +361,10 @@ async fn handle_chat_completions(
                     detail: e.to_string(),
                 };
                 warn!(
-                    "Failed to decrypt API key for {}: {}",
-                    upstream.provider_name, e
+                    trace_id = %trace_id,
+                    provider = %upstream.provider_name,
+                    error = %e,
+                    "Failed to decrypt API key"
                 );
                 failed_upstreams_json.push(json!({
                     "provider": upstream.provider_name,
@@ -324,22 +408,22 @@ async fn handle_chat_completions(
 
         // Inject thinking params **per-upstream** based on this upstream's
         // provider_name. Skip if the client explicitly set reasoning=false.
-        if !client_reasoning_disabled && pool.thinking_enabled {
-            if let Some(thinking_param) =
+        if !client_reasoning_disabled
+            && pool.thinking_enabled
+            && let Some(thinking_param) =
                 thinking::get_thinking_param(&upstream.provider_name, true)
-            {
-                thinking::merge_thinking_params(&mut request_body, &Some(thinking_param));
-            }
+        {
+            thinking::merge_thinking_params(&mut request_body, &Some(thinking_param));
         }
 
         // For streaming requests, ensure we get usage info in the final chunk
-        if is_stream {
-            if let Some(obj) = request_body.as_object_mut() {
-                obj.insert(
-                    "stream_options".to_string(),
-                    json!({ "include_usage": true }),
-                );
-            }
+        if is_stream
+            && let Some(obj) = request_body.as_object_mut()
+        {
+            obj.insert(
+                "stream_options".to_string(),
+                json!({ "include_usage": true }),
+            );
         }
 
         // ── SSE streaming path ──────────────────────────────────────
@@ -351,6 +435,8 @@ async fn handle_chat_completions(
                     &api_key,
                     model_str,
                     &request_body,
+                    timeout_secs,
+                    Some(&trace_headers),
                 )
                 .await
             {
@@ -375,12 +461,15 @@ async fn handle_chat_completions(
                         0,
                         0,
                     ) {
-                        warn!("Failed to insert request log: {}", e);
+                        warn!(trace_id = %trace_id, error = %e, "Failed to insert request log");
                     }
 
                     info!(
-                        "Streaming from {} (model={}) for pool={}",
-                        upstream.provider_name, model_str, pool.display_name
+                        trace_id = %trace_id,
+                        provider = %upstream.provider_name,
+                        model = %model_str,
+                        pool = %pool.display_name,
+                        "Streaming from upstream"
                     );
 
                     // Build byte stream from upstream response
@@ -388,34 +477,44 @@ async fn handle_chat_completions(
                     let display_name = pool.display_name.clone();
                     let db_clone = state.db.clone();
                     let log_id_clone = log_id.clone();
+                    let trace_id_clone = trace_id.clone();
                     let (tx, rx) =
                         tokio::sync::mpsc::channel::<Result<Bytes, std::convert::Infallible>>(64);
 
-                    // Spawn a task to read lines, replace model, extract usage, and forward chunks
+                    // Spawn a task to read lines, replace model, extract usage, and forward chunks.
+                    // Applies an idle timeout: if no chunk is received within
+                    // DEFAULT_STREAM_IDLE_TIMEOUT_SECS, the stream is terminated.
                     tokio::spawn(async move {
                         use tokio_stream::StreamExt;
                         let mapped_stream = byte_stream
-                            .map(|result| result.map_err(|e| std::io::Error::other(e)));
+                            .map(|result| result.map_err(std::io::Error::other));
                         let stream_reader = StreamReader::new(mapped_stream);
                         let reader = BufReader::new(stream_reader);
                         let mut lines = reader.lines();
                         let mut last_usage: Option<(i64, i64, i64)> = None;
                         let mut stream_error: Option<String> = None;
-                        while let Ok(Some(line)) = lines.next_line().await {
-                            let output = if let Some(json_str) = line.strip_prefix("data: ") {
-                                let trimmed = json_str.trim();
-                                if trimmed == "[DONE]" {
-                                    "data: [DONE]\n\n".to_string()
-                                } else {
-                                    // Single-pass: parse JSON once, replace model + extract usage
-                                    let (chunk, usage) = stream::process_sse_chunk(trimmed, &display_name);
-                                    if let Some(u) = usage {
-                                        last_usage = Some(u);
-                                    }
-                                    // Detect error in stream chunk
-                                    if stream_error.is_none() {
-                                        if let Ok(v) = serde_json::from_str::<Value>(trimmed) {
-                                            if let Some(err) = v.get("error") {
+                        let idle_timeout = std::time::Duration::from_secs(DEFAULT_STREAM_IDLE_TIMEOUT_SECS);
+
+                        loop {
+                            // Wrap next_line() with an idle timeout.
+                            // If no data arrives within the timeout, terminate the stream.
+                            match tokio::time::timeout(idle_timeout, lines.next_line()).await {
+                                Ok(Ok(Some(line))) => {
+                                    let output = if let Some(json_str) = line.strip_prefix("data: ") {
+                                        let trimmed = json_str.trim();
+                                        if trimmed == "[DONE]" {
+                                            "data: [DONE]\n\n".to_string()
+                                        } else {
+                                            // Single-pass: parse JSON once, replace model + extract usage
+                                            let (chunk, usage) = stream::process_sse_chunk(trimmed, &display_name);
+                                            if let Some(u) = usage {
+                                                last_usage = Some(u);
+                                            }
+                                            // Detect error in stream chunk
+                                            if stream_error.is_none()
+                                                && let Ok(v) = serde_json::from_str::<Value>(trimmed)
+                                                && let Some(err) = v.get("error")
+                                            {
                                                 let msg = if let Some(m) = err.get("message").and_then(|m| m.as_str()) {
                                                     m.to_string()
                                                 } else {
@@ -423,38 +522,55 @@ async fn handle_chat_completions(
                                                 };
                                                 stream_error = Some(msg);
                                             }
+                                            chunk
                                         }
+                                    } else if line.is_empty() || line.starts_with(':') {
+                                        // Skip blank separators and SSE comments
+                                        continue;
+                                    } else {
+                                        format!("{}\n\n", line)
+                                    };
+                                    if tx.send(Ok(Bytes::from(output))).await.is_err() {
+                                        break; // client disconnected
                                     }
-                                    chunk
                                 }
-                            } else if line.is_empty() || line.starts_with(':') {
-                                // Skip blank separators and SSE comments
-                                continue;
-                            } else {
-                                format!("{}\n\n", line)
-                            };
-                            if tx.send(Ok(Bytes::from(output))).await.is_err() {
-                                break; // client disconnected
+                                Ok(Ok(None)) => break, // stream ended
+                                Ok(Err(e)) => {
+                                    warn!(
+                                        trace_id = %trace_id_clone,
+                                        error = %e,
+                                        "Error reading stream line"
+                                    );
+                                    break;
+                                }
+                                Err(_) => {
+                                    warn!(
+                                        trace_id = %trace_id_clone,
+                                        idle_timeout_secs = DEFAULT_STREAM_IDLE_TIMEOUT_SECS,
+                                        "Stream idle timeout — no data received, terminating stream"
+                                    );
+                                    break;
+                                }
                             }
                         }
 
                         // After stream completes, update the log:
                         // - If an error was detected mid-stream, update status to 500
                         // - Update token usage if found
-                        if stream_error.is_some() {
-                            if let Err(e) = db_clone.update_request_log_status(&log_id_clone, 500) {
-                                warn!("Failed to update request log status: {}", e);
-                            }
+                        if stream_error.is_some()
+                            && let Err(e) = db_clone.update_request_log_status(&log_id_clone, 500)
+                        {
+                            warn!(trace_id = %trace_id_clone, error = %e, "Failed to update request log status");
                         }
-                        if let Some((prompt, completion, total)) = last_usage {
-                            if let Err(e) = db_clone.update_request_log_tokens(
+                        if let Some((prompt, completion, total)) = last_usage
+                            && let Err(e) = db_clone.update_request_log_tokens(
                                 &log_id_clone,
                                 prompt,
                                 completion,
                                 total,
-                            ) {
-                                warn!("Failed to update request log tokens: {}", e);
-                            }
+                            )
+                        {
+                            warn!(trace_id = %trace_id_clone, error = %e, "Failed to update request log tokens");
                         }
                     });
 
@@ -467,17 +583,26 @@ async fn handle_chat_completions(
                         .header("Content-Type", "text/event-stream")
                         .header("Cache-Control", "no-cache")
                         .header("Connection", "keep-alive")
+                        .header("X-Request-Id", &trace_id)
                         .body(body)
                     {
                         Ok(resp) => return resp.into_response(),
                         Err(e) => {
-                            warn!("Failed to build stream response: {}", e);
-                            return error_response::internal_error("failed to build response");
+                            warn!(trace_id = %trace_id, error = %e, "Failed to build stream response");
+                            return with_request_id(
+                                error_response::internal_error("failed to build response"),
+                                &trace_id,
+                            );
                         }
                     }
                 }
                 Err(e) => {
-                    warn!("Stream upstream {} failed: {}", upstream.provider_name, e);
+                    warn!(
+                        trace_id = %trace_id,
+                        provider = %upstream.provider_name,
+                        error = %e,
+                        "Stream upstream failed"
+                    );
                     failed_upstreams_json.push(json!({
                         "provider": upstream.provider_name,
                         "model": model_str,
@@ -500,6 +625,7 @@ async fn handle_chat_completions(
                     model_str,
                     &request_body,
                     timeout_secs,
+                    Some(&trace_headers),
                 )
                 .await
             {
@@ -523,7 +649,12 @@ async fn handle_chat_completions(
                         } else {
                             err_obj.to_string()
                         };
-                        warn!("Upstream {} returned error in body: {}", upstream.provider_name, err_msg);
+                        warn!(
+                            trace_id = %trace_id,
+                            provider = %upstream.provider_name,
+                            error = %err_msg,
+                            "Upstream returned error in body"
+                        );
                         let embedded_err = UpstreamError::EmbeddedError { message: err_msg };
                         failed_upstreams_json.push(json!({
                             "provider": upstream.provider_name,
@@ -556,13 +687,34 @@ async fn handle_chat_completions(
                         completion_tokens,
                         total_tokens,
                     ) {
-                        warn!("Failed to insert request log: {}", e);
+                        warn!(trace_id = %trace_id, error = %e, "Failed to insert request log");
                     }
 
-                    return (StatusCode::OK, Json(resp_body)).into_response();
+                    // Build response with passthrough headers from upstream + X-Request-Id
+                    let passthrough = filter_passthrough_headers(&response.headers);
+                    let mut builder = Response::builder()
+                        .status(StatusCode::OK)
+                        .header("X-Request-Id", &trace_id);
+
+                    for (key, value) in passthrough.iter() {
+                        builder = builder.header(key, value);
+                    }
+
+                    return builder
+                        .header("Content-Type", "application/json")
+                        .body(Body::from(serde_json::to_vec(&resp_body).unwrap_or_default()))
+                        .unwrap_or_else(|_| {
+                            (StatusCode::OK, Json(resp_body)).into_response()
+                        })
+                        .into_response();
                 }
                 Err(e) => {
-                    warn!("Upstream {} failed: {}", upstream.provider_name, e);
+                    warn!(
+                        trace_id = %trace_id,
+                        provider = %upstream.provider_name,
+                        error = %e,
+                        "Upstream failed"
+                    );
                     failed_upstreams_json.push(json!({
                         "provider": upstream.provider_name,
                         "model": model_str,
@@ -597,14 +749,148 @@ async fn handle_chat_completions(
         0,
         0,
     ) {
-        warn!("Failed to insert failure request log: {}", e);
+        warn!(trace_id = %trace_id, error = %e, "Failed to insert failure request log");
     }
 
     // If we never actually attempted any upstream (all were disabled),
     // return 503 instead of 502.
     if !attempted_any {
-        return error_response::no_available_upstream("all upstreams are disabled");
+        return with_request_id(
+            error_response::no_available_upstream("all upstreams are disabled"),
+            &trace_id,
+        );
     }
 
-    error_response::all_upstreams_failed(&failed_upstreams_json, last_error.as_deref())
+    with_request_id(
+        error_response::all_upstreams_failed(&failed_upstreams_json, last_error.as_deref()),
+        &trace_id,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::{HeaderName, HeaderValue};
+
+    // ── filter_passthrough_headers 测试 ──────────────────────────
+
+    #[test]
+    fn test_passthrough_x_ratelimit_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-ratelimit-limit-requests", HeaderValue::from_static("60"));
+        headers.insert("x-ratelimit-remaining-tokens", HeaderValue::from_static("1000"));
+
+        let filtered = filter_passthrough_headers(&headers);
+        assert_eq!(filtered.len(), 2);
+        assert!(filtered.contains_key("x-ratelimit-limit-requests"));
+        assert!(filtered.contains_key("x-ratelimit-remaining-tokens"));
+    }
+
+    #[test]
+    fn test_passthrough_openai_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert("openai-organization", HeaderValue::from_static("org-123"));
+        headers.insert("openai-processing-ms", HeaderValue::from_static("42"));
+
+        let filtered = filter_passthrough_headers(&headers);
+        assert_eq!(filtered.len(), 2);
+    }
+
+    #[test]
+    fn test_passthrough_anthropic_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert("anthropic-ratelimit-requests", HeaderValue::from_static("100"));
+
+        let filtered = filter_passthrough_headers(&headers);
+        assert_eq!(filtered.len(), 1);
+    }
+
+    #[test]
+    fn test_filter_out_non_whitelisted_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert("server", HeaderValue::from_static("nginx"));
+        headers.insert("set-cookie", HeaderValue::from_static("session=abc"));
+        headers.insert("x-internal-debug", HeaderValue::from_static("secret"));
+        headers.insert("content-type", HeaderValue::from_static("application/json"));
+
+        let filtered = filter_passthrough_headers(&headers);
+        assert!(filtered.is_empty(), "Non-whitelisted headers should be filtered out");
+    }
+
+    #[test]
+    fn test_passthrough_empty_headers() {
+        let headers = HeaderMap::new();
+        let filtered = filter_passthrough_headers(&headers);
+        assert!(filtered.is_empty());
+    }
+
+    #[test]
+    fn test_passthrough_mixed_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-ratelimit-limit-requests", HeaderValue::from_static("60"));
+        headers.insert("server", HeaderValue::from_static("cloudflare"));
+        headers.insert("openai-model", HeaderValue::from_static("gpt-4"));
+
+        let filtered = filter_passthrough_headers(&headers);
+        assert_eq!(filtered.len(), 2);
+        assert!(filtered.contains_key("x-ratelimit-limit-requests"));
+        assert!(filtered.contains_key("openai-model"));
+        assert!(!filtered.contains_key("server"));
+    }
+
+    // ── with_request_id 测试 ─────────────────────────────────────
+
+    #[test]
+    fn test_with_request_id_adds_header() {
+        let resp = (StatusCode::OK, Json(json!({"ok": true}))).into_response();
+        let resp = with_request_id(resp, "abc123");
+        assert_eq!(
+            resp.headers().get("x-request-id").unwrap(),
+            "abc123"
+        );
+    }
+
+    #[test]
+    fn test_with_request_id_preserves_existing_headers() {
+        let mut resp = (StatusCode::OK, Json(json!({"ok": true}))).into_response();
+        resp.headers_mut().insert("content-type", HeaderValue::from_static("application/json"));
+        let resp = with_request_id(resp, "trace-xyz");
+        assert_eq!(
+            resp.headers().get("x-request-id").unwrap(),
+            "trace-xyz"
+        );
+        assert_eq!(
+            resp.headers().get("content-type").unwrap(),
+            "application/json"
+        );
+    }
+
+    // ── build_trace_headers 测试 ─────────────────────────────────
+
+    #[test]
+    fn test_build_trace_headers() {
+        let headers = build_trace_headers("test-trace-id");
+        assert_eq!(headers.len(), 1);
+        assert_eq!(
+            headers.get("x-request-id").unwrap(),
+            "test-trace-id"
+        );
+    }
+
+    #[test]
+    fn test_build_trace_headers_empty_string() {
+        // Empty string is still a valid header value
+        let headers = build_trace_headers("");
+        assert_eq!(headers.len(), 1);
+    }
+
+    // ── PASSTHROUGH_HEADER_PREFIXES 完整性测试 ────────────────────
+
+    #[test]
+    fn test_passthrough_prefixes_cover_expected_ranges() {
+        // Ensure all expected prefix patterns are defined
+        assert!(PASSTHROUGH_HEADER_PREFIXES.contains(&"x-ratelimit-"));
+        assert!(PASSTHROUGH_HEADER_PREFIXES.contains(&"openai-"));
+        assert!(PASSTHROUGH_HEADER_PREFIXES.contains(&"anthropic-"));
+    }
 }

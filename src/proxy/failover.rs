@@ -21,6 +21,9 @@ impl UpstreamClient {
 
     /// Forward a single request to the given upstream (non-streaming).
     ///
+    /// `extra_headers` allows the caller to inject headers like `X-Request-Id`
+    /// into the upstream request for end-to-end tracing.
+    ///
     /// Returns `UpstreamError` on failure, which carries structured
     /// error classification for failover decisions.
     pub async fn forward_request(
@@ -30,35 +33,39 @@ impl UpstreamClient {
         _model: &str,
         body: &Value,
         timeout_secs: u64,
+        extra_headers: Option<&reqwest::header::HeaderMap>,
     ) -> Result<Response, UpstreamError> {
         let url = format!("{}/v1/chat/completions", base_url.trim_end_matches('/'));
         debug!("Forwarding request to upstream: {}", url);
 
-        let response = self
+        let mut req = self
             .http_client
             .post(&url)
             .header("Authorization", format!("Bearer {}", api_key))
             .header("Content-Type", "application/json")
             .timeout(std::time::Duration::from_secs(timeout_secs))
-            .json(body)
-            .send()
-            .await
-            .map_err(|e| {
-                if e.is_timeout() {
-                    UpstreamError::Timeout {
-                        phase: TimeoutPhase::ResponseHeaders,
-                        timeout_secs,
-                    }
-                } else if e.is_connect() {
-                    UpstreamError::ConnectionFailed {
-                        detail: e.to_string(),
-                    }
-                } else {
-                    UpstreamError::ConnectionFailed {
-                        detail: format!("request error: {}", e),
-                    }
+            .json(body);
+
+        if let Some(headers) = extra_headers {
+            req = req.headers(headers.clone());
+        }
+
+        let response = req.send().await.map_err(|e| {
+            if e.is_timeout() {
+                UpstreamError::Timeout {
+                    phase: TimeoutPhase::ResponseHeaders,
+                    timeout_secs,
                 }
-            })?;
+            } else if e.is_connect() {
+                UpstreamError::ConnectionFailed {
+                    detail: e.to_string(),
+                }
+            } else {
+                UpstreamError::ConnectionFailed {
+                    detail: format!("request error: {}", e),
+                }
+            }
+        })?;
 
         let status = response.status();
         // Capture headers before consuming the body
@@ -92,31 +99,43 @@ impl UpstreamClient {
     /// Forward a streaming request and return the raw HTTP response.
     /// The caller is responsible for consuming the response body as a byte stream.
     ///
-    /// A 60-second timeout is applied to the initial connection + response headers;
-    /// the body stream itself is not bounded (streams may be long-lived).
+    /// `timeout_secs` is applied to the initial connection + response headers;
+    /// the body stream itself is not bounded here (the caller should apply
+    /// idle timeout when reading chunks).
+    ///
+    /// `extra_headers` allows the caller to inject headers like `X-Request-Id`
+    /// into the upstream request for end-to-end tracing.
     pub async fn forward_stream_request(
         &self,
         base_url: &str,
         api_key: &str,
         _model: &str,
         body: &Value,
+        timeout_secs: u64,
+        extra_headers: Option<&reqwest::header::HeaderMap>,
     ) -> Result<reqwest::Response, UpstreamError> {
         let url = format!("{}/v1/chat/completions", base_url.trim_end_matches('/'));
         debug!("Forwarding streaming request to upstream: {}", url);
 
+        let mut req = self
+            .http_client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("Content-Type", "application/json")
+            .json(body);
+
+        if let Some(headers) = extra_headers {
+            req = req.headers(headers.clone());
+        }
+
         let response = tokio::time::timeout(
-            std::time::Duration::from_secs(60),
-            self.http_client
-                .post(&url)
-                .header("Authorization", format!("Bearer {}", api_key))
-                .header("Content-Type", "application/json")
-                .json(body)
-                .send(),
+            std::time::Duration::from_secs(timeout_secs),
+            req.send(),
         )
         .await
         .map_err(|_| UpstreamError::Timeout {
             phase: TimeoutPhase::ResponseHeaders,
-            timeout_secs: 60,
+            timeout_secs,
         })?
         .map_err(|e| {
             if e.is_connect() {
