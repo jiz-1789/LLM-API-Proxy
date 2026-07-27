@@ -7,6 +7,11 @@
 
 ## [Unreleased]
 
+## [0.1.18] - 2026-07-27
+
+### 修复
+- 修复下载完成后无法自动更新的问题——优化 PowerShell 更新脚本执行逻辑
+
 ## [0.1.17] - 2026-07-27
 
 ### 修复
@@ -153,7 +158,8 @@
 - **数据便携**：所有数据存储在程序同目录 `data/` 文件夹，U 盘携带即走
 - **开源治理**：AGPL-3.0 双轨许可、CLA 贡献者协议、CONTRIBUTING.md 贡献指南
 
-[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.1.17...HEAD
+[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.1.18...HEAD
+[0.1.18]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.18
 [0.1.17]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.17
 [0.1.16]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.16
 [0.1.15]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.15
