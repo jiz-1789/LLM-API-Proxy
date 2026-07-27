@@ -1127,8 +1127,8 @@ pub async fn check_for_updates() -> Result<UpdateCheckResult, String> {
 
     // Determine which source to use for version info
     let (primary, source) = match (&github_result, &gitee_result) {
-        (Ok(gh), _) => (gh.clone(), "github"),
-        (Err(_), Ok(gitee)) => (gitee.clone(), "gitee"),
+        (Ok(gh), _) => (gh, "github"),
+        (Err(_), Ok(gitee)) => (gitee, "gitee"),
         (Err(gh_err), Err(_)) => {
             return Err(format!(
                 "GitHub 和 Gitee 均无法访问: {}",

@@ -7,6 +7,11 @@
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-07-27
+
+### 修复
+- 修复已知问题，提升稳定性
+
 ## [0.1.14] - 2026-07-27
 
 ### 修复
@@ -138,7 +143,8 @@
 - **数据便携**：所有数据存储在程序同目录 `data/` 文件夹，U 盘携带即走
 - **开源治理**：AGPL-3.0 双轨许可、CLA 贡献者协议、CONTRIBUTING.md 贡献指南
 
-[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.1.7...HEAD
+[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.1.15...HEAD
+[0.1.15]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.15
 [0.1.7]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.7
 [0.1.6]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.6
 [0.1.5]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.5
