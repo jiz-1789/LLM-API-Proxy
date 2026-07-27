@@ -1347,7 +1347,7 @@ pub fn apply_update(app_handle: tauri::AppHandle) -> Result<(), String> {
 
     let exe_path = current_exe.to_string_lossy().to_string();
 
-    // Build PowerShell script content (avoids file encoding issues with Chinese paths)
+    // Build PowerShell script content
     let ps_content = format!(
         "Set-Location -LiteralPath '{exe_dir}'; \
          Start-Sleep -Seconds 2; \
@@ -1383,10 +1383,16 @@ pub fn apply_update(app_handle: tauri::AppHandle) -> Result<(), String> {
     let state = app_handle.state::<AppState>();
     state.shutdown();
 
-    // Run PowerShell command directly (avoids script file encoding issues)
-    let ps_command = format!("-NoProfile -ExecutionPolicy Bypass -Command \"{}\"", ps_content);
+    // Encode command as Base64 UTF-16LE to avoid any encoding issues with Chinese paths
+    use base64::Engine;
+    let ps_bytes: Vec<u8> = ps_content.encode_utf16()
+        .flat_map(|c| c.to_le_bytes())
+        .collect();
+    let encoded_command = base64::engine::general_purpose::STANDARD.encode(&ps_bytes);
+
+    // Run PowerShell with -EncodedCommand (most reliable for Unicode paths)
     std::process::Command::new("powershell")
-        .arg(&ps_command)
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", &encoded_command])
         .current_dir(exe_dir)
         .creation_flags(0x08000008) // CREATE_NO_WINDOW | DETACHED_PROCESS
         .spawn()
