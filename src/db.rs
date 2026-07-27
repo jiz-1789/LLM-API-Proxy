@@ -314,16 +314,25 @@ impl Database {
         }
 
         // v6: Add upstream health tracking columns.
-        // Each ALTER is executed individually and ignores "duplicate column"
-        // errors, making this migration idempotent even if a previous attempt
-        // partially succeeded (which would leave schema_version < 6).
-        if current < 6 {
+        //
+        // DEFENSIVE: Some development builds may have had schema_version
+        // incorrectly bumped without the columns actually being present.
+        // We therefore check column existence via PRAGMA instead of relying
+        // solely on the version number.
+        let has_last_success_time = self.column_exists("upstreams", "last_success_time")?;
+        let has_last_error_reason = self.column_exists("upstreams", "last_error_reason")?;
+        let has_recovered_at = self.column_exists("upstreams", "recovered_at")?;
+
+        if current < 6 || !has_last_success_time || !has_last_error_reason || !has_recovered_at {
             let alter_statements = [
-                "ALTER TABLE upstreams ADD COLUMN last_success_time TEXT",
-                "ALTER TABLE upstreams ADD COLUMN last_error_reason TEXT",
-                "ALTER TABLE upstreams ADD COLUMN recovered_at TEXT",
+                ("ALTER TABLE upstreams ADD COLUMN last_success_time TEXT", has_last_success_time),
+                ("ALTER TABLE upstreams ADD COLUMN last_error_reason TEXT", has_last_error_reason),
+                ("ALTER TABLE upstreams ADD COLUMN recovered_at TEXT", has_recovered_at),
             ];
-            for sql in &alter_statements {
+            for (sql, already_exists) in &alter_statements {
+                if *already_exists {
+                    continue;
+                }
                 if let Err(e) = self.get_conn()?.execute(sql, []) {
                     // Ignore "duplicate column name" — column already exists from a partial run
                     if !e.to_string().contains("duplicate column name") {
@@ -335,7 +344,7 @@ impl Database {
                 "UPDATE schema_version SET version = 6",
                 [],
             )?;
-            info!("Database migrated to version 6");
+            info!("Database migrated to version 6 (columns verified)");
         }
 
         Ok(())
@@ -353,6 +362,24 @@ impl Database {
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(0),
             Err(e) => Err(AppError::Database(e)),
         }
+    }
+
+    /// Check whether a column exists in a given table.
+    /// Uses SQLite PRAGMA table_info for a reliable, portable check.
+    fn column_exists(&self, table: &str, column: &str) -> Result<bool, AppError> {
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare(&format!("PRAGMA table_info({})", table))?;
+        let rows = stmt.query_map([], |row| {
+            // PRAGMA table_info returns: cid, name, type, notnull, dflt_value, pk
+            let name: String = row.get(1)?;
+            Ok(name)
+        })?;
+        for name in rows {
+            if name? == column {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     // ========================================================================
