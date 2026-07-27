@@ -316,9 +316,20 @@ chore: gitignore internal docs and test data
 
 ### 7.3 分支策略
 
-- `main`：**稳定发布分支**，只接受经过验证的合并，不允许直接在 `main` 上开发新功能
+> **核心原则：main 是唯一的稳定发布分支，只提供最终稳定版本。任何开发工作都必须在分支上进行，严禁直接在 main 上修改代码。**
+
+- `main`：**稳定发布分支**，只接受经过验证的合并，**严禁**直接在 `main` 上开发
 - `feature/*`：功能开发分支，从 `main` 切出，开发完成后合并回 `main`
 - `fix/*`：Bug 修复分支，从 `main` 切出，修复后合并回 `main`
+- `hotfix/*`：紧急修复分支，从 `main` 切出，修复后合并回 `main`
+
+**分支命名规范：**
+
+| 类型 | 命名格式 | 示例 |
+|------|----------|------|
+| 新功能 | `feature/简短描述` | `feature/shortcut-dialog` |
+| Bug 修复 | `fix/问题描述` | `fix/memory-leak` |
+| 紧急修复 | `hotfix/问题描述` | `hotfix/crash-on-startup` |
 
 **分支工作流：**
 
@@ -333,8 +344,9 @@ chore: gitignore internal docs and test data
 
 **规则：**
 
-- ❌ 禁止直接在 `main` 分支上开发新功能或修改代码
-- ✅ 所有功能开发和 Bug 修复必须在 `feature/*` 或 `fix/*` 分支上进行
+- ❌ **严禁在 `main` 分支上进行任何开发工作**（包括功能开发、Bug 修复、文档更新等）
+- ✅ 所有功能开发必须在 `feature/*` 分支上进行
+- ✅ 所有 Bug 修复必须在 `fix/*` 分支上进行
 - ✅ 紧急修复可从 `main` 切出 `hotfix/*` 分支，修复后合并回 `main`
 - ✅ 已合并的分支应及时清理，避免分支堆积
 - ❌ **禁止未经用户确认直接将代码合并到 main** — 开发完成后必须等待用户审查和确认
@@ -430,7 +442,7 @@ chore: gitignore internal docs and test data
 | 修改 `master_key.bin` 格式或位置 | 旧用户数据无法解密 |
 | 在 `src-tauri/gen/` 下手动编辑文件 | 自动生成，会被覆盖 |
 | 提交 `target/`、`*.db`、`*.exe`、`master_key.bin` | 构建产物/敏感数据 |
-| 直接在 `main` 分支上开发新功能 | 绕过分支审查流程 |
+| 在 `main` 分支上进行任何开发工作 | 绕过分支审查流程，main 仅提供稳定版本 |
 | 不更新版本号直接打包发布 | 版本混乱，用户无法检测更新 |
 | 推送到 main 时不递增版本号 | 每次 main 推送必须对应唯一版本 |
 | 打包 NSIS 安装版 | 项目仅发布便捷版（便携版） |
