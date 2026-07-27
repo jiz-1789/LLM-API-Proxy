@@ -64,6 +64,9 @@ commands::fetch_upstream_models_by_id,
             commands::download_update,
             commands::apply_update,
             commands::check_pending_update,
+            commands::check_first_run,
+            commands::check_desktop_shortcut,
+            commands::create_desktop_shortcut,
         ])
         .setup(|app| {
             // Read language setting for bilingual tray menu

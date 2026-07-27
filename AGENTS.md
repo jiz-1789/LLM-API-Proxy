@@ -325,8 +325,10 @@ chore: gitignore internal docs and test data
 ```
 1. 从 main 切出 feature/xxx 分支
 2. 在 feature 分支上开发和自测
-3. 自测通过后合并回 main
-4. 清理已合并的 feature 分支
+3. 自测通过后，等待用户确认（代码审查 + 功能验证）
+4. 用户确认通过后，合并到 main
+5. 更新版本号、打包、上传代码到仓库
+6. 清理已合并的 feature 分支
 ```
 
 **规则：**
@@ -335,6 +337,8 @@ chore: gitignore internal docs and test data
 - ✅ 所有功能开发和 Bug 修复必须在 `feature/*` 或 `fix/*` 分支上进行
 - ✅ 紧急修复可从 `main` 切出 `hotfix/*` 分支，修复后合并回 `main`
 - ✅ 已合并的分支应及时清理，避免分支堆积
+- ❌ **禁止未经用户确认直接将代码合并到 main** — 开发完成后必须等待用户审查和确认
+- ✅ **合并到 main 后必须按 7.4 流程更新版本号、打包并推送到仓库**
 
 ### 7.4 版本号管理
 

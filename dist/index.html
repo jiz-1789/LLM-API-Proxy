@@ -1859,6 +1859,14 @@ print(response.choices[0].message.content)</code></pre>
         update_toast_fail: { zh: '检查更新失败: ', en: 'Update check failed: ' },
         update_sidebar_tip: { zh: '有新版本可用，点击下载', en: 'New version available, click to download' },
 
+        // ── Shortcut Dialog ──
+        shortcut_dialog_title: { zh: '创建桌面快捷方式', en: 'Create Desktop Shortcut' },
+        shortcut_dialog_desc: { zh: '是否在桌面创建快捷方式，方便下次快速启动？', en: 'Create a desktop shortcut for quick access?' },
+        shortcut_dialog_yes: { zh: '是，创建快捷方式', en: 'Yes, create shortcut' },
+        shortcut_dialog_no: { zh: '不用了', en: 'No thanks' },
+        shortcut_create_success: { zh: '桌面快捷方式创建成功', en: 'Desktop shortcut created successfully' },
+        shortcut_create_fail: { zh: '创建快捷方式失败: ', en: 'Failed to create shortcut: ' },
+
         // ── Modal: Upstream ──
         modal_add_upstream: { zh: '新增上游', en: 'Add Upstream' },
         modal_edit_upstream: { zh: '编辑上游', en: 'Edit Upstream' },
@@ -4027,6 +4035,61 @@ function restartCarouselTimer() {
 }
 
 // ================================================================
+// ================================================================
+// Shortcut Dialog
+// ================================================================
+    // Show a dialog asking the user if they want to create a desktop shortcut
+    function showShortcutDialog() {
+        const existing = document.getElementById('shortcut-dialog');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'shortcut-dialog';
+        overlay.className = 'modal-overlay open';
+        overlay.innerHTML =
+            '<div class="modal" style="width:380px;">' +
+            '<div class="modal-title">' + t('shortcut_dialog_title') + '</div>' +
+            '<div style="font-size:13px;color:var(--text-secondary);margin-bottom:20px;line-height:1.6;">' + t('shortcut_dialog_desc') + '</div>' +
+            '<div class="form-actions">' +
+            '<button class="btn btn-ghost btn-sm" id="btn-shortcut-no">' + t('shortcut_dialog_no') + '</button>' +
+            '<button class="btn btn-primary btn-sm" id="btn-shortcut-yes">' + t('shortcut_dialog_yes') + '</button>' +
+            '</div>' +
+            '</div>';
+        document.body.appendChild(overlay);
+
+        document.getElementById('btn-shortcut-no').onclick = () => {
+            overlay.remove();
+        };
+        document.getElementById('btn-shortcut-yes').onclick = async () => {
+            try {
+                await cmd('create_desktop_shortcut');
+                toast(t('shortcut_create_success'), 'success');
+            } catch (e) {
+                toast(t('shortcut_create_fail') + e, 'error');
+            }
+            overlay.remove();
+        };
+    }
+
+    // Check if this is the first run or if desktop shortcut is missing
+    async function checkAndPromptShortcut() {
+        try {
+            // Check if data directory exists (not first run)
+            const isFirstRun = await cmd('check_first_run');
+            if (isFirstRun) {
+                // First run: show dialog to ask if user wants a shortcut
+                showShortcutDialog();
+            } else {
+                // Not first run: check if desktop shortcut exists
+                const hasShortcut = await cmd('check_desktop_shortcut');
+                if (!hasShortcut) {
+                    // Desktop shortcut missing: ask if user wants to create one
+                    showShortcutDialog();
+                }
+            }
+        } catch (_) { /* silent fail on startup */ }
+    }
+
 // Init
 // ================================================================
     (async function init() {
@@ -4041,6 +4104,8 @@ function restartCarouselTimer() {
         await checkAndApplyPendingUpdate();
         // Silently check for updates on startup
         silentCheckForUpdates();
+        // Check if we should prompt for desktop shortcut creation
+        await checkAndPromptShortcut();
     })();
     </script>
 </body>
