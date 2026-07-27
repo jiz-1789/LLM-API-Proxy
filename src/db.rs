@@ -298,9 +298,7 @@ impl Database {
                  ALTER TABLE request_logs ADD COLUMN total_tokens INTEGER NOT NULL DEFAULT 0;"),
             (4, "ALTER TABLE request_logs ADD COLUMN model TEXT;"),
             (5, "UPDATE pools SET round_robin_strategy = 'round_robin' WHERE round_robin_strategy = 'sequential';"),
-            (6, "ALTER TABLE upstreams ADD COLUMN last_success_time TEXT;
-                 ALTER TABLE upstreams ADD COLUMN last_error_reason TEXT;
-                 ALTER TABLE upstreams ADD COLUMN recovered_at TEXT;"),
+            // v6 is handled separately below (idempotent ALTER TABLE)
         ];
         for (version, sql) in migrations {
             if current < version {
@@ -314,6 +312,32 @@ impl Database {
                 info!("Database migrated to version {}", version);
             }
         }
+
+        // v6: Add upstream health tracking columns.
+        // Each ALTER is executed individually and ignores "duplicate column"
+        // errors, making this migration idempotent even if a previous attempt
+        // partially succeeded (which would leave schema_version < 6).
+        if current < 6 {
+            let alter_statements = [
+                "ALTER TABLE upstreams ADD COLUMN last_success_time TEXT",
+                "ALTER TABLE upstreams ADD COLUMN last_error_reason TEXT",
+                "ALTER TABLE upstreams ADD COLUMN recovered_at TEXT",
+            ];
+            for sql in &alter_statements {
+                if let Err(e) = self.get_conn()?.execute(sql, []) {
+                    // Ignore "duplicate column name" — column already exists from a partial run
+                    if !e.to_string().contains("duplicate column name") {
+                        return Err(AppError::Database(e));
+                    }
+                }
+            }
+            self.get_conn()?.execute(
+                "UPDATE schema_version SET version = 6",
+                [],
+            )?;
+            info!("Database migrated to version 6");
+        }
+
         Ok(())
     }
 
