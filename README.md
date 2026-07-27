@@ -187,7 +187,17 @@ API Key:  sk-gw-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 > 国内用户推荐使用 Gitee 下载以获得更快的下载速度。
 
-## 🔌 API 参考
+## 💬 交流反馈
+
+欢迎加入 QQ 群进行交流、问题反馈和功能建议：
+
+![QQ群二维码](./images/qrcode_1785163779542.jpg)
+
+## ⭐ Star 支持
+
+如果本项目对你有帮助，请帮忙点个 Star ⭐，这将帮助更多人发现本项目，感谢你的支持！
+
+## �� API 参考
 
 ### OpenAI 兼容端点
 

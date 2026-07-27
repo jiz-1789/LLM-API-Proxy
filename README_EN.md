@@ -187,6 +187,16 @@ The app automatically checks for the latest release on GitHub / Gitee at startup
 
 > Users in China are recommended to use the Gitee download for faster speeds.
 
+## 💬 Community & Feedback
+
+Join our QQ group for discussion, feedback, and feature suggestions:
+
+![QQ Group QR Code](./images/qrcode_1785163779542.jpg)
+
+## ⭐ Star This Project
+
+If this project has been helpful to you, please consider giving it a Star ⭐. Your support helps more people discover this project. Thank you!
+
 ## 🔌 API Reference
 
 ### OpenAI-Compatible Endpoints
