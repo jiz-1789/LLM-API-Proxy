@@ -19,64 +19,18 @@ use std::time::Duration;
 
 use tracing::{info, warn};
 
+use crate::config::ProbeSettings;
 use crate::crypto::KeyManager;
 use crate::db::Database;
 
-/// Default probe interval (5 minutes).
-const DEFAULT_PROBE_INTERVAL_SECS: u64 = 300;
-/// Minimum probe interval (1 minute).
-const MIN_PROBE_INTERVAL_SECS: u64 = 60;
-/// Default failure threshold for marking an upstream as "down".
-const DEFAULT_FAILURE_THRESHOLD: i32 = 3;
-
-/// Probe configuration loaded from the settings table.
-#[derive(Debug, Clone)]
-pub struct ProbeConfig {
-    pub enabled: bool,
-    pub interval_seconds: u64,
-    pub failure_threshold: i32,
-}
-
-impl Default for ProbeConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            interval_seconds: DEFAULT_PROBE_INTERVAL_SECS,
-            failure_threshold: DEFAULT_FAILURE_THRESHOLD,
-        }
-    }
-}
+/// Re-export probe configuration from the config module.
+pub use crate::config::ProbeSettings as ProbeConfig;
 
 /// Load probe configuration from the settings table.
+///
+/// Delegates to [`ProbeSettings::load`] for a single source of truth.
 pub fn load_probe_config(db: &Database) -> ProbeConfig {
-    let enabled = db
-        .get_setting("probe_enabled")
-        .ok()
-        .flatten()
-        .map(|v| v == "true")
-        .unwrap_or(false);
-
-    let interval_seconds = db
-        .get_setting("probe_interval_seconds")
-        .ok()
-        .flatten()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_PROBE_INTERVAL_SECS)
-        .max(MIN_PROBE_INTERVAL_SECS);
-
-    let failure_threshold = db
-        .get_setting("probe_failure_threshold")
-        .ok()
-        .flatten()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_FAILURE_THRESHOLD)
-        .max(1);
-
-    ProbeConfig {
-        enabled,
-        interval_seconds,
-        failure_threshold,
-    }
+    ProbeSettings::load(db)
 }
 
 /// Test connectivity to an upstream by sending a GET /v1/models request.
@@ -205,8 +159,8 @@ pub fn start_probe_task(
         return;
     }
 
-    let interval = Duration::from_secs(config.interval_seconds);
-    let failure_threshold = config.failure_threshold;
+    let interval = Duration::from_secs(config.interval_seconds as u64);
+    let failure_threshold = config.failure_threshold as i32;
 
     info!(
         interval_secs = config.interval_seconds,

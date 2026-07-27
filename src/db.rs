@@ -2190,4 +2190,175 @@ db.insert_request_log(&format!("l{}", i), &format!("r{}", i), None, None, None,
         assert_eq!(stats.upstream_count, 20);
         assert_eq!(stats.pool_count, 5);
     }
+
+    // ---- Migration Tests ----
+
+    #[test]
+    fn test_migration_from_v1_to_latest() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("migration_test.db");
+
+        // Step 1: Create a v1-only database (no migrations run)
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE schema_version (version INTEGER NOT NULL DEFAULT 0);
+                 INSERT INTO schema_version (version) VALUES (1);
+
+                 CREATE TABLE upstreams (
+                     id TEXT PRIMARY KEY,
+                     provider_name TEXT NOT NULL,
+                     base_url TEXT NOT NULL,
+                     api_key_encrypted BLOB NOT NULL,
+                     selected_model TEXT NOT NULL,
+                     enabled INTEGER NOT NULL DEFAULT 1,
+                     remark TEXT DEFAULT '',
+                     status TEXT NOT NULL DEFAULT 'healthy',
+                     failure_count INTEGER NOT NULL DEFAULT 0,
+                     last_failure_time TEXT,
+                     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+                     updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+                 );
+
+                 CREATE TABLE pools (
+                     id TEXT PRIMARY KEY,
+                     name TEXT NOT NULL UNIQUE,
+                     display_name TEXT NOT NULL,
+                     round_robin_strategy TEXT NOT NULL DEFAULT 'round_robin',
+                     failover_enabled INTEGER NOT NULL DEFAULT 1,
+                     timeout_seconds INTEGER NOT NULL DEFAULT 30,
+                     max_concurrency INTEGER NOT NULL DEFAULT 5,
+                     thinking_enabled INTEGER NOT NULL DEFAULT 0,
+                     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+                     updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+                 );
+
+                 CREATE TABLE pool_upstreams (
+                     pool_id TEXT NOT NULL REFERENCES pools(id) ON DELETE CASCADE,
+                     upstream_id TEXT NOT NULL REFERENCES upstreams(id) ON DELETE CASCADE,
+                     sort_order INTEGER NOT NULL DEFAULT 0,
+                     PRIMARY KEY (pool_id, upstream_id)
+                 );
+
+                 CREATE TABLE settings (
+                     key TEXT PRIMARY KEY,
+                     value TEXT NOT NULL,
+                     updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+                 );
+
+                 CREATE TABLE request_logs (
+                     id TEXT PRIMARY KEY,
+                     request_id TEXT NOT NULL,
+                     pool_name TEXT,
+                     upstream_id TEXT,
+                     failed_upstreams TEXT DEFAULT '[]',
+                     method TEXT NOT NULL,
+                     endpoint TEXT NOT NULL,
+                     status_code INTEGER NOT NULL,
+                     response_time_ms INTEGER NOT NULL,
+                     is_streaming INTEGER NOT NULL DEFAULT 0,
+                     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+                 );"
+            ).unwrap();
+
+            // Insert some old data
+            conn.execute(
+                "INSERT INTO upstreams (id, provider_name, base_url, api_key_encrypted, selected_model, enabled, remark)
+                 VALUES ('up_old', 'OldProvider', 'http://old', X'00', 'old-model', 1, 'legacy')",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO pools (id, name, display_name, max_concurrency, thinking_enabled)
+                 VALUES ('pool_old', 'old-pool', 'Old Pool', 5, 0)",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO request_logs (id, request_id, method, endpoint, status_code, response_time_ms, is_streaming)
+                 VALUES ('log_old', 'req_old', 'POST', '/v1/chat/completions', 200, 100, 0)",
+                [],
+            ).unwrap();
+        }
+
+        // Step 2: Open with our Database wrapper and run initialize (triggers migrations)
+        let db = Database::open(&db_path).unwrap();
+        db.initialize().unwrap();
+
+        // Step 3: Verify schema version is at least 6
+        let version = db.get_schema_version().unwrap();
+        assert!(version >= 6, "Schema should be migrated to at least v6, got {}", version);
+
+        // Step 4: Verify v6 columns exist
+        assert!(db.column_exists("upstreams", "last_success_time").unwrap());
+        assert!(db.column_exists("upstreams", "last_error_reason").unwrap());
+        assert!(db.column_exists("upstreams", "recovered_at").unwrap());
+
+        // Step 5: Verify old data is preserved
+        let upstreams = db.get_upstreams().unwrap();
+        assert_eq!(upstreams.len(), 1);
+        assert_eq!(upstreams[0].id, "up_old");
+        assert_eq!(upstreams[0].provider_name, "OldProvider");
+        // New columns should be NULL for old data
+        assert!(upstreams[0].last_success_time.is_none());
+        assert!(upstreams[0].last_error_reason.is_none());
+        assert!(upstreams[0].recovered_at.is_none());
+
+        // Step 6: Verify old pool data is preserved
+        let pools = db.get_pools().unwrap();
+        assert_eq!(pools.len(), 1);
+        assert_eq!(pools[0].id, "pool_old");
+
+        // Step 7: Verify old log data is preserved (v2-v4 migrations add columns)
+        let logs = db.get_recent_logs(&LogFilter { limit: 10, offset: 0, ..Default::default() }).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].id, "log_old");
+    }
+
+    /// Test that a partially-migrated database (schema_version high but columns missing)
+    /// is correctly repaired by the idempotent v6 migration.
+    #[test]
+    fn test_migration_repair_partial_v6() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("partial_v6.db");
+
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            // Create upstreams with only one of the v6 columns
+            conn.execute_batch(
+                "CREATE TABLE schema_version (version INTEGER NOT NULL DEFAULT 0);
+                 INSERT INTO schema_version (version) VALUES (8); -- version bumped but incomplete
+
+                 CREATE TABLE upstreams (
+                     id TEXT PRIMARY KEY,
+                     provider_name TEXT NOT NULL,
+                     base_url TEXT NOT NULL,
+                     api_key_encrypted BLOB NOT NULL,
+                     selected_model TEXT NOT NULL,
+                     available_models TEXT NOT NULL DEFAULT '[]',
+                     enabled INTEGER NOT NULL DEFAULT 1,
+                     remark TEXT DEFAULT '',
+                     status TEXT NOT NULL DEFAULT 'healthy',
+                     failure_count INTEGER NOT NULL DEFAULT 0,
+                     last_failure_time TEXT,
+                     last_success_time TEXT,  -- only this one exists
+                     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+                     updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+                 );"
+            ).unwrap();
+        }
+
+        let db = Database::open(&db_path).unwrap();
+        db.initialize().unwrap();
+
+        // Should repair missing columns
+        assert!(db.column_exists("upstreams", "last_success_time").unwrap());
+        assert!(db.column_exists("upstreams", "last_error_reason").unwrap());
+        assert!(db.column_exists("upstreams", "recovered_at").unwrap());
+
+        let version = db.get_schema_version().unwrap();
+        assert!(version >= 6, "Schema version should be at least 6 after repair, got {}", version);
+    }
 }
