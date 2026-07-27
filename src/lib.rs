@@ -9,6 +9,9 @@ pub mod pool;
 pub mod probe;
 pub mod proxy;
 
+#[cfg(test)]
+mod tests;
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
