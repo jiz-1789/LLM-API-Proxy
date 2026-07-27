@@ -7,6 +7,11 @@
 
 ## [Unreleased]
 
+## [0.1.16] - 2026-07-27
+
+### 修复
+- 修复下载更新进度条无动画的问题——CSS 变量 `--primary` 未定义导致进度条背景透明
+
 ## [0.1.15] - 2026-07-27
 
 ### 修复
@@ -143,7 +148,8 @@
 - **数据便携**：所有数据存储在程序同目录 `data/` 文件夹，U 盘携带即走
 - **开源治理**：AGPL-3.0 双轨许可、CLA 贡献者协议、CONTRIBUTING.md 贡献指南
 
-[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.1.15...HEAD
+[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.1.16...HEAD
+[0.1.16]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.16
 [0.1.15]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.15
 [0.1.7]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.7
 [0.1.6]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.6
