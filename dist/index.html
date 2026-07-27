@@ -1360,6 +1360,60 @@ gap: 8px;
                         </div>
                     </div>
                     <div class="settings-section">
+                        <div class="section-title" data-i18n="settings_rate_limit_title">限流配置</div>
+                        <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="settings_rate_limit_desc">限制单位时间内的请求数量，防止滥用。修改后需重启应用生效。</p>
+                        <div class="settings-row">
+                            <label data-i18n="settings_rate_limit_enabled">启用限流</label>
+                            <div style="display:flex;align-items:center;gap:10px;">
+                                <label class="toggle">
+                                    <input type="checkbox" id="set-rate-limit-enabled" checked>
+                                    <span class="slider"></span>
+                                </label>
+                                <span style="font-size:12px;color:var(--text-muted);" data-i18n="settings_rate_limit_enabled_hint">开启后按 IP 限制请求频率</span>
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <label data-i18n="settings_rate_limit_max">最大请求数</label>
+                            <input class="form-input" id="set-rate-limit-max" type="number" min="1" max="10000" value="60" style="max-width:120px;">
+                        </div>
+                        <div class="settings-row">
+                            <label data-i18n="settings_rate_limit_window">时间窗口（秒）</label>
+                            <input class="form-input" id="set-rate-limit-window" type="number" min="1" max="3600" value="60" style="max-width:120px;">
+                        </div>
+                        <div class="settings-row">
+                            <label data-i18n="settings_rate_limit_xff">信任 X-Forwarded-For</label>
+                            <div style="display:flex;align-items:center;gap:10px;">
+                                <label class="toggle">
+                                    <input type="checkbox" id="set-rate-limit-xff">
+                                    <span class="slider"></span>
+                                </label>
+                                <span style="font-size:12px;color:var(--text-muted);" data-i18n="settings_rate_limit_xff_hint">反向代理模式下启用，直连模式无需开启</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <div class="section-title" data-i18n="settings_probe_title">主动探测</div>
+                        <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="settings_probe_desc">定期检测上游连通性，自动标记不可用上游。修改后需重启应用生效。</p>
+                        <div class="settings-row">
+                            <label data-i18n="settings_probe_enabled">启用探测</label>
+                            <div style="display:flex;align-items:center;gap:10px;">
+                                <label class="toggle">
+                                    <input type="checkbox" id="set-probe-enabled">
+                                    <span class="slider"></span>
+                                </label>
+                                <span style="font-size:12px;color:var(--text-muted);" data-i18n="settings_probe_enabled_hint">开启后定期向上游发送测试请求</span>
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <label data-i18n="settings_probe_interval">探测间隔（秒）</label>
+                            <input class="form-input" id="set-probe-interval" type="number" min="60" max="3600" value="300" style="max-width:120px;">
+                        </div>
+                        <div class="settings-row">
+                            <label data-i18n="settings_probe_threshold">失败阈值</label>
+                            <input class="form-input" id="set-probe-threshold" type="number" min="1" max="20" value="3" style="max-width:120px;">
+                        </div>
+                    </div>
+                    <div class="settings-section">
                         <div class="section-title" data-i18n="settings_version">版本更新</div>
                         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
                             <span style="font-size:13px;color:var(--text-secondary);"><span data-i18n="settings_current_version">当前版本：</span><code id="settings-app-version" style="font-family:'SF Mono','Cascadia Code',monospace;font-size:13px;">v0.1.0</code></span>
@@ -1815,6 +1869,20 @@ print(response.choices[0].message.content)</code></pre>
         settings_lang_en: { zh: 'English', en: 'English' },
         settings_version: { zh: '版本更新', en: 'Version & Updates' },
         settings_current_version: { zh: '当前版本：', en: 'Current version: ' },
+        settings_rate_limit_title: { zh: '限流配置', en: 'Rate Limiting' },
+        settings_rate_limit_desc: { zh: '限制单位时间内的请求数量，防止滥用。修改后需重启应用生效。', en: 'Limit request rate per time window to prevent abuse. Requires restart to take effect.' },
+        settings_rate_limit_enabled: { zh: '启用限流', en: 'Enable Rate Limiting' },
+        settings_rate_limit_enabled_hint: { zh: '开启后按 IP 限制请求频率', en: 'Limit request frequency by IP when enabled' },
+        settings_rate_limit_max: { zh: '最大请求数', en: 'Max Requests' },
+        settings_rate_limit_window: { zh: '时间窗口（秒）', en: 'Window (seconds)' },
+        settings_rate_limit_xff: { zh: '信任 X-Forwarded-For', en: 'Trust X-Forwarded-For' },
+        settings_rate_limit_xff_hint: { zh: '反向代理模式下启用，直连模式无需开启', en: 'Enable for reverse proxy mode, not needed for direct connection' },
+        settings_probe_title: { zh: '主动探测', en: 'Active Probing' },
+        settings_probe_desc: { zh: '定期检测上游连通性，自动标记不可用上游。修改后需重启应用生效。', en: 'Periodically check upstream connectivity and auto-mark unavailable upstreams. Requires restart to take effect.' },
+        settings_probe_enabled: { zh: '启用探测', en: 'Enable Probing' },
+        settings_probe_enabled_hint: { zh: '开启后定期向上游发送测试请求', en: 'Send periodic test requests to upstreams when enabled' },
+        settings_probe_interval: { zh: '探测间隔（秒）', en: 'Interval (seconds)' },
+        settings_probe_threshold: { zh: '失败阈值', en: 'Failure Threshold' },
         settings_save: { zh: '保存设置', en: 'Save Settings' },
         settings_saved: { zh: '设置已保存', en: 'Settings saved' },
         settings_save_fail: { zh: '保存失败: ', en: 'Save failed: ' },
@@ -3345,6 +3413,17 @@ function generateApiKey() {
             minimizeCb.checked = s.minimize_to_tray !== false;
             updateMinimizeLabel();
 
+            // Rate limit settings
+            document.getElementById('set-rate-limit-enabled').checked = s.rate_limit_enabled !== false;
+            document.getElementById('set-rate-limit-max').value = s.rate_limit_max_requests || 60;
+            document.getElementById('set-rate-limit-window').value = s.rate_limit_window_seconds || 60;
+            document.getElementById('set-rate-limit-xff').checked = s.rate_limit_trust_xff === true;
+
+            // Probe settings
+            document.getElementById('set-probe-enabled').checked = s.probe_enabled === true;
+            document.getElementById('set-probe-interval').value = s.probe_interval_seconds || 300;
+            document.getElementById('set-probe-threshold').value = s.probe_failure_threshold || 3;
+
             // Load pool list for quick copy
             const poolList = document.getElementById('settings-pool-list');
             try {
@@ -3396,6 +3475,13 @@ function generateApiKey() {
                 theme: document.getElementById('set-theme').value,
                 minimize_to_tray: document.getElementById('set-minimize').checked,
                 language: currentLang,
+                rate_limit_enabled: document.getElementById('set-rate-limit-enabled').checked,
+                rate_limit_max_requests: parseInt(document.getElementById('set-rate-limit-max').value) || 60,
+                rate_limit_window_seconds: parseInt(document.getElementById('set-rate-limit-window').value) || 60,
+                rate_limit_trust_xff: document.getElementById('set-rate-limit-xff').checked,
+                probe_enabled: document.getElementById('set-probe-enabled').checked,
+                probe_interval_seconds: parseInt(document.getElementById('set-probe-interval').value) || 300,
+                probe_failure_threshold: parseInt(document.getElementById('set-probe-threshold').value) || 3,
             };
             await cmd('update_settings', { req });
             applyTheme(req.theme);

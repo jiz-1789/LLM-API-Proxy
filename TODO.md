@@ -252,7 +252,7 @@ src/proxy/mod.rs                ← 声明新模块                             
 src/lib.rs                      ← 加载限流配置                                 ✅ 已完成
 src/error.rs                    ← AppError 调整                                待开发（P0-3 已通过 From 兼容）
 src/db.rs                       ← 迁移 v6 + Upstream 结构体 + update_upstream_health()  ✅ 已完成
-src/config.rs                   ← 新增限流/探测配置项                          待开发
+src/config.rs                   ← 新增限流/探测配置项                          ✅ 已完成
 DEVELOPMENT.md                  ← Schema 表 + 迁移历史更新                     ✅ 已完成
-dist/index.html                 ← 设置页新增限流/探测配置区域                  待开发
+dist/index.html                 ← 设置页新增限流/探测配置区域                  ✅ 已完成
 ```

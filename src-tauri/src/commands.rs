@@ -68,6 +68,18 @@ fn default_zh() -> String {
     "zh".to_string()
 }
 
+fn default_60() -> u32 {
+    60
+}
+
+fn default_300() -> u32 {
+    300
+}
+
+fn default_3() -> u32 {
+    3
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -824,12 +836,30 @@ pub struct SettingsVO {
     pub minimize_to_tray: bool,
     #[serde(default = "default_zh")]
     pub language: String,
+    // Rate limiting settings
+    #[serde(default = "default_true")]
+    pub rate_limit_enabled: bool,
+    #[serde(default = "default_60")]
+    pub rate_limit_max_requests: u32,
+    #[serde(default = "default_60")]
+    pub rate_limit_window_seconds: u32,
+    #[serde(default)]
+    pub rate_limit_trust_xff: bool,
+    // Probe settings
+    #[serde(default)]
+    pub probe_enabled: bool,
+    #[serde(default = "default_300")]
+    pub probe_interval_seconds: u32,
+    #[serde(default = "default_3")]
+    pub probe_failure_threshold: u32,
 }
 
 /// Get current gateway settings.
 #[tauri::command]
 pub fn get_settings(state: State<'_, AppState>) -> Result<SettingsVO, String> {
     let db = &state.db;
+    let rl = llm_api_proxy_lib::config::RateLimitSettings::load(db);
+    let probe = llm_api_proxy_lib::config::ProbeSettings::load(db);
     Ok(SettingsVO {
         listen_address: db.get_setting("listen_address").ok().flatten()
             .unwrap_or_else(|| "127.0.0.1".to_string()),
@@ -847,11 +877,19 @@ pub fn get_settings(state: State<'_, AppState>) -> Result<SettingsVO, String> {
             .unwrap_or(true),
         language: db.get_setting("language").ok().flatten()
             .unwrap_or_else(|| "zh".to_string()),
+        rate_limit_enabled: rl.enabled,
+        rate_limit_max_requests: rl.max_requests,
+        rate_limit_window_seconds: rl.window_seconds,
+        rate_limit_trust_xff: rl.trust_forwarded_for,
+        probe_enabled: probe.enabled,
+        probe_interval_seconds: probe.interval_seconds,
+        probe_failure_threshold: probe.failure_threshold,
     })
 }
 
 /// Update gateway settings (persisted to database).
 /// Note: listen_address and listen_port changes require app restart to take effect.
+/// Rate limit and probe settings also require restart to take effect.
 #[tauri::command]
 pub fn update_settings(req: SettingsVO, state: State<'_, AppState>) -> Result<(), String> {
     // Update in-memory cache immediately, before any DB operations
@@ -866,6 +904,24 @@ pub fn update_settings(req: SettingsVO, state: State<'_, AppState>) -> Result<()
     db.save_setting("theme", &req.theme).map_err(|e| e.to_string())?;
     db.save_setting("minimize_to_tray", &req.minimize_to_tray.to_string()).map_err(|e| e.to_string())?;
     db.save_setting("language", &req.language).map_err(|e| e.to_string())?;
+
+    // Save rate limit settings
+    let rl = llm_api_proxy_lib::config::RateLimitSettings {
+        enabled: req.rate_limit_enabled,
+        max_requests: req.rate_limit_max_requests,
+        window_seconds: req.rate_limit_window_seconds,
+        trust_forwarded_for: req.rate_limit_trust_xff,
+    };
+    rl.save(db).map_err(|e| e.to_string())?;
+
+    // Save probe settings (with clamping)
+    let probe = llm_api_proxy_lib::config::ProbeSettings {
+        enabled: req.probe_enabled,
+        interval_seconds: req.probe_interval_seconds,
+        failure_threshold: req.probe_failure_threshold,
+    };
+    probe.save(db).map_err(|e| e.to_string())?;
+
     Ok(())
 }
 

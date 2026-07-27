@@ -210,45 +210,12 @@ pub fn load_minimize_to_tray(db: &db::Database) -> bool {
 }
 
 /// Load rate limiter configuration from the settings table.
-///
-/// Settings keys:
-/// - `rate_limit_enabled` (default: true)
-/// - `rate_limit_max_requests` (default: 60)
-/// - `rate_limit_window_seconds` (default: 60)
-/// - `rate_limit_trust_xff` (default: false)
 fn load_rate_limit_config(db: &db::Database) -> gateway::rate_limit::RateLimitConfig {
-    let enabled = db
-        .get_setting("rate_limit_enabled")
-        .ok()
-        .flatten()
-        .map(|v| v == "true")
-        .unwrap_or(true);
-
-    let max_requests = db
-        .get_setting("rate_limit_max_requests")
-        .ok()
-        .flatten()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(60);
-
-    let window_seconds = db
-        .get_setting("rate_limit_window_seconds")
-        .ok()
-        .flatten()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(60);
-
-    let trust_forwarded_for = db
-        .get_setting("rate_limit_trust_xff")
-        .ok()
-        .flatten()
-        .map(|v| v == "true")
-        .unwrap_or(false);
-
+    let settings = config::RateLimitSettings::load(db);
     gateway::rate_limit::RateLimitConfig {
-        enabled,
-        max_requests,
-        window_seconds,
-        trust_forwarded_for,
+        enabled: settings.enabled,
+        max_requests: settings.max_requests,
+        window_seconds: settings.window_seconds as u64,
+        trust_forwarded_for: settings.trust_forwarded_for,
     }
 }
