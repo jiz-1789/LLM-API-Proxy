@@ -7,6 +7,11 @@
 
 ## [Unreleased]
 
+## [0.1.20] - 2026-07-27
+
+### 修复
+- 修复创建桌面快捷方式时弹出终端窗口的问题——添加 CREATE_NO_WINDOW 标志隐藏 PowerShell 窗口
+
 ## [0.1.19] - 2026-07-27
 
 ### 新增
@@ -164,7 +169,8 @@
 - **数据便携**：所有数据存储在程序同目录 `data/` 文件夹，U 盘携带即走
 - **开源治理**：AGPL-3.0 双轨许可、CLA 贡献者协议、CONTRIBUTING.md 贡献指南
 
-[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.1.19...HEAD
+[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.1.20...HEAD
+[0.1.20]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.20
 [0.1.19]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.19
 [0.1.18]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.18
 [0.1.17]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.17

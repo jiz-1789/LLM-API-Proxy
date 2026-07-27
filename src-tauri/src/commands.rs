@@ -1496,8 +1496,14 @@ pub fn create_desktop_shortcut() -> Result<(), String> {
         exe_path.replace('\\', "\\\\") + ",0",
     );
 
-    let output = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-Command", &ps_script])
+    // Run PowerShell with hidden window to avoid flashing a terminal
+    let mut cmd = std::process::Command::new("powershell");
+    cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &ps_script]);
+
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+
+    let output = cmd
         .output()
         .map_err(|e| format!("执行 PowerShell 命令失败: {}", e))?;
 
