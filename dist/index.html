@@ -318,6 +318,19 @@ gap: 8px;
         .sidebar-footer .qq-num:hover {
             color: var(--accent);
         }
+        .star-hint {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 11px;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 4px 0;
+            transition: color var(--transition);
+        }
+        .star-hint:hover {
+            color: #f5a623;
+        }
         .main {
             flex: 1;
             display: flex;
@@ -1123,6 +1136,10 @@ gap: 8px;
                     </button>
                 </div>
                 <span class="qq-label" data-i18n="author_qq">作者QQ：</span><span class="qq-num" onclick="copyQQ()" title="点击复制" data-i18n-title="click_copy">3267245598</span>
+                <div class="star-hint" onclick="cmd('open_external_url', { url: 'https://github.com/jiz-1789/LLM-API-Proxy' })">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="#f5a623" style="flex-shrink:0;"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                    <span data-i18n="star_hint">⭐ 请为本项目点一个 Star</span>
+                </div>
             </div>
         </div>
 
@@ -1353,6 +1370,10 @@ gap: 8px;
                     </div>
                     <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px;">
                         <button class="btn btn-primary" id="btn-save-settings" onclick="saveSettings()" data-i18n="settings_save">保存设置</button>
+                    </div>
+                    <div class="star-hint" onclick="cmd('open_external_url', { url: 'https://github.com/jiz-1789/LLM-API-Proxy' })">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="#f5a623" style="flex-shrink:0;"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                        <span data-i18n="star_hint">⭐ 请为本项目点一个 Star</span>
                     </div>
                 </div>
             </div>
@@ -1692,6 +1713,7 @@ print(response.choices[0].message.content)</code></pre>
         nav_health: { zh: '健康检查', en: 'Health Check' },
         nav_help: { zh: '使用教程', en: 'Help' },
         ok: { zh: '确定', en: 'OK' },
+        star_hint: { zh: '⭐ 请为本项目点一个 Star', en: '⭐ Star us on GitHub' },
 
         // ── Theme toggle ──
         theme_light: { zh: '亮色模式', en: 'Dark Mode' },
