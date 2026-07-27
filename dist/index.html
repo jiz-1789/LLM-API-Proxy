@@ -3558,7 +3558,8 @@ function generateApiKey() {
         }
         try {
             // Phase 1: Download only (does not exit the app)
-            await cmd('download_update', { downloadUrl: downloadUrl });
+            const latestVersion = lastUpdateInfo ? lastUpdateInfo.latest_version : '';
+            await cmd('download_update', { downloadUrl: downloadUrl, latestVersion: latestVersion });
             // Download completed — show confirmation dialog
             showUpdateConfirmDialog();
         } catch (e) {

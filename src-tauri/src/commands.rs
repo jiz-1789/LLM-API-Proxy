@@ -1211,9 +1211,11 @@ pub fn check_pending_update() -> Result<bool, String> {
 /// Download the new portable exe (download only, does not exit the app).
 /// Streams the download with progress events via Tauri events.
 /// The file is saved as _update_pending.exe on completion.
+/// Also saves the latest version to _update_version.txt for renaming on apply.
 #[tauri::command]
 pub async fn download_update(
     download_url: String,
+    latest_version: String,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     // Validate URL scheme
@@ -1321,6 +1323,10 @@ pub async fn download_update(
             format!("重命名下载文件失败: {}", e)
         })?;
 
+    // Save the latest version for renaming on apply
+    let version_path = exe_dir.join("_update_version.txt");
+    let _ = std::fs::write(&version_path, &latest_version);
+
     Ok(())
 }
 
@@ -1347,6 +1353,16 @@ pub fn apply_update(app_handle: tauri::AppHandle) -> Result<(), String> {
 
     let exe_path = current_exe.to_string_lossy().to_string();
 
+    // Read the latest version for renaming
+    let version_path = exe_dir.join("_update_version.txt");
+    let latest_version = std::fs::read_to_string(&version_path).unwrap_or_default().trim().to_string();
+    let new_exe_name = if latest_version.is_empty() {
+        exe_name.to_string()
+    } else {
+        format!("LLM-API-Proxy_v{}_x64_portable.exe", latest_version)
+    };
+    let new_exe_path = exe_dir.join(&new_exe_name).to_string_lossy().to_string();
+
     // Build PowerShell script content
     let ps_content = format!(
         "Set-Location -LiteralPath '{exe_dir}'; \
@@ -1357,23 +1373,25 @@ pub fn apply_update(app_handle: tauri::AppHandle) -> Result<(), String> {
              try {{ Rename-Item -LiteralPath '{exe_path}' -NewName '{exe_name}.bak' -ErrorAction Stop; break; }} \
              catch {{ $retryCount++; Start-Sleep -Seconds 1; }} \
          }}; \
-         Move-Item -LiteralPath '{exe_dir}\\_update_pending.exe' -Destination '{exe_path}' -Force; \
+         Move-Item -LiteralPath '{exe_dir}\\_update_pending.exe' -Destination '{new_exe_path}' -Force; \
          Remove-Item -LiteralPath '{exe_dir}\\{exe_name}.bak' -ErrorAction SilentlyContinue; \
+         Remove-Item -LiteralPath '{exe_dir}\\_update_version.txt' -ErrorAction SilentlyContinue; \
          $desktop = [Environment]::GetFolderPath('Desktop'); \
          $lnk = Join-Path $desktop 'LLM-API-Proxy.lnk'; \
-         if (-not (Test-Path $lnk)) {{ \
+         if (Test-Path $lnk) {{ \
              $ws = New-Object -ComObject WScript.Shell; \
              $s = $ws.CreateShortcut($lnk); \
-             $s.TargetPath = '{exe_path}'; \
+             $s.TargetPath = '{new_exe_path}'; \
              $s.WorkingDirectory = '{exe_dir}'; \
-             $s.IconLocation = '{exe_path},0'; \
+             $s.IconLocation = '{new_exe_path},0'; \
              $s.Description = 'LLM-API-Proxy'; \
              $s.Save(); \
          }}; \
          ie4uinit.exe -show 2>$null; \
-         Start-Process -FilePath '{exe_path}'",
+         Start-Process -FilePath '{new_exe_path}'",
         exe_name = exe_name,
         exe_path = exe_path,
+        new_exe_path = new_exe_path,
         exe_dir = exe_dir.to_string_lossy(),
     );
 

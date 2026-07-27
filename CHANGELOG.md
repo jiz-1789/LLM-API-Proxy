@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+## [0.1.19] - 2026-07-27
+
+### 新增
+- 更新完成后自动重命名 exe 文件为对应版本号（如 `LLM-API-Proxy_v0.1.19_x64_portable.exe`）
+- 更新后自动更新桌面快捷方式指向新文件
+
 ## [0.1.18] - 2026-07-27
 
 ### 修复
@@ -158,7 +164,8 @@
 - **数据便携**：所有数据存储在程序同目录 `data/` 文件夹，U 盘携带即走
 - **开源治理**：AGPL-3.0 双轨许可、CLA 贡献者协议、CONTRIBUTING.md 贡献指南
 
-[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.1.18...HEAD
+[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.1.19...HEAD
+[0.1.19]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.19
 [0.1.18]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.18
 [0.1.17]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.17
 [0.1.16]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.16
