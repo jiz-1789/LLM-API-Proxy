@@ -389,6 +389,8 @@ chore: gitignore internal docs and test data
 12. 上传便携版 .exe 到 Release Assets
 ```
 
+> **注意：发布到 GitHub 需要 Personal Access Token（PAT）。** 每次发布时需提供 Token 用于创建 Release 和上传资产。建议创建仅含 `repo` 权限的 Token，并在发布后定期轮换。
+
 **打包规则：**
 
 - ✅ **只打包便捷版（便携版）**：`tauri.conf.json` 中 `bundle.targets` 设为 `["app"]`，仅编译生成 release exe，不生成 NSIS 安装包
@@ -415,6 +417,13 @@ chore: gitignore internal docs and test data
 - 变更分为：`新增`、`变更`、`修复`、`移除` 四类
 - 从用户视角描述变更，不写文件名、重构细节等内部信息
 
+**更新日志填写规范：**
+
+| 更新类型 | 填写方式 | 示例 |
+|----------|----------|------|
+| 大更新（新功能、重大改进） | 完整填写所有变更内容，按类别分组 | `### 新增`、`### 修复` 等详细列出 |
+| 小更新（Bug 修复、小优化） | 可简化为"修复已知问题" | `### 修复` 下列出主要问题或简化描述 |
+
 ```markdown
 ## [0.1.1] - 2026-07-26
 
@@ -423,6 +432,13 @@ chore: gitignore internal docs and test data
 
 ### 修复
 - 修复仪表盘最近活动显示硬编码文本的问题
+```
+
+```markdown
+## [0.1.2] - 2026-07-27
+
+### 修复
+- 修复已知问题，提升稳定性
 ```
 
 ---
