@@ -121,7 +121,8 @@ pub fn initialize_backend() -> anyhow::Result<AppState> {
             }
         };
         rt.block_on(async move {
-            let router = gateway::create_router(db_for_gw, proxy_client, crypto_for_gw);
+            let rate_limit_config = load_rate_limit_config(&db_for_gw);
+            let router = gateway::create_router(db_for_gw, proxy_client, crypto_for_gw, rate_limit_config);
             let addr = format!("{}:{}", listen_addr, listen_port);
             tracing::info!("Gateway server listening on {}", addr);
             let listener = match tokio::net::TcpListener::bind(&addr).await {
@@ -197,4 +198,48 @@ pub fn load_minimize_to_tray(db: &db::Database) -> bool {
         .flatten()
         .map(|v| v == "true")
         .unwrap_or(true)
+}
+
+/// Load rate limiter configuration from the settings table.
+///
+/// Settings keys:
+/// - `rate_limit_enabled` (default: true)
+/// - `rate_limit_max_requests` (default: 60)
+/// - `rate_limit_window_seconds` (default: 60)
+/// - `rate_limit_trust_xff` (default: false)
+fn load_rate_limit_config(db: &db::Database) -> gateway::rate_limit::RateLimitConfig {
+    let enabled = db
+        .get_setting("rate_limit_enabled")
+        .ok()
+        .flatten()
+        .map(|v| v == "true")
+        .unwrap_or(true);
+
+    let max_requests = db
+        .get_setting("rate_limit_max_requests")
+        .ok()
+        .flatten()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(60);
+
+    let window_seconds = db
+        .get_setting("rate_limit_window_seconds")
+        .ok()
+        .flatten()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(60);
+
+    let trust_forwarded_for = db
+        .get_setting("rate_limit_trust_xff")
+        .ok()
+        .flatten()
+        .map(|v| v == "true")
+        .unwrap_or(false);
+
+    gateway::rate_limit::RateLimitConfig {
+        enabled,
+        max_requests,
+        window_seconds,
+        trust_forwarded_for,
+    }
 }

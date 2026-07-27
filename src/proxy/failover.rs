@@ -2,7 +2,7 @@ use reqwest::Client;
 use serde_json::Value;
 use tracing::debug;
 
-use crate::error::AppError;
+use crate::proxy::error::{TimeoutPhase, UpstreamError};
 
 /// Forward a request to an upstream provider with round-robin failover.
 pub struct UpstreamClient {
@@ -20,6 +20,9 @@ impl UpstreamClient {
     }
 
     /// Forward a single request to the given upstream (non-streaming).
+    ///
+    /// Returns `UpstreamError` on failure, which carries structured
+    /// error classification for failover decisions.
     pub async fn forward_request(
         &self,
         base_url: &str,
@@ -27,11 +30,12 @@ impl UpstreamClient {
         _model: &str,
         body: &Value,
         timeout_secs: u64,
-    ) -> Result<Response, AppError> {
+    ) -> Result<Response, UpstreamError> {
         let url = format!("{}/v1/chat/completions", base_url.trim_end_matches('/'));
         debug!("Forwarding request to upstream: {}", url);
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(&url)
             .header("Authorization", format!("Bearer {}", api_key))
             .header("Content-Type", "application/json")
@@ -39,18 +43,39 @@ impl UpstreamClient {
             .json(body)
             .send()
             .await
-            .map_err(|e| AppError::UpstreamFailed(format!("connection error: {}", e)))?;
+            .map_err(|e| {
+                if e.is_timeout() {
+                    UpstreamError::Timeout {
+                        phase: TimeoutPhase::ResponseHeaders,
+                        timeout_secs,
+                    }
+                } else if e.is_connect() {
+                    UpstreamError::ConnectionFailed {
+                        detail: e.to_string(),
+                    }
+                } else {
+                    UpstreamError::ConnectionFailed {
+                        detail: format!("request error: {}", e),
+                    }
+                }
+            })?;
 
         let status = response.status();
-        let body_bytes = response.bytes().await
-            .map_err(|e| AppError::UpstreamFailed(format!("response body error: {}", e)))?;
+        // Capture headers before consuming the body
+        let headers = response.headers().clone();
+        let body_bytes = response
+            .bytes()
+            .await
+            .map_err(|e| UpstreamError::ConnectionFailed {
+                detail: format!("response body error: {}", e),
+            })?;
 
         if !status.is_success() {
-            return Err(AppError::UpstreamFailed(format!(
-                "HTTP {}: {}",
-                status,
-                String::from_utf8_lossy(&body_bytes)
-            )));
+            let body_str = String::from_utf8_lossy(&body_bytes);
+            return Err(UpstreamError::from_http_status(
+                status.as_u16(),
+                &body_str,
+            ));
         }
 
         let json_body: Value = serde_json::from_slice(&body_bytes).unwrap_or(Value::String(
@@ -59,13 +84,14 @@ impl UpstreamClient {
 
         Ok(Response {
             status_code: status.as_u16() as i32,
-            headers: reqwest::header::HeaderMap::new(),
+            headers,
             body: json_body,
         })
     }
 
     /// Forward a streaming request and return the raw HTTP response.
     /// The caller is responsible for consuming the response body as a byte stream.
+    ///
     /// A 60-second timeout is applied to the initial connection + response headers;
     /// the body stream itself is not bounded (streams may be long-lived).
     pub async fn forward_stream_request(
@@ -74,7 +100,7 @@ impl UpstreamClient {
         api_key: &str,
         _model: &str,
         body: &Value,
-    ) -> Result<reqwest::Response, AppError> {
+    ) -> Result<reqwest::Response, UpstreamError> {
         let url = format!("{}/v1/chat/completions", base_url.trim_end_matches('/'));
         debug!("Forwarding streaming request to upstream: {}", url);
 
@@ -88,22 +114,34 @@ impl UpstreamClient {
                 .send(),
         )
         .await
-        .map_err(|_| AppError::UpstreamFailed("stream request timed out (60s)".to_string()))?
-        .map_err(|e| AppError::UpstreamFailed(format!("stream connection error: {}", e)))?;
+        .map_err(|_| UpstreamError::Timeout {
+            phase: TimeoutPhase::ResponseHeaders,
+            timeout_secs: 60,
+        })?
+        .map_err(|e| {
+            if e.is_connect() {
+                UpstreamError::ConnectionFailed {
+                    detail: e.to_string(),
+                }
+            } else {
+                UpstreamError::ConnectionFailed {
+                    detail: format!("stream connection error: {}", e),
+                }
+            }
+        })?;
 
         let status = response.status();
         if !status.is_success() {
             let body_bytes = response.bytes().await.unwrap_or_default();
-            return Err(AppError::UpstreamFailed(format!(
-                "HTTP {}: {}",
-                status,
-                String::from_utf8_lossy(&body_bytes)
-            )));
+            let body_str = String::from_utf8_lossy(&body_bytes);
+            return Err(UpstreamError::from_http_status(
+                status.as_u16(),
+                &body_str,
+            ));
         }
 
         Ok(response)
     }
-
 }
 
 impl Default for UpstreamClient {

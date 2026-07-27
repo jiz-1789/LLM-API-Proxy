@@ -1,4 +1,6 @@
 pub mod auth;
+pub mod error_response;
+pub mod rate_limit;
 pub mod stream;
 
 use axum::{
@@ -14,7 +16,7 @@ use bytes::Bytes;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio_util::io::StreamReader;
 use tracing::{info, warn};
@@ -22,61 +24,25 @@ use tracing::{info, warn};
 use crate::crypto::KeyManager;
 use crate::db::Database;
 use crate::pool::thinking;
+use crate::proxy::error::UpstreamError;
 use crate::proxy::failover::UpstreamClient;
+
+use rate_limit::{RateLimitConfig, RateLimiter};
 
 /// Per-pool round-robin counters (pool_id → next index).
 type RoundRobinCounters = Arc<Mutex<HashMap<String, usize>>>;
 
-/// Simple in-memory rate limiter: client IP → (count, window_start).
-/// Allows 60 requests per minute per IP by default.
-#[derive(Clone)]
-struct RateLimiter {
-    requests: Arc<Mutex<HashMap<String, (u32, Instant)>>>,
-    max_requests: u32,
-    window: Duration,
-}
-
-impl RateLimiter {
-    fn new(max_requests: u32, window: Duration) -> Self {
-        Self {
-            requests: Arc::new(Mutex::new(HashMap::new())),
-            max_requests,
-            window,
-        }
-    }
-
-    /// Check if the given client IP is allowed to make a request.
-    /// Returns true if within rate limit, false if exceeded.
-    fn is_allowed(&self, client_ip: &str) -> bool {
-        let mut requests = self.requests.lock().unwrap();
-        let now = Instant::now();
-
-        if let Some((count, window_start)) = requests.get_mut(client_ip) {
-            if now.duration_since(*window_start) > self.window {
-                // Window expired, reset
-                *count = 1;
-                *window_start = now;
-                true
-            } else if *count < self.max_requests {
-                *count += 1;
-                true
-            } else {
-                false
-            }
-        } else {
-            requests.insert(client_ip.to_string(), (1, now));
-            true
-        }
-    }
-}
-
 /// Build the API Gateway router.
+///
+/// `rate_limit_config` is loaded from the settings table at startup;
+/// changes take effect on next server restart.
 pub fn create_router(
     db: Arc<Database>,
     proxy_client: Arc<UpstreamClient>,
     crypto: Arc<KeyManager>,
+    rate_limit_config: RateLimitConfig,
 ) -> Router {
-    let rate_limiter = RateLimiter::new(60, Duration::from_secs(60));
+    let rate_limiter = RateLimiter::new(rate_limit_config);
     let state = GatewayState {
         db,
         proxy_client,
@@ -99,41 +65,30 @@ pub fn create_router(
 }
 
 /// Rate limiting middleware: checks if client IP is within rate limits.
-/// Uses X-Forwarded-For header if present (for reverse proxy setups),
-/// otherwise falls back to connection remote address.
+///
+/// IP identification strategy is controlled by `trust_forwarded_for`:
+/// - `false` (default): uses TCP connection's `remote_addr` (direct mode)
+/// - `true`: takes the rightmost IP from `X-Forwarded-For` (reverse proxy mode)
+///
+/// Returns 429 with `Retry-After` header when rate limited.
 async fn rate_limit_middleware(
     State(state): State<GatewayState>,
     req: axum::http::Request<Body>,
     next: Next,
 ) -> Response {
-    let client_ip = req
-        .headers()
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.split(',').next().map(|s| s.trim().to_string()))
-        .unwrap_or_else(|| {
-            req.extensions()
-                .get::<std::net::SocketAddr>()
-                .map(|addr| addr.ip().to_string())
-                .unwrap_or_else(|| "unknown".to_string())
-        });
+    let trust_xff = state.rate_limiter.config().trust_forwarded_for;
+    let client_ip = rate_limit::extract_client_ip_from_request(&req, trust_xff);
 
-    if !state.rate_limiter.is_allowed(&client_ip) {
-        warn!("Rate limit exceeded for client {}", client_ip);
-        return (
-            StatusCode::TOO_MANY_REQUESTS,
-            Json(json!({
-                "error": {
-                    "message": "Rate limit exceeded. Please try again later.",
-                    "type": "rate_limit_error",
-                    "code": "rate_limit_exceeded"
-                }
-            })),
-        )
-            .into_response();
+    match state.rate_limiter.check(&client_ip) {
+        Ok(()) => next.run(req).await,
+        Err(retry_after_secs) => {
+            warn!(
+                "Rate limit exceeded for client {} (retry after {}s)",
+                client_ip, retry_after_secs
+            );
+            error_response::rate_limit_exceeded(retry_after_secs)
+        }
     }
-
-    next.run(req).await
 }
 
 #[derive(Clone)]
@@ -171,11 +126,7 @@ async fn handle_models(State(state): State<GatewayState>) -> impl IntoResponse {
 
             Json(json!({ "data": data })).into_response()
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => error_response::internal_error(&format!("database error: {}", e)),
     }
 }
 
@@ -215,17 +166,16 @@ async fn handle_chat_completions(
     // Authenticate Gateway Key
     let _api_key = match auth::validate_api_key(&headers, &state.db) {
         Ok(key) => key,
-        Err(e) => return (StatusCode::UNAUTHORIZED, Json(e)).into_response(),
+        Err(e) => {
+            let msg = e.get("error").and_then(|v| v.as_str()).unwrap_or("authentication failed");
+            return error_response::authentication_error(msg);
+        }
     };
 
     let model = match body.get("model").and_then(|m| m.as_str()) {
         Some(m) => m.to_string(),
         None => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": "missing model field" })),
-            )
-                .into_response();
+            return error_response::invalid_request("Missing required field: model", "missing_model");
         }
     };
 
@@ -239,18 +189,10 @@ async fn handle_chat_completions(
     let pool = match state.db.get_pool_by_name(&model) {
         Ok(Some(p)) => p,
         Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({ "error": format!("unknown model: {}", model) })),
-            )
-                .into_response();
+            return error_response::model_not_found(&model);
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": format!("database error: {}", e) })),
-            )
-                .into_response();
+            return error_response::internal_error(&format!("database error: {}", e));
         }
     };
 
@@ -258,20 +200,12 @@ async fn handle_chat_completions(
     let pool_upstreams = match state.db.get_pool_upstreams(&pool.id) {
         Ok(u) => u,
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": format!("failed to load pool upstreams: {}", e) })),
-            )
-                .into_response();
+            return error_response::internal_error(&format!("failed to load pool upstreams: {}", e));
         }
     };
 
     if pool_upstreams.is_empty() {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "pool has no associated upstreams" })),
-        )
-            .into_response();
+        return error_response::no_available_upstream("pool has no associated upstreams");
     }
 
     // ── Pre-request configuration ──────────────────────────────────────
@@ -341,6 +275,9 @@ async fn handle_chat_completions(
         let api_key = match state.crypto.decrypt_api_key(&upstream.api_key_encrypted) {
             Ok(k) => k,
             Err(e) => {
+                let upstream_err = UpstreamError::KeyDecryptionFailed {
+                    detail: e.to_string(),
+                };
                 warn!(
                     "Failed to decrypt API key for {}: {}",
                     upstream.provider_name, e
@@ -348,8 +285,9 @@ async fn handle_chat_completions(
                 failed_upstreams_json.push(json!({
                     "provider": upstream.provider_name,
                     "model": upstream.selected_model,
-                    "error": "key decryption failed"
+                    "error": upstream_err.error_summary()
                 }));
+                // Key decryption failure should failover to next upstream
                 continue;
             }
         };
@@ -503,7 +441,7 @@ async fn handle_chat_completions(
                         // After stream completes, update the log:
                         // - If an error was detected mid-stream, update status to 500
                         // - Update token usage if found
-                        if let Some(ref _err) = stream_error {
+                        if stream_error.is_some() {
                             if let Err(e) = db_clone.update_request_log_status(&log_id_clone, 500) {
                                 warn!("Failed to update request log status: {}", e);
                             }
@@ -534,7 +472,7 @@ async fn handle_chat_completions(
                         Ok(resp) => return resp.into_response(),
                         Err(e) => {
                             warn!("Failed to build stream response: {}", e);
-                            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "failed to build response"}))).into_response();
+                            return error_response::internal_error("failed to build response");
                         }
                     }
                 }
@@ -543,9 +481,12 @@ async fn handle_chat_completions(
                     failed_upstreams_json.push(json!({
                         "provider": upstream.provider_name,
                         "model": model_str,
-                        "error": e.to_string()
+                        "error": e.error_summary()
                     }));
-                    last_error = Some(e.to_string());
+                    last_error = Some(e.error_summary());
+                    if !e.should_failover() {
+                        break;
+                    }
                     continue;
                 }
             }
@@ -583,12 +524,14 @@ async fn handle_chat_completions(
                             err_obj.to_string()
                         };
                         warn!("Upstream {} returned error in body: {}", upstream.provider_name, err_msg);
+                        let embedded_err = UpstreamError::EmbeddedError { message: err_msg };
                         failed_upstreams_json.push(json!({
                             "provider": upstream.provider_name,
                             "model": model_str,
-                            "error": err_msg
+                            "error": embedded_err.error_summary()
                         }));
-                        last_error = Some(err_msg);
+                        last_error = Some(embedded_err.error_summary());
+                        // Embedded errors should failover
                         continue;
                     }
 
@@ -623,9 +566,12 @@ async fn handle_chat_completions(
                     failed_upstreams_json.push(json!({
                         "provider": upstream.provider_name,
                         "model": model_str,
-                        "error": e.to_string()
+                        "error": e.error_summary()
                     }));
-                    last_error = Some(e.to_string());
+                    last_error = Some(e.error_summary());
+                    if !e.should_failover() {
+                        break;
+                    }
                     continue;
                 }
             }
@@ -656,25 +602,9 @@ async fn handle_chat_completions(
 
     // If we never actually attempted any upstream (all were disabled),
     // return 503 instead of 502.
-    let status = if !attempted_any {
-        StatusCode::SERVICE_UNAVAILABLE
-    } else {
-        StatusCode::BAD_GATEWAY
-    };
+    if !attempted_any {
+        return error_response::no_available_upstream("all upstreams are disabled");
+    }
 
-    let error_msg = if !attempted_any {
-        "all upstreams are disabled"
-    } else {
-        "all upstreams failed"
-    };
-
-    (
-        status,
-        Json(json!({
-            "error": error_msg,
-            "details": failed_upstreams_json,
-            "last_error": last_error
-        })),
-    )
-        .into_response()
+    error_response::all_upstreams_failed(&failed_upstreams_json, last_error.as_deref())
 }
