@@ -389,7 +389,7 @@ chore: gitignore internal docs and test data
 12. 上传便携版 .exe 到 Release Assets
 ```
 
-> **注意：发布到 GitHub 需要 Personal Access Token（PAT）。** 每次发布时需提供 Token 用于创建 Release 和上传资产。建议创建仅含 `repo` 权限的 Token，并在发布后定期轮换。
+> **注意：发布到 GitHub 需要 Personal Access Token（PAT）。** Token 存储在 `.env` 文件中（已加入 `.gitignore`，不会提交到仓库）。获取 Token 后，复制 `.env.example` 为 `.env` 并填入 Token。发布时使用 `publish.ps1` 脚本自动读取 Token，无需每次手动提供。建议创建仅含 `repo` 权限的 Token，并在发布后定期轮换。
 
 **打包规则：**
 
