@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod error_response;
+pub mod health;
 pub mod rate_limit;
 pub mod stream;
 
@@ -35,6 +36,10 @@ type RoundRobinCounters = Arc<Mutex<HashMap<String, usize>>>;
 /// Default stream idle timeout: if no SSE chunk is received within this
 /// duration, the stream is considered stalled and will be terminated.
 const DEFAULT_STREAM_IDLE_TIMEOUT_SECS: u64 = 120;
+
+/// Consecutive failure threshold for marking an upstream as "down".
+/// When `failure_count` reaches this value, status changes from "degraded" to "down".
+const UPSTREAM_FAILURE_THRESHOLD: i32 = 3;
 
 /// Header prefixes from upstream responses that should be passed through
 /// to the client. All other headers are filtered out for security and
@@ -151,13 +156,9 @@ struct GatewayState {
     rate_limiter: RateLimiter,
 }
 
-/// GET /api/health — Returns gateway status.
-async fn handle_health() -> impl IntoResponse {
-    Json(json!({
-        "status": "ok",
-        "service": "LLM-API-Proxy",
-        "version": env!("CARGO_PKG_VERSION")
-    }))
+/// GET /api/health — Returns three-tier health check (app + database + upstreams).
+async fn handle_health(State(state): State<GatewayState>) -> impl IntoResponse {
+    health::health_response(&state.db)
 }
 
 /// GET /v1/models — Return all pools as available models.
@@ -472,6 +473,11 @@ async fn handle_chat_completions(
                         "Streaming from upstream"
                     );
 
+                    // Update upstream health: successful stream start
+                    if let Err(e) = state.db.update_upstream_health(&upstream.id, true, None, UPSTREAM_FAILURE_THRESHOLD) {
+                        warn!(trace_id = %trace_id, error = %e, "Failed to update upstream health after success");
+                    }
+
                     // Build byte stream from upstream response
                     let byte_stream = upstream_response.bytes_stream();
                     let display_name = pool.display_name.clone();
@@ -603,6 +609,10 @@ async fn handle_chat_completions(
                         error = %e,
                         "Stream upstream failed"
                     );
+                    // Update upstream health: failed stream attempt
+                    if let Err(he) = state.db.update_upstream_health(&upstream.id, false, Some(&e.error_summary()), UPSTREAM_FAILURE_THRESHOLD) {
+                        warn!(trace_id = %trace_id, error = %he, "Failed to update upstream health after stream failure");
+                    }
                     failed_upstreams_json.push(json!({
                         "provider": upstream.provider_name,
                         "model": model_str,
@@ -662,12 +672,21 @@ async fn handle_chat_completions(
                             "error": embedded_err.error_summary()
                         }));
                         last_error = Some(embedded_err.error_summary());
+                        // Update upstream health: embedded error (HTTP 200 but error in body)
+                        if let Err(he) = state.db.update_upstream_health(&upstream.id, false, Some(&embedded_err.error_summary()), UPSTREAM_FAILURE_THRESHOLD) {
+                            warn!(trace_id = %trace_id, error = %he, "Failed to update upstream health after embedded error");
+                        }
                         // Embedded errors should failover
                         continue;
                     }
 
                     // Extract token usage from response
                     let (prompt_tokens, completion_tokens, total_tokens) = extract_usage(&resp_body);
+
+                    // Update upstream health: successful non-streaming response
+                    if let Err(e) = state.db.update_upstream_health(&upstream.id, true, None, UPSTREAM_FAILURE_THRESHOLD) {
+                        warn!(trace_id = %trace_id, error = %e, "Failed to update upstream health after success");
+                    }
 
                     // Log successful request
                     let log_id = format!("log_{}", uuid::Uuid::new_v4().simple());
@@ -715,6 +734,10 @@ async fn handle_chat_completions(
                         error = %e,
                         "Upstream failed"
                     );
+                    // Update upstream health: failed non-stream attempt
+                    if let Err(he) = state.db.update_upstream_health(&upstream.id, false, Some(&e.error_summary()), UPSTREAM_FAILURE_THRESHOLD) {
+                        warn!(trace_id = %trace_id, error = %he, "Failed to update upstream health after failure");
+                    }
                     failed_upstreams_json.push(json!({
                         "provider": upstream.provider_name,
                         "model": model_str,

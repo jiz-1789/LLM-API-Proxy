@@ -24,6 +24,9 @@ pub struct UpstreamVO {
     pub status: String,
     pub failure_count: i32,
     pub last_failure_time: Option<String>,
+    pub last_success_time: Option<String>,
+    pub last_error_reason: Option<String>,
+    pub recovered_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -85,6 +88,9 @@ fn to_vo(u: &llm_api_proxy_lib::db::Upstream) -> UpstreamVO {
         status: u.status.clone(),
         failure_count: u.failure_count,
         last_failure_time: u.last_failure_time.clone(),
+        last_success_time: u.last_success_time.clone(),
+        last_error_reason: u.last_error_reason.clone(),
+        recovered_at: u.recovered_at.clone(),
         created_at: u.created_at.clone(),
         updated_at: u.updated_at.clone(),
     }

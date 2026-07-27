@@ -6,6 +6,7 @@ pub mod db;
 pub mod error;
 pub mod gateway;
 pub mod pool;
+pub mod probe;
 pub mod proxy;
 
 use std::sync::Arc;
@@ -122,7 +123,7 @@ pub fn initialize_backend() -> anyhow::Result<AppState> {
         };
         rt.block_on(async move {
             let rate_limit_config = load_rate_limit_config(&db_for_gw);
-            let router = gateway::create_router(db_for_gw, proxy_client, crypto_for_gw, rate_limit_config);
+            let router = gateway::create_router(db_for_gw.clone(), proxy_client, crypto_for_gw.clone(), rate_limit_config);
             let addr = format!("{}:{}", listen_addr, listen_port);
             tracing::info!("Gateway server listening on {}", addr);
             let listener = match tokio::net::TcpListener::bind(&addr).await {
@@ -132,6 +133,11 @@ pub fn initialize_backend() -> anyhow::Result<AppState> {
                     return;
                 }
             };
+
+            // Start background upstream probe task (if enabled)
+            let probe_config = probe::load_probe_config(&db_for_gw);
+            probe::start_probe_task(db_for_gw.clone(), crypto_for_gw, probe_config);
+
             if let Err(e) = axum::serve(listener, router)
                 .with_graceful_shutdown(async move {
                     shutdown_for_server.notified().await;

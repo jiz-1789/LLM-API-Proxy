@@ -105,35 +105,43 @@ main（稳定发布，严禁直接开发）
 
 ---
 
-## 第三阶段：健康检查 + 主动探测 + 状态扩展（独立）
+## 第三阶段：健康检查 + 主动探测 + 状态扩展（独立）✅ 已完成
 
-### P0-8 重构健康检查为三层
-- [ ] 新建 `src/gateway/health.rs`
-- [ ] 应用健康：返回运行状态 + uptime
-- [ ] 数据库健康：执行 `get_stats()` 验证连通性
-- [ ] 上游健康：聚合统计 healthy/degraded/down 数量
-- [ ] `/api/health` 返回三层合并 JSON
-- [ ] 整体状态：app + db 均 ok → "ok"，否则 → "degraded"
+> Commit `2ef8fdb` — `feat(gateway): 三层健康检查、主动探测与上游状态扩展`
+> 7 files changed，新增 15 个单元测试，全部 120 个测试通过。
 
-### P0-9 实现上游主动探测机制和恢复窗口策略
-- [ ] 在 `initialize_backend` 中启动后台探测 tokio task
-- [ ] 探测间隔可配置（默认 300s，最小 60s）
-- [ ] 探测逻辑复用 `do_health_check` 函数
-- [ ] 探测结果更新上游 status（healthy / degraded / down）
-- [ ] 恢复窗口：连续失败 ≥ threshold → down；down 状态只有探测成功才恢复
-- [ ] 配置项：`probe_enabled`（默认 false）、`probe_interval_seconds`（默认 300）
-- [ ] 未开启探测时保持现有行为（每次请求都尝试所有上游）
+### P0-8 重构健康检查为三层 ✅
+- [x] 新建 `src/gateway/health.rs`
+- [x] 应用健康：返回运行状态 + uptime（`OnceLock<Instant>` 延迟初始化）
+- [x] 数据库健康：执行 `get_stats()` 验证连通性
+- [x] 上游健康：聚合统计 healthy/degraded/down 数量
+- [x] `/api/health` 返回三层合并 JSON（app / database / upstreams）
+- [x] 整体状态：app + db 均 ok → “ok”；upstream 有 down/degraded → “degraded”；app/db 不 ok → “down”
+- [x] 单元测试（5 个）：overall ok、app 层、database 层、upstream 层、uptime 递增
 
-### P0-10 扩展上游状态记录
-- [ ] 数据库迁移 v6：新增 3 个可空列
-  - [ ] `upstreams.last_success_time TEXT`
-  - [ ] `upstreams.last_error_reason TEXT`
-  - [ ] `upstreams.recovered_at TEXT`
-- [ ] 更新 `DEVELOPMENT.md` Schema 表和迁移历史
-- [ ] 更新 `Upstream` 结构体 + `map_upstream_row` 列索引
-- [ ] 新增 `update_upstream_health()` 方法
-- [ ] 网关 handler 中每次上游成功 / 失败都更新状态
-- [ ] 单元测试：新字段读写、NULL 兼容
+### P0-9 实现上游主动探测机制和恢复窗口策略 ✅
+- [x] 新建 `src/probe/mod.rs`，在 `initialize_backend` 中启动后台探测 tokio task
+- [x] 探测间隔可配置（默认 300s，最小 60s，自动 clamp）
+- [x] 探测逻辑复用 `probe_upstream()` 函数（GET /v1/models）
+- [x] 探测结果更新上游 status（healthy / degraded / down）
+- [x] 恢复窗口：连续失败 ≥ threshold → down；down 状态只有探测成功才恢复（设置 `recovered_at`）
+- [x] 配置项：`probe_enabled`（默认 false）、`probe_interval_seconds`（默认 300）、`probe_failure_threshold`（默认 3）
+- [x] 未开启探测时保持现有行为（每次请求都尝试所有上游）
+- [x] 单元测试（7 个）：配置默认值、自定义值、最小间隔 clamp、最小阈值 clamp、成功重置、失败递增、阈值降级、恢复设置 recovered_at、无阈值始终 degraded
+
+### P0-10 扩展上游状态记录 ✅
+- [x] 数据库迁移 v6：新增 3 个可空列
+  - [x] `upstreams.last_success_time TEXT`
+  - [x] `upstreams.last_error_reason TEXT`
+  - [x] `upstreams.recovered_at TEXT`
+- [x] 更新 `DEVELOPMENT.md` Schema 表和迁移历史（v6）
+- [x] 更新 `Upstream` 结构体 + `map_upstream_row` 列索引（11~13 → 新字段，14~15 → created/updated）
+- [x] 更新所有 SELECT 查询包含新列（get_upstreams / get_upstream_by_id / get_upstreams_by_ids）
+- [x] 更新 `UpstreamStatusSummary` 结构体 + 查询
+- [x] 新增 `update_upstream_health()` 方法（成功重置 + 恢复设置 recovered_at；失败递增 + 阈值判定）
+- [x] 网关 handler 中每次上游成功 / 失败都调用 `update_upstream_health()`
+- [x] 更新 `UpstreamVO` + `to_vo()` 包含新字段
+- [x] 更新 `open_in_memory()` 为 `pub(crate)` 供跨模块测试使用
 
 ---
 
@@ -170,7 +178,7 @@ main（稳定发布，严禁直接开发）
 |------|--------|------|------|-------------|
 | 1 | `refactor(gateway): 限流模块重构、客户端IP识别、统一上游错误模型与标准化错误响应` | P0-1 + P0-2 + P0-3 + P0-4 | ✅ 已完成 | 待合并 |
 | 2 | `feat(gateway): 添加请求追踪ID、响应头透传与统一超时策略` | P0-5 + P0-6 + P0-7 | ✅ 已完成 | 待合并 |
-| 3 | `feat(gateway): 三层健康检查、主动探测与上游状态扩展` | P0-8 + P0-9 + P0-10 | 待开发 | 第三阶段完成后 |
+| 3 | `feat(gateway): 三层健康检查、主动探测与上游状态扩展` | P0-8 + P0-9 + P0-10 | ✅ 已完成 | 待合并 |
 | 4 | `test(gateway): 网关核心链路与流式代理集成测试` | P0-11 + P0-12 | 待开发 | 第四阶段完成后 |
 
 总计：约 28-30 小时，4 个 commit（原计划 5 个，P0-1~P0-4 合并为 1 个）。
@@ -179,9 +187,9 @@ main（稳定发布，严禁直接开发）
 
 每个阶段合并到 `beta` 后，需验证以下内容：
 
-- [x] `cargo build` 编译通过（第一、二阶段已验证）
-- [x] `cargo clippy` 新增代码无 WARNING（第一、二阶段已验证）
-- [x] `cargo test` 全部通过 — 105 passed; 0 failed（第二阶段已验证）
+- [x] `cargo build` 编译通过（第一、二、三阶段已验证）
+- [x] `cargo clippy` 新增代码无 WARNING（第一、二、三阶段已验证）
+- [x] `cargo test` 全部通过 — 120 passed; 0 failed（第三阶段已验证）
 - [ ] 手动测试：网关基本功能正常（认证、转发、流式、故障转移）
 - [ ] 手动测试：新功能按预期工作（限流配置、错误响应格式）
 - [ ] 数据库迁移在旧数据库上升级无报错
@@ -210,8 +218,9 @@ ALTER TABLE upstreams ADD COLUMN recovered_at TEXT;
 | `rate_limit_max_requests` | `60` | P0-1 | ✅ 已实现 |
 | `rate_limit_window_seconds` | `60` | P0-1 | ✅ 已实现 |
 | `rate_limit_trust_xff` | `false` | P0-2 | ✅ 已实现 |
-| `probe_enabled` | `false` | P0-9 | 待开发 |
-| `probe_interval_seconds` | `300` | P0-9 | 待开发 |
+| `probe_enabled` | `false` | P0-9 | ✅ 已实现 |
+| `probe_interval_seconds` | `300` | P0-9 | ✅ 已实现 |
+| `probe_failure_threshold` | `3` | P0-9 | ✅ 已实现 |
 
 ---
 
@@ -221,7 +230,8 @@ ALTER TABLE upstreams ADD COLUMN recovered_at TEXT;
 src/gateway/rate_limit.rs       ← 限流模块                    ✅ 已创建
 src/gateway/error_response.rs   ← 统一错误响应                ✅ 已创建
 src/proxy/error.rs              ← 上游错误模型                ✅ 已创建
-src/gateway/health.rs           ← 三层健康检查                待创建
+src/gateway/health.rs           ← 三层健康检查                ✅ 已创建
+src/probe/mod.rs                ← 主动探测模块                 ✅ 已创建
 src/gateway/tests.rs            ← 集成测试                    待创建
 ```
 
@@ -233,8 +243,8 @@ src/proxy/failover.rs           ← 错误分类 + 响应头透传 + 超时统�
 src/proxy/mod.rs                ← 声明新模块                                   ✅ 已完成
 src/lib.rs                      ← 加载限流配置                                 ✅ 已完成
 src/error.rs                    ← AppError 调整                                待开发（P0-3 已通过 From 兼容）
-src/db.rs                       ← 迁移 v6 + Upstream 结构体 + update_upstream_health()  待开发
+src/db.rs                       ← 迁移 v6 + Upstream 结构体 + update_upstream_health()  ✅ 已完成
 src/config.rs                   ← 新增限流/探测配置项                          待开发
-DEVELOPMENT.md                  ← Schema 表 + 迁移历史更新                     待开发
+DEVELOPMENT.md                  ← Schema 表 + 迁移历史更新                     ✅ 已完成
 dist/index.html                 ← 设置页新增限流/探测配置区域                  待开发
 ```

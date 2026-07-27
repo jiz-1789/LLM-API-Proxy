@@ -24,6 +24,12 @@ pub struct Upstream {
     pub status: String,
     pub failure_count: i32,
     pub last_failure_time: Option<String>,
+    /// Last successful request time (v6, nullable for backward compat).
+    pub last_success_time: Option<String>,
+    /// Last error reason summary (v6, nullable for backward compat).
+    pub last_error_reason: Option<String>,
+    /// Timestamp when upstream recovered from down state (v6, nullable).
+    pub recovered_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -128,6 +134,9 @@ pub struct UpstreamStatusSummary {
     pub status: String,
     pub failure_count: i32,
     pub last_failure_time: Option<String>,
+    pub last_success_time: Option<String>,
+    pub last_error_reason: Option<String>,
+    pub recovered_at: Option<String>,
 }
 
 /// Log query filter parameters.
@@ -179,7 +188,7 @@ impl Database {
 
     /// Create an in-memory database (for testing).
     #[cfg(test)]
-    fn open_in_memory() -> Result<Self, AppError> {
+    pub(crate) fn open_in_memory() -> Result<Self, AppError> {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch("PRAGMA foreign_keys=ON;")?;
         Ok(Self { conn: Mutex::new(conn), log_insert_counter: AtomicU64::new(0) })
@@ -289,6 +298,9 @@ impl Database {
                  ALTER TABLE request_logs ADD COLUMN total_tokens INTEGER NOT NULL DEFAULT 0;"),
             (4, "ALTER TABLE request_logs ADD COLUMN model TEXT;"),
             (5, "UPDATE pools SET round_robin_strategy = 'round_robin' WHERE round_robin_strategy = 'sequential';"),
+            (6, "ALTER TABLE upstreams ADD COLUMN last_success_time TEXT;
+                 ALTER TABLE upstreams ADD COLUMN last_error_reason TEXT;
+                 ALTER TABLE upstreams ADD COLUMN recovered_at TEXT;"),
         ];
         for (version, sql) in migrations {
             if current < version {
@@ -349,6 +361,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, provider_name, base_url, api_key_encrypted, selected_model,
                     available_models, enabled, remark, status, failure_count, last_failure_time,
+                    last_success_time, last_error_reason, recovered_at,
                     created_at, updated_at
              FROM upstreams ORDER BY created_at DESC"
         )?;
@@ -362,6 +375,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, provider_name, base_url, api_key_encrypted, selected_model,
                     available_models, enabled, remark, status, failure_count, last_failure_time,
+                    last_success_time, last_error_reason, recovered_at,
                     created_at, updated_at
              FROM upstreams WHERE id = ?1"
         )?;
@@ -382,6 +396,7 @@ impl Database {
         let sql = format!(
             "SELECT id, provider_name, base_url, api_key_encrypted, selected_model,
                     available_models, enabled, remark, status, failure_count, last_failure_time,
+                    last_success_time, last_error_reason, recovered_at,
                     created_at, updated_at
              FROM upstreams WHERE id IN ({})",
             placeholders.join(",")
@@ -1228,7 +1243,8 @@ prompt_tokens, completion_tokens, total_tokens
     pub fn get_upstream_status_summary(&self) -> Result<Vec<UpstreamStatusSummary>, AppError> {
         let conn = self.get_conn()?;
         let mut stmt = conn.prepare(
-            "SELECT id, provider_name, status, failure_count, last_failure_time
+            "SELECT id, provider_name, status, failure_count, last_failure_time,
+                    last_success_time, last_error_reason, recovered_at
              FROM upstreams ORDER BY provider_name"
         )?;
         let rows = stmt.query_map([], |row| {
@@ -1238,9 +1254,92 @@ prompt_tokens, completion_tokens, total_tokens
                 status: row.get(2)?,
                 failure_count: row.get(3)?,
                 last_failure_time: row.get(4)?,
+                last_success_time: row.get(5)?,
+                last_error_reason: row.get(6)?,
+                recovered_at: row.get(7)?,
             })
         })?;
         Self::collect_rows(rows)
+    }
+
+    /// Update upstream health status after a successful or failed request.
+    ///
+    /// On success: resets failure_count to 0, sets status to 'healthy',
+    /// updates last_success_time, and sets recovered_at if transitioning from down/degraded.
+    ///
+    /// On failure: increments failure_count, sets last_failure_time and last_error_reason,
+    /// and updates status to 'degraded' or 'down' based on the failure threshold.
+    pub fn update_upstream_health(
+        &self,
+        upstream_id: &str,
+        success: bool,
+        error_reason: Option<&str>,
+        failure_threshold: i32,
+    ) -> Result<(), AppError> {
+        if success {
+            // Check if transitioning from down/degraded to healthy
+            let prev_status: Option<String> = self.get_conn()?.query_row(
+                "SELECT status FROM upstreams WHERE id = ?1",
+                params![upstream_id],
+                |row| row.get(0),
+            ).ok();
+
+            let should_set_recovered = matches!(prev_status.as_deref(), Some("down") | Some("degraded"));
+
+            if should_set_recovered {
+                self.get_conn()?.execute(
+                    "UPDATE upstreams SET
+                        status = 'healthy',
+                        failure_count = 0,
+                        last_success_time = datetime('now', 'localtime'),
+                        last_error_reason = NULL,
+                        recovered_at = datetime('now', 'localtime'),
+                        updated_at = datetime('now', 'localtime')
+                     WHERE id = ?1",
+                    params![upstream_id],
+                )?;
+            } else {
+                self.get_conn()?.execute(
+                    "UPDATE upstreams SET
+                        status = 'healthy',
+                        failure_count = 0,
+                        last_success_time = datetime('now', 'localtime'),
+                        last_error_reason = NULL,
+                        updated_at = datetime('now', 'localtime')
+                     WHERE id = ?1",
+                    params![upstream_id],
+                )?;
+            }
+        } else {
+            // Increment failure count and determine new status based on threshold
+            if failure_threshold > 0 {
+                self.get_conn()?.execute(
+                    "UPDATE upstreams SET
+                        failure_count = failure_count + 1,
+                        last_failure_time = datetime('now', 'localtime'),
+                        last_error_reason = ?2,
+                        status = CASE
+                            WHEN failure_count + 1 >= ?3 THEN 'down'
+                            ELSE 'degraded'
+                        END,
+                        updated_at = datetime('now', 'localtime')
+                     WHERE id = ?1",
+                    params![upstream_id, error_reason, failure_threshold],
+                )?;
+            } else {
+                self.get_conn()?.execute(
+                    "UPDATE upstreams SET
+                        failure_count = failure_count + 1,
+                        last_failure_time = datetime('now', 'localtime'),
+                        last_error_reason = ?2,
+                        status = 'degraded',
+                        updated_at = datetime('now', 'localtime')
+                     WHERE id = ?1",
+                    params![upstream_id, error_reason],
+                )?;
+            }
+        }
+        Ok(())
     }
 
     /// Get aggregate statistics.
@@ -1315,8 +1414,11 @@ prompt_tokens, completion_tokens, total_tokens
             status: row.get(8)?,
             failure_count: row.get(9)?,
             last_failure_time: row.get(10)?,
-            created_at: row.get(11)?,
-            updated_at: row.get(12)?,
+            last_success_time: row.get(11)?,
+            last_error_reason: row.get(12)?,
+            recovered_at: row.get(13)?,
+            created_at: row.get(14)?,
+            updated_at: row.get(15)?,
         })
     }
 
