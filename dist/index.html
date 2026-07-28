@@ -433,9 +433,86 @@ gap: 8px;
         }
         .badge-green { background: var(--success-subtle); color: var(--success); }
         .badge-blue { background: var(--accent-subtle); color: var(--accent); }
-.token-model-tab { display:inline-flex; align-items:center; padding:5px 12px; border:1px solid var(--border); border-radius:var(--radius); background:var(--bg-tertiary); color:var(--text-secondary); font-size:12px; cursor:pointer; transition:all .15s; }
-.token-model-tab:hover { border-color:var(--accent); color:var(--accent); }
-.token-model-tab.active { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+        .token-model-tab { display:inline-flex; align-items:center; padding:5px 12px; border:1px solid var(--border); border-radius:var(--radius); background:var(--bg-tertiary); color:var(--text-secondary); font-size:12px; cursor:pointer; transition:all .15s; }
+        .token-model-tab:hover { border-color:var(--accent); color:var(--accent); }
+        .token-model-tab.active { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+
+        /* === Collapsible Section === */
+        .collapse-section {
+            margin-bottom: 16px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            background: var(--bg-secondary);
+            overflow: hidden;
+        }
+        .collapse-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            cursor: pointer;
+            user-select: none;
+            transition: background var(--transition);
+        }
+        .collapse-header:hover { background: var(--bg-hover); }
+        .collapse-header .collapse-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .collapse-header .collapse-icon {
+            width: 18px;
+            height: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s ease;
+            color: var(--text-muted);
+        }
+        .collapse-header.collapsed .collapse-icon { transform: rotate(-90deg); }
+        .collapse-body {
+            max-height: 2000px;
+            overflow: hidden;
+            transition: max-height 0.3s ease, padding 0.3s ease;
+            padding: 0 16px 16px 16px;
+        }
+        .collapse-body.collapsed {
+            max-height: 0;
+            padding: 0 16px;
+        }
+        .collapse-body .table-wrap {
+            border: none;
+            box-shadow: none;
+        }
+
+        /* === Failover chain compact view === */
+        .failover-chain-cell { max-width: 380px; }
+        .failover-chain-cell .chain-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            margin: 1px 2px 1px 0;
+            line-height: 1.4;
+        }
+        .failover-chain-cell .chain-item.fail {
+            background: var(--danger-subtle);
+            color: var(--danger);
+        }
+        .failover-chain-cell .chain-item.success {
+            background: var(--success-subtle);
+            color: var(--success);
+        }
+        .failover-chain-cell .chain-arrow {
+            color: var(--text-muted);
+            font-size: 10px;
+            margin: 0 2px;
+        }
         .badge-red { background: var(--danger-subtle); color: var(--danger); }
         .badge-yellow { background: var(--warning-subtle); color: var(--warning); }
 
@@ -1283,109 +1360,92 @@ gap: 8px;
                     <button class="btn btn-ghost btn-sm" onclick="loadLogs(true)" data-i18n="logs_refresh">刷新</button>
                 </div>
 
-                <!-- Request Statistics -->
-                <div id="logs-stats-section" style="margin-bottom:20px;">
-                    <div class="section-title" style="font-size:14px;">
-                        <span data-i18n="logs_stats_title">请求统计</span>
-                        <button class="btn btn-ghost btn-sm" style="margin-left:8px;" onclick="loadRequestStats()" data-i18n="logs_refresh">刷新</button>
-                    </div>
-                    <div class="table-wrap">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th data-i18n="logs_upstream">上游</th>
-                                    <th data-i18n="upstreams_model">模型</th>
-                                    <th data-i18n="logs_stats_total">总请求</th>
-                                    <th data-i18n="logs_stats_success">成功</th>
-                                    <th data-i18n="logs_stats_error">失败</th>
-                                    <th data-i18n="logs_stats_success_rate">成功率</th>
-                                    <th data-i18n="logs_stats_avg_latency">平均耗时</th>
-                                    <th data-i18n="logs_stats_p95">P95 耗时</th>
-                                    <th data-i18n="logs_stats_p99">P99 耗时</th>
-                                </tr>
-                            </thead>
-                            <tbody id="logs-stats-tbody">
-                                <tr><td colspan="9" class="empty-state" data-i18n="empty_loading">加载中...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <!-- Failover Events -->
-                <div id="logs-failover-section" style="margin-bottom:20px;">
-                    <div class="section-title" style="font-size:14px;">
-                        <span data-i18n="logs_failover_title">故障切换事件</span>
-                        <button class="btn btn-ghost btn-sm" style="margin-left:8px;" onclick="loadFailoverEvents(true)" data-i18n="logs_refresh">刷新</button>
-                    </div>
-                    <div class="table-wrap">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th data-i18n="logs_time">时间</th>
-                                    <th data-i18n="logs_pool">模型池</th>
-                                    <th data-i18n="logs_failover_success_upstream">最终上游</th>
-                                    <th data-i18n="upstreams_model">模型</th>
-                                    <th data-i18n="logs_code">状态码</th>
-                                    <th data-i18n="logs_failover_attempts">尝试次数</th>
-                                    <th data-i18n="logs_failover_chain">故障链</th>
-                                </tr>
-                            </thead>
-                            <tbody id="logs-failover-tbody">
-                                <tr><td colspan="7" class="empty-state" data-i18n="empty_loading">加载中...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    <div id="failover-pagination" style="display:flex;align-items:center;justify-content:center;gap:12px;padding:12px 0;"></div>
-                </div>
-
-                <!-- Token Usage Overview -->
-                <div id="logs-token-overview-section" style="margin-bottom:20px;">
-                    <div class="section-title" style="font-size:14px;">
-                        <span data-i18n="logs_token_overview_title">Token 用量统计</span>
-                        <button class="btn btn-ghost btn-sm" style="margin-left:8px;" onclick="loadTokenOverview()" data-i18n="logs_refresh">刷新</button>
-                    </div>
-                    <div style="display:flex;gap:20px;flex-wrap:wrap;">
-                        <div style="flex:1;min-width:300px;">
-                            <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;" data-i18n="logs_token_by_pool">按模型池</div>
-                            <div class="table-wrap">
-                                <table>
-                                    <thead>
-                                        <tr>
-                                            <th data-i18n="nav_pools">模型池</th>
-                                            <th data-i18n="logs_token_today">今日 Token</th>
-                                            <th data-i18n="logs_token_total">累计 Token</th>
-                                            <th data-i18n="logs_token_today_req">今日请求</th>
-                                            <th data-i18n="logs_token_total_req">累计请求</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="logs-token-pool-tbody">
-                                        <tr><td colspan="5" class="empty-state" data-i18n="empty_loading">加载中...</td></tr>
-                                    </tbody>
-                                </table>
-                            </div>
+                <!-- Collapsible: Failover Events -->
+                <div class="collapse-section">
+                    <div class="collapse-header" onclick="toggleCollapse(this)" data-loaded="false">
+                        <div class="collapse-title">
+                            <svg class="collapse-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                            <span data-i18n="logs_failover_title">故障切换事件</span>
                         </div>
-                        <div style="flex:1;min-width:300px;">
-                            <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;" data-i18n="logs_token_by_upstream">按上游</div>
-                            <div class="table-wrap">
-                                <table>
-                                    <thead>
-                                        <tr>
-                                            <th data-i18n="logs_upstream">上游</th>
-                                            <th data-i18n="logs_token_today">今日 Token</th>
-                                            <th data-i18n="logs_token_total">累计 Token</th>
-                                            <th data-i18n="logs_token_today_req">今日请求</th>
-                                            <th data-i18n="logs_token_total_req">累计请求</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="logs-token-upstream-tbody">
-                                        <tr><td colspan="5" class="empty-state" data-i18n="empty_loading">加载中...</td></tr>
-                                    </tbody>
-                                </table>
+                        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); loadFailoverEvents(true)" data-i18n="logs_refresh">刷新</button>
+                    </div>
+                    <div class="collapse-body collapsed">
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th data-i18n="logs_time">时间</th>
+                                        <th data-i18n="logs_pool">模型池</th>
+                                        <th data-i18n="logs_failover_success_upstream">最终上游</th>
+                                        <th data-i18n="upstreams_model">模型</th>
+                                        <th data-i18n="logs_code">状态码</th>
+                                        <th data-i18n="logs_failover_attempts">尝试次数</th>
+                                        <th data-i18n="logs_failover_chain">故障链</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="logs-failover-tbody">
+                                    <tr><td colspan="7" class="empty-state" data-i18n="empty_loading">加载中...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div id="failover-pagination" style="display:flex;align-items:center;justify-content:center;gap:12px;padding:12px 0;"></div>
+                    </div>
+                </div>
+
+                <!-- Collapsible: Token Usage Overview -->
+                <div class="collapse-section">
+                    <div class="collapse-header" onclick="toggleCollapse(this)" data-loaded="false">
+                        <div class="collapse-title">
+                            <svg class="collapse-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                            <span data-i18n="logs_token_overview_title">Token 用量统计</span>
+                        </div>
+                        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); loadTokenOverview()" data-i18n="logs_refresh">刷新</button>
+                    </div>
+                    <div class="collapse-body collapsed">
+                        <div style="display:flex;gap:20px;flex-wrap:wrap;">
+                            <div style="flex:1;min-width:300px;">
+                                <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;" data-i18n="logs_token_by_pool">按模型池</div>
+                                <div class="table-wrap">
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th data-i18n="nav_pools">模型池</th>
+                                                <th data-i18n="logs_token_today">今日 Token</th>
+                                                <th data-i18n="logs_token_total">累计 Token</th>
+                                                <th data-i18n="logs_token_today_req">今日请求</th>
+                                                <th data-i18n="logs_token_total_req">累计请求</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="logs-token-pool-tbody">
+                                            <tr><td colspan="5" class="empty-state" data-i18n="empty_loading">加载中...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div style="flex:1;min-width:300px;">
+                                <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;" data-i18n="logs_token_by_upstream">按上游</div>
+                                <div class="table-wrap">
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th data-i18n="logs_upstream">上游</th>
+                                                <th data-i18n="logs_token_today">今日 Token</th>
+                                                <th data-i18n="logs_token_total">累计 Token</th>
+                                                <th data-i18n="logs_token_today_req">今日请求</th>
+                                                <th data-i18n="logs_token_total_req">累计请求</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="logs-token-upstream-tbody">
+                                            <tr><td colspan="5" class="empty-state" data-i18n="empty_loading">加载中...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
+                <!-- Request Logs List (always visible) -->
                 <div class="table-wrap">
                     <table>
                         <thead>
@@ -2261,7 +2321,7 @@ logs_token_by_upstream: { zh: '按上游', en: 'By Upstream' },
 logs_token_today: { zh: '今日 Token', en: 'Today Tokens' },
 logs_token_total: { zh: '累计 Token', en: 'Total Tokens' },
 logs_token_today_req: { zh: '今日请求', en: 'Today Requests' },
-logs_token_total_req: { zh: '累计请求', en: 'Total Requests' },
+        logs_token_total_req: { zh: '累计请求', en: 'Total Requests' },
 
         // ── Settings page ──
         settings_title: { zh: '系统设置', en: 'System Settings' },
@@ -2977,7 +3037,7 @@ dashboardTimer = setInterval(refreshDashboard, 30000);
 }
 if (page === 'upstreams') loadUpstreams();
 if (page === 'pools') loadPools();
-if (page === 'logs') { populatePoolFilter(); loadLogs(true); }
+if (page === 'logs') { populatePoolFilter(); populateUpstreamFilter(); loadLogs(true); }
 if (page === 'settings') loadSettings();
 // Auto-render stored update info if available (from silent startup check)
 if (page === 'settings' && lastUpdateInfo) {
@@ -4228,14 +4288,21 @@ loadLogs(false);
                     : `<span class="badge badge-red">${e.status_code}</span>`;
                 const successUpstream = e.upstream_name || (e.upstream_id ? e.upstream_id.substring(0,8) : t('logs_failover_all_failed'));
                 const modelName = e.model || '-';
-                // Build failover chain display
-                const chainHtml = e.failed_upstreams.map(f => {
-                    return `<span style="display:inline-block;background:var(--danger-subtle);color:var(--danger);padding:2px 6px;border-radius:3px;font-size:11px;margin:1px;">${esc(f.provider)}: ${esc(f.error)}</span>`;
-                }).join(' ');
-                // If there was a successful upstream, show it in the chain
-                const successBadge = e.upstream_id
-                    ? `<span style="display:inline-block;background:var(--success-subtle);color:var(--success);padding:2px 6px;border-radius:3px;font-size:11px;margin:1px;">${esc(successUpstream)}: OK</span>`
-                    : '';
+                // Build compact failover chain display
+                const chainItems = [];
+                if (e.failed_upstreams && e.failed_upstreams.length > 0) {
+                    e.failed_upstreams.forEach((f, idx) => {
+                        const shortError = esc(f.error || '').length > 40 ? esc(f.error).substring(0, 40) + '...' : esc(f.error);
+                        chainItems.push(`<span class="chain-item fail" title="${esc(f.error || '')}">${esc(f.provider)} <span style="opacity:0.7;">|</span> ${shortError}</span>`);
+                        if (idx < e.failed_upstreams.length - 1 || e.upstream_id) {
+                            chainItems.push(`<span class="chain-arrow">→</span>`);
+                        }
+                    });
+                }
+                if (e.upstream_id) {
+                    chainItems.push(`<span class="chain-item success">${esc(successUpstream)} <span style="opacity:0.7;">|</span> OK</span>`);
+                }
+                const chainHtml = chainItems.length > 0 ? chainItems.join('') : `<span style="color:var(--text-muted);font-size:12px;">-</span>`;
                 return `<tr>
                     <td style="font-size:12px;">${esc(e.created_at)}</td>
                     <td>${esc(e.pool_name || '-')}</td>
@@ -4243,7 +4310,7 @@ loadLogs(false);
                     <td style="font-family:'SF Mono','Cascadia Code',monospace;font-size:11px;">${esc(modelName)}</td>
                     <td>${codeBadge}</td>
                     <td>${e.total_attempts}</td>
-                    <td style="max-width:400px;">${chainHtml} ${successBadge}</td>
+                    <td class="failover-chain-cell">${chainHtml}</td>
                 </tr>`;
             }).join('');
             updateFailoverPagination(failoverCurrentPage, pageLimit, resp.events.length === pageLimit, resp.total);
@@ -4273,6 +4340,36 @@ loadLogs(false);
         if (failoverCurrentPage > 0) {
             failoverCurrentPage--;
             loadFailoverEvents(false);
+        }
+    }
+
+    // ================================================================
+    // Token Usage Overview (P2-6)
+    // ================================================================
+    // ================================================================
+    // Collapsible Sections
+    // ================================================================
+    function toggleCollapse(header) {
+        const body = header.nextElementSibling;
+        if (!body || !body.classList.contains('collapse-body')) return;
+
+        const isCollapsed = body.classList.contains('collapsed');
+        if (isCollapsed) {
+            // Expand
+            body.classList.remove('collapsed');
+            header.classList.remove('collapsed');
+            // Lazy load data on first expand
+            const loaded = header.dataset.loaded === 'true';
+            if (!loaded) {
+                const title = header.querySelector('.collapse-title span')?.textContent || '';
+                if (title.includes('故障切换') || title.includes('Failover')) loadFailoverEvents(true);
+                else if (title.includes('Token')) loadTokenOverview();
+                header.dataset.loaded = 'true';
+            }
+        } else {
+            // Collapse
+            body.classList.add('collapsed');
+            header.classList.add('collapsed');
         }
     }
 
