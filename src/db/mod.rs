@@ -163,6 +163,16 @@ pub struct LogFilter {
     pub offset: i64,
 }
 
+/// A configuration change audit entry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigChangeEntry {
+    pub id: i64,
+    pub key: String,
+    pub old_value: Option<String>,
+    pub new_value: String,
+    pub changed_at: String,
+}
+
 // ============================================================================
 // Database
 // ============================================================================
@@ -212,8 +222,9 @@ impl Database {
         self.create_schema()?;
         self.run_migrations()?;
         info!("Database schema initialized (version {})", self.get_schema_version()?);
-        // Clean up old logs on startup: keep 5 days, cap at 200 entries
-        let deleted = self.cleanup_old_logs(5, 200)?;
+        // Clean up old logs on startup using configured retention policy
+        let retention = crate::config::LogRetentionSettings::load(self);
+        let deleted = self.cleanup_old_logs(retention.retention_days, retention.max_entries)?;
         if deleted > 0 {
             info!("Startup log cleanup: removed {} old log entries", deleted);
         }

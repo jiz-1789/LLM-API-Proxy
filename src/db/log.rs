@@ -44,7 +44,8 @@ impl Database {
         // Periodic cleanup: every 100 inserts, remove old logs
         let count = self.log_insert_counter.fetch_add(1, Ordering::Relaxed) + 1;
         if count % 100 == 0 {
-            if let Err(e) = self.cleanup_old_logs(5, 200) {
+            let retention = crate::config::LogRetentionSettings::load(self);
+            if let Err(e) = self.cleanup_old_logs(retention.retention_days, retention.max_entries) {
                 warn!("Periodic log cleanup failed: {}", e);
             }
         }

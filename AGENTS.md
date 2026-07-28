@@ -50,7 +50,7 @@ src/error.rs                 ← 统一错误类型
 
 1. 在 `src/db.rs` 的 `run_migrations()` 函数中，向 `migrations` 向量末尾追加新版本号
 2. 版本号**严格递增 +1**，不可跳号
-3. 当前最新版本为 **v5**（参见 `DEVELOPMENT.md` 迁移历史表）
+3. 当前最新版本为 **v8**（参见 `DEVELOPMENT.md` 迁移历史表）
 4. 同步更新 `DEVELOPMENT.md` 的 Schema 表和迁移历史表
 
 ```rust

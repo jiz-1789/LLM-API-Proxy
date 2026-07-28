@@ -69,7 +69,23 @@ impl Database {
                 response_time_ms INTEGER NOT NULL,
                 is_streaming INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
-            );"
+            );
+
+            -- Indexes for high-frequency query patterns on request_logs
+            CREATE INDEX IF NOT EXISTS idx_request_logs_created_at ON request_logs(created_at);
+            CREATE INDEX IF NOT EXISTS idx_request_logs_upstream_id ON request_logs(upstream_id);
+            CREATE INDEX IF NOT EXISTS idx_request_logs_status_code ON request_logs(status_code);
+            CREATE INDEX IF NOT EXISTS idx_request_logs_pool_name ON request_logs(pool_name);
+
+            CREATE TABLE IF NOT EXISTS config_changes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key TEXT NOT NULL,
+                old_value TEXT,
+                new_value TEXT NOT NULL,
+                changed_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_config_changes_changed_at ON config_changes(changed_at);"
         )?;
         Ok(())
     }
@@ -133,6 +149,40 @@ impl Database {
             info!("Database migrated to version 6");
         }
 
+        // v7 migration: add high-frequency query indexes on request_logs (idempotent)
+        if current < 7 {
+            self.get_conn()?.execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_request_logs_created_at ON request_logs(created_at);
+                 CREATE INDEX IF NOT EXISTS idx_request_logs_upstream_id ON request_logs(upstream_id);
+                 CREATE INDEX IF NOT EXISTS idx_request_logs_status_code ON request_logs(status_code);
+                 CREATE INDEX IF NOT EXISTS idx_request_logs_pool_name ON request_logs(pool_name);",
+            )?;
+            self.get_conn()?.execute(
+                "UPDATE schema_version SET version = ?1",
+                params![7],
+            )?;
+            info!("Database migrated to version 7");
+        }
+
+        // v8 migration: create config_changes table for audit trail (idempotent)
+        if current < 8 {
+            self.get_conn()?.execute_batch(
+                "CREATE TABLE IF NOT EXISTS config_changes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    key TEXT NOT NULL,
+                    old_value TEXT,
+                    new_value TEXT NOT NULL,
+                    changed_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+                );
+                CREATE INDEX IF NOT EXISTS idx_config_changes_changed_at ON config_changes(changed_at);",
+            )?;
+            self.get_conn()?.execute(
+                "UPDATE schema_version SET version = ?1",
+                params![8],
+            )?;
+            info!("Database migrated to version 8");
+        }
+
         Ok(())
     }
 
@@ -182,5 +232,130 @@ impl Database {
             }
         }
         Ok(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Check if an index exists on a table using PRAGMA index_list.
+    fn index_exists(conn: &rusqlite::Connection, table: &str, index_name: &str) -> bool {
+        let mut stmt = conn
+            .prepare(&format!("PRAGMA index_list({})", table))
+            .unwrap();
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap();
+        for name in rows {
+            if name.unwrap() == index_name {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[test]
+    fn test_indexes_created_on_new_db() {
+        let db = Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+
+        let conn = db.get_conn().unwrap();
+        assert!(index_exists(&conn, "request_logs", "idx_request_logs_created_at"));
+        assert!(index_exists(&conn, "request_logs", "idx_request_logs_upstream_id"));
+        assert!(index_exists(&conn, "request_logs", "idx_request_logs_status_code"));
+        assert!(index_exists(&conn, "request_logs", "idx_request_logs_pool_name"));
+    }
+
+    #[test]
+    fn test_schema_version_is_v7_after_migration() {
+        let db = Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+        let version = db.get_schema_version().unwrap();
+        assert_eq!(version, 8);
+    }
+
+    #[test]
+    fn test_indexes_idempotent() {
+        let db = Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+        // Running initialize again should not fail (CREATE INDEX IF NOT EXISTS)
+        db.initialize().unwrap();
+
+        let conn = db.get_conn().unwrap();
+        assert!(index_exists(&conn, "request_logs", "idx_request_logs_created_at"));
+    }
+
+    #[test]
+    fn test_config_changes_table_created() {
+        let db = Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+        // Table should exist and be queryable
+        let count = db.count_config_changes().unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_insert_and_query_config_change() {
+        let db = Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+
+        db.insert_config_change("listen_port", Some("47339"), "8080").unwrap();
+        db.insert_config_change("log_level", Some("info"), "debug").unwrap();
+
+        let changes = db.get_config_changes(10, 0).unwrap();
+        assert_eq!(changes.len(), 2);
+        // Most recent first (ORDER BY changed_at DESC)
+        assert_eq!(changes[0].key, "log_level");
+        assert_eq!(changes[0].old_value.as_deref(), Some("info"));
+        assert_eq!(changes[0].new_value, "debug");
+        assert_eq!(changes[1].key, "listen_port");
+        assert_eq!(changes[1].old_value.as_deref(), Some("47339"));
+        assert_eq!(changes[1].new_value, "8080");
+    }
+
+    #[test]
+    fn test_save_setting_with_audit_no_change() {
+        let db = Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+        db.save_setting("test_key", "value1").unwrap();
+
+        // Same value → no audit entry
+        let changed = db.save_setting_with_audit("test_key", "value1").unwrap();
+        assert!(!changed); // no change recorded
+        assert_eq!(db.count_config_changes().unwrap(), 0);
+    }
+
+    #[test]
+    fn test_save_setting_with_audit_with_change() {
+        let db = Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+        db.save_setting("test_key", "value1").unwrap();
+
+        // Different value → audit entry created
+        let changed = db.save_setting_with_audit("test_key", "value2").unwrap();
+        assert!(changed); // change recorded
+
+        let changes = db.get_config_changes(10, 0).unwrap();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].key, "test_key");
+        assert_eq!(changes[0].old_value.as_deref(), Some("value1"));
+        assert_eq!(changes[0].new_value, "value2");
+    }
+
+    #[test]
+    fn test_save_setting_with_audit_new_key() {
+        let db = Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+
+        // Key doesn't exist yet → old_value is None
+        let changed = db.save_setting_with_audit("new_key", "new_value").unwrap();
+        assert!(changed);
+
+        let changes = db.get_config_changes(10, 0).unwrap();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].key, "new_key");
+        assert!(changes[0].old_value.is_none());
+        assert_eq!(changes[0].new_value, "new_value");
     }
 }

@@ -63,7 +63,7 @@ pub struct UpdateUpstreamRequest {
 // Helpers
 // ============================================================================
 
-fn to_vo(u: &llm_api_proxy_lib::db::Upstream) -> UpstreamVO {
+pub(crate) fn to_vo(u: &llm_api_proxy_lib::db::Upstream) -> UpstreamVO {
     let has_key = !u.api_key_encrypted.is_empty();
     let available_models: Vec<String> = serde_json::from_str(&u.available_models)
         .unwrap_or_default();
@@ -309,4 +309,160 @@ pub async fn fetch_upstream_models_by_id(
         .unwrap_or_default();
 
     Ok(models)
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_test_upstream() -> llm_api_proxy_lib::db::Upstream {
+        llm_api_proxy_lib::db::Upstream {
+            id: "up_test_001".to_string(),
+            provider_name: "OpenAI".to_string(),
+            base_url: "https://api.openai.com".to_string(),
+            api_key_encrypted: vec![1, 2, 3, 4],
+            selected_model: "gpt-4".to_string(),
+            available_models: r#"["gpt-4","gpt-3.5-turbo"]"#.to_string(),
+            enabled: true,
+            remark: "test upstream".to_string(),
+            status: "healthy".to_string(),
+            failure_count: 0,
+            last_failure_time: None,
+            last_success_time: Some("2026-07-28 10:00:00".to_string()),
+            last_error_reason: None,
+            recovered_at: None,
+            created_at: "2026-07-28 09:00:00".to_string(),
+            updated_at: "2026-07-28 09:00:00".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_to_vo_masks_api_key() {
+        let upstream = make_test_upstream();
+        let vo = to_vo(&upstream);
+        assert_eq!(vo.api_key_masked, "••••••••");
+    }
+
+    #[test]
+    fn test_to_vo_empty_key_shows_empty() {
+        let mut upstream = make_test_upstream();
+        upstream.api_key_encrypted = vec![];
+        let vo = to_vo(&upstream);
+        assert_eq!(vo.api_key_masked, "");
+    }
+
+    #[test]
+    fn test_to_vo_parses_available_models() {
+        let upstream = make_test_upstream();
+        let vo = to_vo(&upstream);
+        assert_eq!(vo.available_models, vec!["gpt-4", "gpt-3.5-turbo"]);
+    }
+
+    #[test]
+    fn test_to_vo_invalid_models_json_falls_back_to_empty() {
+        let mut upstream = make_test_upstream();
+        upstream.available_models = "not valid json".to_string();
+        let vo = to_vo(&upstream);
+        assert!(vo.available_models.is_empty());
+    }
+
+    #[test]
+    fn test_to_vo_maps_all_fields() {
+        let upstream = make_test_upstream();
+        let vo = to_vo(&upstream);
+        assert_eq!(vo.id, "up_test_001");
+        assert_eq!(vo.provider_name, "OpenAI");
+        assert_eq!(vo.base_url, "https://api.openai.com");
+        assert_eq!(vo.selected_model, "gpt-4");
+        assert!(vo.enabled);
+        assert_eq!(vo.remark, "test upstream");
+        assert_eq!(vo.status, "healthy");
+        assert_eq!(vo.failure_count, 0);
+        assert_eq!(vo.last_success_time.as_deref(), Some("2026-07-28 10:00:00"));
+        assert!(vo.last_failure_time.is_none());
+        assert!(vo.last_error_reason.is_none());
+        assert!(vo.recovered_at.is_none());
+    }
+
+    #[test]
+    fn test_create_upstream_request_deserialization_defaults() {
+        let json = r#"{
+            "provider_name": "DeepSeek",
+            "base_url": "https://api.deepseek.com",
+            "api_key": "sk-test",
+            "selected_model": "deepseek-chat"
+        }"#;
+        let req: CreateUpstreamRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.provider_name, "DeepSeek");
+        assert!(req.available_models.is_empty());
+        assert!(req.enabled);
+        assert!(req.remark.is_empty());
+    }
+
+    #[test]
+    fn test_create_upstream_request_deserialization_full() {
+        let json = r#"{
+            "provider_name": "OpenAI",
+            "base_url": "https://api.openai.com",
+            "api_key": "sk-test",
+            "selected_model": "gpt-4",
+            "available_models": ["gpt-4", "gpt-3.5-turbo"],
+            "enabled": false,
+            "remark": "production key"
+        }"#;
+        let req: CreateUpstreamRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.provider_name, "OpenAI");
+        assert_eq!(req.available_models, vec!["gpt-4", "gpt-3.5-turbo"]);
+        assert!(!req.enabled);
+        assert_eq!(req.remark, "production key");
+    }
+
+    #[test]
+    fn test_update_upstream_request_deserialization() {
+        let json = r#"{
+            "provider_name": "Anthropic",
+            "base_url": "https://api.anthropic.com",
+            "api_key": "sk-new",
+            "selected_model": "claude-3",
+            "enabled": true
+        }"#;
+        let req: UpdateUpstreamRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.provider_name, "Anthropic");
+        assert_eq!(req.selected_model, "claude-3");
+        assert!(req.enabled);
+        assert!(req.available_models.is_empty());
+        assert!(req.remark.is_empty());
+    }
+
+    #[test]
+    fn test_update_upstream_request_masked_key_preserved() {
+        let json = r#"{
+            "provider_name": "OpenAI",
+            "base_url": "https://api.openai.com",
+            "api_key": "••••••••",
+            "selected_model": "gpt-4",
+            "enabled": true
+        }"#;
+        let req: UpdateUpstreamRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.api_key, "••••••••");
+    }
+
+    #[test]
+    fn test_generate_id_format() {
+        let id = generate_id();
+        assert!(id.starts_with("up_"));
+        assert!(id.len() > "up_".len());
+    }
+
+    #[test]
+    fn test_generate_id_uniqueness() {
+        let id1 = generate_id();
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        let id2 = generate_id();
+        assert_ne!(id1, id2);
+    }
 }

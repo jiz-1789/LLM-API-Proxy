@@ -1414,6 +1414,18 @@ gap: 8px;
                         </div>
                     </div>
                     <div class="settings-section">
+                        <div class="section-title" data-i18n="settings_log_retention_title">日志保留</div>
+                        <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="settings_log_retention_desc">控制请求日志的保留时间和最大条数，超出后自动清理旧日志。</p>
+                        <div class="settings-row">
+                            <label data-i18n="settings_log_retention_days">保留天数</label>
+                            <input class="form-input" id="set-log-retention-days" type="number" min="1" max="365" value="5" style="max-width:120px;">
+                        </div>
+                        <div class="settings-row">
+                            <label data-i18n="settings_log_max_entries">最大条数</label>
+                            <input class="form-input" id="set-log-max-entries" type="number" min="10" max="100000" value="200" style="max-width:120px;">
+                        </div>
+                    </div>
+                    <div class="settings-section">
                         <div class="section-title" data-i18n="settings_version">版本更新</div>
                         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
                             <span style="font-size:13px;color:var(--text-secondary);"><span data-i18n="settings_current_version">当前版本：</span><code id="settings-app-version" style="font-family:'SF Mono','Cascadia Code',monospace;font-size:13px;">v0.1.0</code></span>
@@ -1883,6 +1895,10 @@ print(response.choices[0].message.content)</code></pre>
         settings_probe_enabled_hint: { zh: '开启后定期向上游发送测试请求', en: 'Send periodic test requests to upstreams when enabled' },
         settings_probe_interval: { zh: '探测间隔（秒）', en: 'Interval (seconds)' },
         settings_probe_threshold: { zh: '失败阈值', en: 'Failure Threshold' },
+        settings_log_retention_title: { zh: '日志保留', en: 'Log Retention' },
+        settings_log_retention_desc: { zh: '控制请求日志的保留时间和最大条数，超出后自动清理旧日志。', en: 'Control how long request logs are kept and the maximum number of entries. Old logs are automatically cleaned up.' },
+        settings_log_retention_days: { zh: '保留天数', en: 'Retention Days' },
+        settings_log_max_entries: { zh: '最大条数', en: 'Max Entries' },
         settings_save: { zh: '保存设置', en: 'Save Settings' },
         settings_saved: { zh: '设置已保存', en: 'Settings saved' },
         settings_save_fail: { zh: '保存失败: ', en: 'Save failed: ' },
@@ -3424,6 +3440,10 @@ function generateApiKey() {
             document.getElementById('set-probe-interval').value = s.probe_interval_seconds || 300;
             document.getElementById('set-probe-threshold').value = s.probe_failure_threshold || 3;
 
+            // Log retention settings
+            document.getElementById('set-log-retention-days').value = s.log_retention_days || 5;
+            document.getElementById('set-log-max-entries').value = s.log_max_entries || 200;
+
             // Load pool list for quick copy
             const poolList = document.getElementById('settings-pool-list');
             try {
@@ -3482,6 +3502,8 @@ function generateApiKey() {
                 probe_enabled: document.getElementById('set-probe-enabled').checked,
                 probe_interval_seconds: parseInt(document.getElementById('set-probe-interval').value) || 300,
                 probe_failure_threshold: parseInt(document.getElementById('set-probe-threshold').value) || 3,
+                log_retention_days: parseInt(document.getElementById('set-log-retention-days').value) || 5,
+                log_max_entries: parseInt(document.getElementById('set-log-max-entries').value) || 200,
             };
             await cmd('update_settings', { req });
             applyTheme(req.theme);

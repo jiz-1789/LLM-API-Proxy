@@ -60,6 +60,7 @@ pub fn run() {
             commands::settings::open_external_url,
             commands::settings::read_clipboard,
             commands::settings::save_file_dialog,
+            commands::settings::get_config_changes,
             commands::update::check_for_updates,
             commands::update::download_update,
             commands::update::apply_update,

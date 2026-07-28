@@ -93,11 +93,19 @@ pub fn initialize_backend() -> anyhow::Result<AppState> {
     let crypto = Arc::new(crypto::KeyManager::initialize(&data_dir)?);
     tracing::info!("Crypto key manager ready");
 
-    // Load or create default settings, then persist defaults
+    // Load settings from DB, falling back to defaults for missing keys.
+    // Only persist defaults for keys that don't exist yet (first-run initialization).
+    // This prevents overwriting user-saved values on restart.
     let settings = load_settings(&db);
-    db.save_setting("listen_port", &settings.listen_port.to_string())?;
-    db.save_setting("listen_address", &settings.listen_address)?;
-    db.save_setting("gateway_api_key", &settings.api_key)?;
+    if db.get_setting("listen_address")?.is_none() {
+        db.save_setting("listen_address", &settings.listen_address)?;
+    }
+    if db.get_setting("listen_port")?.is_none() {
+        db.save_setting("listen_port", &settings.listen_port.to_string())?;
+    }
+    if db.get_setting("gateway_api_key")?.is_none() {
+        db.save_setting("gateway_api_key", &settings.api_key)?;
+    }
 
     // Wrap in Arc shared by both gateway server and Tauri commands
     let db_arc = Arc::new(db);
