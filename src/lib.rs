@@ -1,12 +1,19 @@
 // LLM-API-Proxy Gateway Library
 
+pub mod alert;
 pub mod config;
+pub mod config_io;
 pub mod crypto;
 pub mod db;
+pub mod diagnostic;
 pub mod error;
 pub mod gateway;
 pub mod pool;
+pub mod probe;
 pub mod proxy;
+
+#[cfg(test)]
+mod tests;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -80,6 +87,11 @@ pub fn initialize_backend() -> anyhow::Result<AppState> {
     std::fs::create_dir_all(&data_dir)?;
     tracing::info!("Data directory: {:?}", data_dir);
 
+    // Check for pending database restore (applied before opening the database)
+    if db::backup::apply_pending_restore() {
+        tracing::info!("Database restore applied, continuing with restored database");
+    }
+
     // Open and initialize database with migrations
     let db = db::Database::open(&config::GatewaySettings::db_path())?;
     db.initialize()?;
@@ -89,11 +101,19 @@ pub fn initialize_backend() -> anyhow::Result<AppState> {
     let crypto = Arc::new(crypto::KeyManager::initialize(&data_dir)?);
     tracing::info!("Crypto key manager ready");
 
-    // Load or create default settings, then persist defaults
+    // Load settings from DB, falling back to defaults for missing keys.
+    // Only persist defaults for keys that don't exist yet (first-run initialization).
+    // This prevents overwriting user-saved values on restart.
     let settings = load_settings(&db);
-    db.save_setting("listen_port", &settings.listen_port.to_string())?;
-    db.save_setting("listen_address", &settings.listen_address)?;
-    db.save_setting("gateway_api_key", &settings.api_key)?;
+    if db.get_setting("listen_address")?.is_none() {
+        db.save_setting("listen_address", &settings.listen_address)?;
+    }
+    if db.get_setting("listen_port")?.is_none() {
+        db.save_setting("listen_port", &settings.listen_port.to_string())?;
+    }
+    if db.get_setting("gateway_api_key")?.is_none() {
+        db.save_setting("gateway_api_key", &settings.api_key)?;
+    }
 
     // Wrap in Arc shared by both gateway server and Tauri commands
     let db_arc = Arc::new(db);
@@ -121,7 +141,8 @@ pub fn initialize_backend() -> anyhow::Result<AppState> {
             }
         };
         rt.block_on(async move {
-            let router = gateway::create_router(db_for_gw, proxy_client, crypto_for_gw);
+            let rate_limit_config = load_rate_limit_config(&db_for_gw);
+            let router = gateway::create_router(db_for_gw.clone(), proxy_client, crypto_for_gw.clone(), rate_limit_config);
             let addr = format!("{}:{}", listen_addr, listen_port);
             tracing::info!("Gateway server listening on {}", addr);
             let listener = match tokio::net::TcpListener::bind(&addr).await {
@@ -131,6 +152,11 @@ pub fn initialize_backend() -> anyhow::Result<AppState> {
                     return;
                 }
             };
+
+            // Start background upstream probe task (if enabled)
+            let probe_config = probe::load_probe_config(&db_for_gw);
+            probe::start_probe_task(db_for_gw.clone(), crypto_for_gw, probe_config);
+
             if let Err(e) = axum::serve(listener, router)
                 .with_graceful_shutdown(async move {
                     shutdown_for_server.notified().await;
@@ -146,6 +172,10 @@ pub fn initialize_backend() -> anyhow::Result<AppState> {
 
     // Share the SAME database connection for both gateway and Tauri commands
     let state = AppState::new(settings, db_arc.clone(), crypto, shutdown, minimize);
+
+    // Start background auto-backup task (if enabled)
+    db::backup::start_auto_backup_task(db_arc.clone());
+
     Ok(state)
 }
 
@@ -197,4 +227,15 @@ pub fn load_minimize_to_tray(db: &db::Database) -> bool {
         .flatten()
         .map(|v| v == "true")
         .unwrap_or(true)
+}
+
+/// Load rate limiter configuration from the settings table.
+fn load_rate_limit_config(db: &db::Database) -> gateway::rate_limit::RateLimitConfig {
+    let settings = config::RateLimitSettings::load(db);
+    gateway::rate_limit::RateLimitConfig {
+        enabled: settings.enabled,
+        max_requests: settings.max_requests,
+        window_seconds: settings.window_seconds as u64,
+        trust_forwarded_for: settings.trust_forwarded_for,
+    }
 }

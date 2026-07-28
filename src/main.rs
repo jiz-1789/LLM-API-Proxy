@@ -11,10 +11,26 @@ fn main() {
                 state.settings.gateway_url()
             );
             println!("Press Ctrl+C to stop");
-            // Keep the main thread alive
-            loop {
-                std::thread::sleep(std::time::Duration::from_secs(3600));
-            }
+
+            // Create a runtime for signal handling and graceful shutdown.
+            let rt = match tokio::runtime::Runtime::new() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    eprintln!("Failed to create runtime: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            rt.block_on(async move {
+                // Wait for Ctrl+C / SIGTERM signal
+                tokio::signal::ctrl_c()
+                    .await
+                    .expect("Failed to listen for Ctrl+C");
+                println!("\nShutting down...");
+                // Trigger graceful shutdown of the gateway server
+                state.shutdown();
+                // Give the server a moment to release the port
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            });
         }
         Err(e) => {
             eprintln!("Failed to start LLM-API-Proxy: {}", e);

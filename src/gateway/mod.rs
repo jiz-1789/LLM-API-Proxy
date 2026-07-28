@@ -1,10 +1,13 @@
 pub mod auth;
+pub mod error_response;
+pub mod health;
+pub mod rate_limit;
 pub mod stream;
 
 use axum::{
     body::Body,
     extract::State,
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -14,7 +17,7 @@ use bytes::Bytes;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio_util::io::StreamReader;
 use tracing::{info, warn};
@@ -22,61 +25,83 @@ use tracing::{info, warn};
 use crate::crypto::KeyManager;
 use crate::db::Database;
 use crate::pool::thinking;
+use crate::proxy::error::UpstreamError;
 use crate::proxy::failover::UpstreamClient;
+
+use rate_limit::{RateLimitConfig, RateLimiter};
 
 /// Per-pool round-robin counters (pool_id → next index).
 type RoundRobinCounters = Arc<Mutex<HashMap<String, usize>>>;
 
-/// Simple in-memory rate limiter: client IP → (count, window_start).
-/// Allows 60 requests per minute per IP by default.
-#[derive(Clone)]
-struct RateLimiter {
-    requests: Arc<Mutex<HashMap<String, (u32, Instant)>>>,
-    max_requests: u32,
-    window: Duration,
+/// Default stream idle timeout: if no SSE chunk is received within this
+/// duration, the stream is considered stalled and will be terminated.
+const DEFAULT_STREAM_IDLE_TIMEOUT_SECS: u64 = 120;
+
+/// Consecutive failure threshold for marking an upstream as "down".
+/// When `failure_count` reaches this value, status changes from "degraded" to "down".
+const UPSTREAM_FAILURE_THRESHOLD: i32 = 3;
+
+/// Header prefixes from upstream responses that should be passed through
+/// to the client. All other headers are filtered out for security and
+/// consistency.
+const PASSTHROUGH_HEADER_PREFIXES: &[&str] = &[
+    "x-ratelimit-",
+    "openai-",
+    "anthropic-",
+];
+
+/// Filter upstream response headers through the passthrough whitelist.
+///
+/// Only headers matching `PASSTHROUGH_HEADER_PREFIXES` are retained.
+/// This prevents leaking upstream-internal headers (like `Server`,
+/// `Set-Cookie`, etc.) to the client.
+fn filter_passthrough_headers(headers: &HeaderMap) -> HeaderMap {
+    let mut filtered = HeaderMap::new();
+    for (key, value) in headers.iter() {
+        let key_str = key.as_str();
+        if PASSTHROUGH_HEADER_PREFIXES
+            .iter()
+            .any(|prefix| key_str.starts_with(prefix))
+        {
+            filtered.insert(key.clone(), value.clone());
+        }
+    }
+    filtered
 }
 
-impl RateLimiter {
-    fn new(max_requests: u32, window: Duration) -> Self {
-        Self {
-            requests: Arc::new(Mutex::new(HashMap::new())),
-            max_requests,
-            window,
-        }
+/// Attach `X-Request-Id` header to a response for end-to-end tracing.
+fn with_request_id(mut resp: Response, trace_id: &str) -> Response {
+    if let Ok(v) = HeaderValue::from_str(trace_id) {
+        resp.headers_mut().insert("x-request-id", v);
     }
+    resp
+}
 
-    /// Check if the given client IP is allowed to make a request.
-    /// Returns true if within rate limit, false if exceeded.
-    fn is_allowed(&self, client_ip: &str) -> bool {
-        let mut requests = self.requests.lock().unwrap();
-        let now = Instant::now();
-
-        if let Some((count, window_start)) = requests.get_mut(client_ip) {
-            if now.duration_since(*window_start) > self.window {
-                // Window expired, reset
-                *count = 1;
-                *window_start = now;
-                true
-            } else if *count < self.max_requests {
-                *count += 1;
-                true
-            } else {
-                false
-            }
-        } else {
-            requests.insert(client_ip.to_string(), (1, now));
-            true
-        }
+/// Build a `HeaderMap` containing only the `X-Request-Id` header for
+/// injecting into upstream requests.
+fn build_trace_headers(trace_id: &str) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    if let Ok(v) = HeaderValue::from_str(trace_id) {
+        headers.insert("x-request-id", v);
     }
+    headers
 }
 
 /// Build the API Gateway router.
+///
+/// `rate_limit_config` is loaded from the settings table at startup;
+/// changes take effect on next server restart.
 pub fn create_router(
     db: Arc<Database>,
     proxy_client: Arc<UpstreamClient>,
     crypto: Arc<KeyManager>,
+    rate_limit_config: RateLimitConfig,
 ) -> Router {
-    let rate_limiter = RateLimiter::new(60, Duration::from_secs(60));
+    let rate_limiter = RateLimiter::new(rate_limit_config);
+    // Load persisted rate limit state from database (P2-15)
+    rate_limiter.load_from_db(&db);
+    // Start background persistence task (P2-15)
+    rate_limiter.clone().start_persist_task(db.clone());
     let state = GatewayState {
         db,
         proxy_client,
@@ -99,41 +124,31 @@ pub fn create_router(
 }
 
 /// Rate limiting middleware: checks if client IP is within rate limits.
-/// Uses X-Forwarded-For header if present (for reverse proxy setups),
-/// otherwise falls back to connection remote address.
+///
+/// IP identification strategy is controlled by `trust_forwarded_for`:
+/// - `false` (default): uses TCP connection's `remote_addr` (direct mode)
+/// - `true`: takes the rightmost IP from `X-Forwarded-For` (reverse proxy mode)
+///
+/// Returns 429 with `Retry-After` header when rate limited.
 async fn rate_limit_middleware(
     State(state): State<GatewayState>,
     req: axum::http::Request<Body>,
     next: Next,
 ) -> Response {
-    let client_ip = req
-        .headers()
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.split(',').next().map(|s| s.trim().to_string()))
-        .unwrap_or_else(|| {
-            req.extensions()
-                .get::<std::net::SocketAddr>()
-                .map(|addr| addr.ip().to_string())
-                .unwrap_or_else(|| "unknown".to_string())
-        });
+    let trust_xff = state.rate_limiter.config().trust_forwarded_for;
+    let client_ip = rate_limit::extract_client_ip_from_request(&req, trust_xff);
 
-    if !state.rate_limiter.is_allowed(&client_ip) {
-        warn!("Rate limit exceeded for client {}", client_ip);
-        return (
-            StatusCode::TOO_MANY_REQUESTS,
-            Json(json!({
-                "error": {
-                    "message": "Rate limit exceeded. Please try again later.",
-                    "type": "rate_limit_error",
-                    "code": "rate_limit_exceeded"
-                }
-            })),
-        )
-            .into_response();
+    match state.rate_limiter.check(&client_ip) {
+        Ok(()) => next.run(req).await,
+        Err(retry_after_secs) => {
+            warn!(
+                client_ip = %client_ip,
+                retry_after = retry_after_secs,
+                "Rate limit exceeded"
+            );
+            error_response::rate_limit_exceeded(retry_after_secs)
+        }
     }
-
-    next.run(req).await
 }
 
 #[derive(Clone)]
@@ -145,13 +160,9 @@ struct GatewayState {
     rate_limiter: RateLimiter,
 }
 
-/// GET /api/health — Returns gateway status.
-async fn handle_health() -> impl IntoResponse {
-    Json(json!({
-        "status": "ok",
-        "service": "LLM-API-Proxy",
-        "version": env!("CARGO_PKG_VERSION")
-    }))
+/// GET /api/health — Returns three-tier health check (app + database + upstreams).
+async fn handle_health(State(state): State<GatewayState>) -> impl IntoResponse {
+    health::health_response(&state.db)
 }
 
 /// GET /v1/models — Return all pools as available models.
@@ -171,11 +182,7 @@ async fn handle_models(State(state): State<GatewayState>) -> impl IntoResponse {
 
             Json(json!({ "data": data })).into_response()
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => error_response::internal_error(&format!("database error: {}", e)),
     }
 }
 
@@ -204,7 +211,11 @@ fn extract_usage(resp: &serde_json::Value) -> (i64, i64, i64) {
 /// 3. Thinking mode: Injected **per-upstream** based on each upstream's
 ///    `provider_name`, not the first upstream's. A client may override with
 ///    `"reasoning": false` to disable thinking entirely.
-/// 4. Timeout: Uses `pool.timeout_seconds` for non-streaming requests.
+/// 4. Timeout: Uses `pool.timeout_seconds` for both streaming and non-streaming
+///    requests. Streaming also applies an idle timeout between chunks.
+/// 5. Trace ID: A UUID-based `trace_id` is generated per request, sent to
+///    upstream as `X-Request-Id` header, and returned to the client in the
+///    response header for end-to-end tracing.
 async fn handle_chat_completions(
     State(state): State<GatewayState>,
     headers: HeaderMap,
@@ -212,45 +223,52 @@ async fn handle_chat_completions(
 ) -> impl IntoResponse {
     let start_time = Instant::now();
 
-    // Authenticate Gateway Key
-    let _api_key = match auth::validate_api_key(&headers, &state.db) {
-        Ok(key) => key,
-        Err(e) => return (StatusCode::UNAUTHORIZED, Json(e)).into_response(),
+    // Generate trace ID for end-to-end request tracing.
+    // This ID is: (a) sent to upstream as X-Request-Id header,
+    // (b) included in structured log fields, (c) returned to client
+    // in the response header, and (d) used as request_id in the DB log.
+    let trace_id = uuid::Uuid::new_v4().simple().to_string();
+    let request_id = format!("req_{}", trace_id);
+    let trace_headers = build_trace_headers(&trace_id);
+
+    // Authenticate Gateway Key (P2-8: multi-key with pool access control)
+    let auth_result = match auth::validate_api_key(&headers, &state.db) {
+        Ok(auth) => auth,
+        Err(e) => {
+            let msg = e.get("error").and_then(|v| v.as_str()).unwrap_or("authentication failed");
+            return with_request_id(error_response::authentication_error(msg), &trace_id);
+        }
     };
 
     let model = match body.get("model").and_then(|m| m.as_str()) {
         Some(m) => m.to_string(),
         None => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": "missing model field" })),
-            )
-                .into_response();
+            return with_request_id(
+                error_response::invalid_request("Missing required field: model", "missing_model"),
+                &trace_id,
+            );
         }
     };
 
     let is_stream = body.get("stream").and_then(|s| s.as_bool()).unwrap_or(false);
     info!(
-        "Received chat completion request for model={}, stream={}",
-        model, is_stream
+        trace_id = %trace_id,
+        model = %model,
+        stream = is_stream,
+        "Received chat completion request"
     );
 
     // Find matching pool by model name
     let pool = match state.db.get_pool_by_name(&model) {
         Ok(Some(p)) => p,
         Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({ "error": format!("unknown model: {}", model) })),
-            )
-                .into_response();
+            return with_request_id(error_response::model_not_found(&model), &trace_id);
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": format!("database error: {}", e) })),
-            )
-                .into_response();
+            return with_request_id(
+                error_response::internal_error(&format!("database error: {}", e)),
+                &trace_id,
+            );
         }
     };
 
@@ -258,20 +276,27 @@ async fn handle_chat_completions(
     let pool_upstreams = match state.db.get_pool_upstreams(&pool.id) {
         Ok(u) => u,
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": format!("failed to load pool upstreams: {}", e) })),
-            )
-                .into_response();
+            return with_request_id(
+                error_response::internal_error(&format!("failed to load pool upstreams: {}", e)),
+                &trace_id,
+            );
         }
     };
 
+    // P2-8: Check if the authenticated API key has access to this pool.
+    // Legacy keys (from settings) and keys with empty allowed_pools have full access.
+    if !auth_result.can_access_pool(&pool.id) {
+        return with_request_id(
+            error_response::forbidden("This API key does not have access to the requested model"),
+            &trace_id,
+        );
+    }
+
     if pool_upstreams.is_empty() {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "pool has no associated upstreams" })),
-        )
-            .into_response();
+        return with_request_id(
+            error_response::no_available_upstream("pool has no associated upstreams"),
+            &trace_id,
+        );
     }
 
     // ── Pre-request configuration ──────────────────────────────────────
@@ -280,7 +305,8 @@ async fn handle_chat_completions(
     let client_reasoning_disabled =
         body.get("reasoning").and_then(|v| v.as_bool()) == Some(false);
 
-    // Pool-level timeout for non-streaming requests
+    // Pool-level timeout for both streaming and non-streaming requests.
+    // Falls back to 60 seconds if not configured (0 = unset).
     let timeout_secs = if pool.timeout_seconds > 0 {
         pool.timeout_seconds as u64
     } else {
@@ -290,7 +316,10 @@ async fn handle_chat_completions(
     // Determine round-robin starting index
     let n = pool_upstreams.len();
     let start_idx = if pool.round_robin_strategy == "round_robin" {
-        let mut counters = state.rr_counters.lock().unwrap();
+        let mut counters = state.rr_counters.lock().unwrap_or_else(|e| {
+            warn!("rr_counters mutex poisoned, recovering");
+            e.into_inner()
+        });
         let counter = counters.entry(pool.id.clone()).or_insert(0);
         let idx = *counter % n;
         *counter = (*counter + 1) % n;
@@ -301,9 +330,6 @@ async fn handle_chat_completions(
 
     // Number of upstreams to try
     let max_attempts = if pool.failover_enabled { n } else { 1 };
-
-    // Generate a request ID for logging (UUID to avoid collisions)
-    let request_id = format!("req_{}", uuid::Uuid::new_v4().simple());
 
     // ── Failover loop ──────────────────────────────────────────────────
 
@@ -320,13 +346,20 @@ async fn handle_chat_completions(
             Ok(Some(u)) => u,
             Ok(None) => {
                 warn!(
-                    "Pool upstream {} references missing upstream {}",
-                    pool.name, pu.upstream_id
+                    trace_id = %trace_id,
+                    pool = %pool.name,
+                    upstream_id = %pu.upstream_id,
+                    "Pool upstream references missing upstream"
                 );
                 continue;
             }
             Err(e) => {
-                warn!("Failed to load upstream {}: {}", pu.upstream_id, e);
+                warn!(
+                    trace_id = %trace_id,
+                    upstream_id = %pu.upstream_id,
+                    error = %e,
+                    "Failed to load upstream"
+                );
                 continue;
             }
         };
@@ -341,15 +374,21 @@ async fn handle_chat_completions(
         let api_key = match state.crypto.decrypt_api_key(&upstream.api_key_encrypted) {
             Ok(k) => k,
             Err(e) => {
+                let upstream_err = UpstreamError::KeyDecryptionFailed {
+                    detail: e.to_string(),
+                };
                 warn!(
-                    "Failed to decrypt API key for {}: {}",
-                    upstream.provider_name, e
+                    trace_id = %trace_id,
+                    provider = %upstream.provider_name,
+                    error = %e,
+                    "Failed to decrypt API key"
                 );
                 failed_upstreams_json.push(json!({
                     "provider": upstream.provider_name,
                     "model": upstream.selected_model,
-                    "error": "key decryption failed"
+                    "error": upstream_err.error_summary()
                 }));
+                // Key decryption failure should failover to next upstream
                 continue;
             }
         };
@@ -374,7 +413,10 @@ async fn handle_chat_completions(
         } else {
             // Round-robin across models: use a composite key of pool_id + upstream_id
             let key = format!("{}:{}", pool.id, pu.upstream_id);
-            let mut counters = state.rr_counters.lock().unwrap();
+            let mut counters = state.rr_counters.lock().unwrap_or_else(|e| {
+                warn!("rr_counters mutex poisoned, recovering");
+                e.into_inner()
+            });
             let counter = counters.entry(key).or_insert(0);
             let idx = *counter % models.len();
             *counter = (*counter + 1) % models.len();
@@ -386,22 +428,22 @@ async fn handle_chat_completions(
 
         // Inject thinking params **per-upstream** based on this upstream's
         // provider_name. Skip if the client explicitly set reasoning=false.
-        if !client_reasoning_disabled && pool.thinking_enabled {
-            if let Some(thinking_param) =
+        if !client_reasoning_disabled
+            && pool.thinking_enabled
+            && let Some(thinking_param) =
                 thinking::get_thinking_param(&upstream.provider_name, true)
-            {
-                thinking::merge_thinking_params(&mut request_body, &Some(thinking_param));
-            }
+        {
+            thinking::merge_thinking_params(&mut request_body, &Some(thinking_param));
         }
 
         // For streaming requests, ensure we get usage info in the final chunk
-        if is_stream {
-            if let Some(obj) = request_body.as_object_mut() {
-                obj.insert(
-                    "stream_options".to_string(),
-                    json!({ "include_usage": true }),
-                );
-            }
+        if is_stream
+            && let Some(obj) = request_body.as_object_mut()
+        {
+            obj.insert(
+                "stream_options".to_string(),
+                json!({ "include_usage": true }),
+            );
         }
 
         // ── SSE streaming path ──────────────────────────────────────
@@ -413,6 +455,8 @@ async fn handle_chat_completions(
                     &api_key,
                     model_str,
                     &request_body,
+                    timeout_secs,
+                    Some(&trace_headers),
                 )
                 .await
             {
@@ -437,86 +481,116 @@ async fn handle_chat_completions(
                         0,
                         0,
                     ) {
-                        warn!("Failed to insert request log: {}", e);
+                        warn!(trace_id = %trace_id, error = %e, "Failed to insert request log");
                     }
 
                     info!(
-                        "Streaming from {} (model={}) for pool={}",
-                        upstream.provider_name, model_str, pool.display_name
+                        trace_id = %trace_id,
+                        provider = %upstream.provider_name,
+                        model = %model_str,
+                        pool = %pool.display_name,
+                        "Streaming from upstream"
                     );
+
+                    // Update upstream health: successful stream start
+                    if let Err(e) = state.db.update_upstream_health(&upstream.id, true, None, UPSTREAM_FAILURE_THRESHOLD) {
+                        warn!(trace_id = %trace_id, error = %e, "Failed to update upstream health after success");
+                    }
 
                     // Build byte stream from upstream response
                     let byte_stream = upstream_response.bytes_stream();
                     let display_name = pool.display_name.clone();
                     let db_clone = state.db.clone();
                     let log_id_clone = log_id.clone();
+                    let trace_id_clone = trace_id.clone();
                     let (tx, rx) =
                         tokio::sync::mpsc::channel::<Result<Bytes, std::convert::Infallible>>(64);
 
-                    // Spawn a task to read lines, replace model, extract usage, and forward chunks
+                    // Spawn a task to read lines, replace model, extract usage, and forward chunks.
+                    // Applies an idle timeout: if no chunk is received within
+                    // DEFAULT_STREAM_IDLE_TIMEOUT_SECS, the stream is terminated.
                     tokio::spawn(async move {
                         use tokio_stream::StreamExt;
                         let mapped_stream = byte_stream
-                            .map(|result| result.map_err(|e| std::io::Error::other(e)));
+                            .map(|result| result.map_err(std::io::Error::other));
                         let stream_reader = StreamReader::new(mapped_stream);
                         let reader = BufReader::new(stream_reader);
                         let mut lines = reader.lines();
                         let mut last_usage: Option<(i64, i64, i64)> = None;
                         let mut stream_error: Option<String> = None;
-                        while let Ok(Some(line)) = lines.next_line().await {
-                            let output = if let Some(json_str) = line.strip_prefix("data: ") {
-                                let trimmed = json_str.trim();
-                                if trimmed == "[DONE]" {
-                                    "data: [DONE]\n\n".to_string()
-                                } else {
-                                    // Single-pass: parse JSON once, replace model + extract usage
-                                    let (chunk, usage) = stream::process_sse_chunk(trimmed, &display_name);
-                                    if let Some(u) = usage {
-                                        last_usage = Some(u);
-                                    }
-                                    // Detect error in stream chunk
-                                    if stream_error.is_none() {
-                                        if let Ok(v) = serde_json::from_str::<Value>(trimmed) {
-                                            if let Some(err) = v.get("error") {
-                                                let msg = if let Some(m) = err.get("message").and_then(|m| m.as_str()) {
-                                                    m.to_string()
-                                                } else {
-                                                    err.to_string()
-                                                };
-                                                stream_error = Some(msg);
+                        let idle_timeout = std::time::Duration::from_secs(DEFAULT_STREAM_IDLE_TIMEOUT_SECS);
+
+                        loop {
+                            // Wrap next_line() with an idle timeout.
+                            // If no data arrives within the timeout, terminate the stream.
+                            match tokio::time::timeout(idle_timeout, lines.next_line()).await {
+                                Ok(Ok(Some(line))) => {
+                                    let output = if let Some(json_str) = line.strip_prefix("data: ") {
+                                        let trimmed = json_str.trim();
+                                        if trimmed == "[DONE]" {
+                                            "data: [DONE]\n\n".to_string()
+                                        } else {
+                                            // Single-pass: parse JSON once, replace model,
+                                            // extract usage, and detect errors
+                                            let (chunk, usage, error_msg) =
+                                                stream::process_sse_chunk(trimmed, &display_name);
+                                            if let Some(u) = usage {
+                                                last_usage = Some(u);
                                             }
+                                            if stream_error.is_none() {
+                                                if let Some(msg) = error_msg {
+                                                    stream_error = Some(msg);
+                                                }
+                                            }
+                                            chunk
                                         }
+                                    } else if line.is_empty() || line.starts_with(':') {
+                                        // Skip blank separators and SSE comments
+                                        continue;
+                                    } else {
+                                        format!("{}\n\n", line)
+                                    };
+                                    if tx.send(Ok(Bytes::from(output))).await.is_err() {
+                                        break; // client disconnected
                                     }
-                                    chunk
                                 }
-                            } else if line.is_empty() || line.starts_with(':') {
-                                // Skip blank separators and SSE comments
-                                continue;
-                            } else {
-                                format!("{}\n\n", line)
-                            };
-                            if tx.send(Ok(Bytes::from(output))).await.is_err() {
-                                break; // client disconnected
+                                Ok(Ok(None)) => break, // stream ended
+                                Ok(Err(e)) => {
+                                    warn!(
+                                        trace_id = %trace_id_clone,
+                                        error = %e,
+                                        "Error reading stream line"
+                                    );
+                                    break;
+                                }
+                                Err(_) => {
+                                    warn!(
+                                        trace_id = %trace_id_clone,
+                                        idle_timeout_secs = DEFAULT_STREAM_IDLE_TIMEOUT_SECS,
+                                        "Stream idle timeout — no data received, terminating stream"
+                                    );
+                                    break;
+                                }
                             }
                         }
 
                         // After stream completes, update the log:
                         // - If an error was detected mid-stream, update status to 500
                         // - Update token usage if found
-                        if let Some(ref _err) = stream_error {
-                            if let Err(e) = db_clone.update_request_log_status(&log_id_clone, 500) {
-                                warn!("Failed to update request log status: {}", e);
-                            }
+                        if stream_error.is_some()
+                            && let Err(e) = db_clone.update_request_log_status(&log_id_clone, 500)
+                        {
+                            warn!(trace_id = %trace_id_clone, error = %e, "Failed to update request log status");
                         }
-                        if let Some((prompt, completion, total)) = last_usage {
-                            if let Err(e) = db_clone.update_request_log_tokens(
+                        if let Some((prompt, completion, total)) = last_usage
+                            && let Err(e) = db_clone.update_request_log_tokens(
                                 &log_id_clone,
                                 prompt,
                                 completion,
                                 total,
-                            ) {
-                                warn!("Failed to update request log tokens: {}", e);
-                            }
+                            )
+                        {
+                            warn!(trace_id = %trace_id_clone, error = %e, "Failed to update request log tokens");
                         }
                     });
 
@@ -529,23 +603,39 @@ async fn handle_chat_completions(
                         .header("Content-Type", "text/event-stream")
                         .header("Cache-Control", "no-cache")
                         .header("Connection", "keep-alive")
+                        .header("X-Request-Id", &trace_id)
                         .body(body)
                     {
                         Ok(resp) => return resp.into_response(),
                         Err(e) => {
-                            warn!("Failed to build stream response: {}", e);
-                            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "failed to build response"}))).into_response();
+                            warn!(trace_id = %trace_id, error = %e, "Failed to build stream response");
+                            return with_request_id(
+                                error_response::internal_error("failed to build response"),
+                                &trace_id,
+                            );
                         }
                     }
                 }
                 Err(e) => {
-                    warn!("Stream upstream {} failed: {}", upstream.provider_name, e);
+                    warn!(
+                        trace_id = %trace_id,
+                        provider = %upstream.provider_name,
+                        error = %e,
+                        "Stream upstream failed"
+                    );
+                    // Update upstream health: failed stream attempt
+                    if let Err(he) = state.db.update_upstream_health(&upstream.id, false, Some(&e.error_summary()), UPSTREAM_FAILURE_THRESHOLD) {
+                        warn!(trace_id = %trace_id, error = %he, "Failed to update upstream health after stream failure");
+                    }
                     failed_upstreams_json.push(json!({
                         "provider": upstream.provider_name,
                         "model": model_str,
-                        "error": e.to_string()
+                        "error": e.error_summary()
                     }));
-                    last_error = Some(e.to_string());
+                    last_error = Some(e.error_summary());
+                    if !e.should_failover() {
+                        break;
+                    }
                     continue;
                 }
             }
@@ -559,6 +649,7 @@ async fn handle_chat_completions(
                     model_str,
                     &request_body,
                     timeout_secs,
+                    Some(&trace_headers),
                 )
                 .await
             {
@@ -582,18 +673,34 @@ async fn handle_chat_completions(
                         } else {
                             err_obj.to_string()
                         };
-                        warn!("Upstream {} returned error in body: {}", upstream.provider_name, err_msg);
+                        warn!(
+                            trace_id = %trace_id,
+                            provider = %upstream.provider_name,
+                            error = %err_msg,
+                            "Upstream returned error in body"
+                        );
+                        let embedded_err = UpstreamError::EmbeddedError { message: err_msg };
                         failed_upstreams_json.push(json!({
                             "provider": upstream.provider_name,
                             "model": model_str,
-                            "error": err_msg
+                            "error": embedded_err.error_summary()
                         }));
-                        last_error = Some(err_msg);
+                        last_error = Some(embedded_err.error_summary());
+                        // Update upstream health: embedded error (HTTP 200 but error in body)
+                        if let Err(he) = state.db.update_upstream_health(&upstream.id, false, Some(&embedded_err.error_summary()), UPSTREAM_FAILURE_THRESHOLD) {
+                            warn!(trace_id = %trace_id, error = %he, "Failed to update upstream health after embedded error");
+                        }
+                        // Embedded errors should failover
                         continue;
                     }
 
                     // Extract token usage from response
                     let (prompt_tokens, completion_tokens, total_tokens) = extract_usage(&resp_body);
+
+                    // Update upstream health: successful non-streaming response
+                    if let Err(e) = state.db.update_upstream_health(&upstream.id, true, None, UPSTREAM_FAILURE_THRESHOLD) {
+                        warn!(trace_id = %trace_id, error = %e, "Failed to update upstream health after success");
+                    }
 
                     // Log successful request
                     let log_id = format!("log_{}", uuid::Uuid::new_v4().simple());
@@ -613,19 +720,47 @@ async fn handle_chat_completions(
                         completion_tokens,
                         total_tokens,
                     ) {
-                        warn!("Failed to insert request log: {}", e);
+                        warn!(trace_id = %trace_id, error = %e, "Failed to insert request log");
                     }
 
-                    return (StatusCode::OK, Json(resp_body)).into_response();
+                    // Build response with passthrough headers from upstream + X-Request-Id
+                    let passthrough = filter_passthrough_headers(&response.headers);
+                    let mut builder = Response::builder()
+                        .status(StatusCode::OK)
+                        .header("X-Request-Id", &trace_id);
+
+                    for (key, value) in passthrough.iter() {
+                        builder = builder.header(key, value);
+                    }
+
+                    return builder
+                        .header("Content-Type", "application/json")
+                        .body(Body::from(serde_json::to_vec(&resp_body).unwrap_or_default()))
+                        .unwrap_or_else(|_| {
+                            (StatusCode::OK, Json(resp_body)).into_response()
+                        })
+                        .into_response();
                 }
                 Err(e) => {
-                    warn!("Upstream {} failed: {}", upstream.provider_name, e);
+                    warn!(
+                        trace_id = %trace_id,
+                        provider = %upstream.provider_name,
+                        error = %e,
+                        "Upstream failed"
+                    );
+                    // Update upstream health: failed non-stream attempt
+                    if let Err(he) = state.db.update_upstream_health(&upstream.id, false, Some(&e.error_summary()), UPSTREAM_FAILURE_THRESHOLD) {
+                        warn!(trace_id = %trace_id, error = %he, "Failed to update upstream health after failure");
+                    }
                     failed_upstreams_json.push(json!({
                         "provider": upstream.provider_name,
                         "model": model_str,
-                        "error": e.to_string()
+                        "error": e.error_summary()
                     }));
-                    last_error = Some(e.to_string());
+                    last_error = Some(e.error_summary());
+                    if !e.should_failover() {
+                        break;
+                    }
                     continue;
                 }
             }
@@ -651,30 +786,148 @@ async fn handle_chat_completions(
         0,
         0,
     ) {
-        warn!("Failed to insert failure request log: {}", e);
+        warn!(trace_id = %trace_id, error = %e, "Failed to insert failure request log");
     }
 
     // If we never actually attempted any upstream (all were disabled),
     // return 503 instead of 502.
-    let status = if !attempted_any {
-        StatusCode::SERVICE_UNAVAILABLE
-    } else {
-        StatusCode::BAD_GATEWAY
-    };
+    if !attempted_any {
+        return with_request_id(
+            error_response::no_available_upstream("all upstreams are disabled"),
+            &trace_id,
+        );
+    }
 
-    let error_msg = if !attempted_any {
-        "all upstreams are disabled"
-    } else {
-        "all upstreams failed"
-    };
-
-    (
-        status,
-        Json(json!({
-            "error": error_msg,
-            "details": failed_upstreams_json,
-            "last_error": last_error
-        })),
+    with_request_id(
+        error_response::all_upstreams_failed(&failed_upstreams_json, last_error.as_deref()),
+        &trace_id,
     )
-        .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::{HeaderName, HeaderValue};
+
+    // ── filter_passthrough_headers 测试 ──────────────────────────
+
+    #[test]
+    fn test_passthrough_x_ratelimit_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-ratelimit-limit-requests", HeaderValue::from_static("60"));
+        headers.insert("x-ratelimit-remaining-tokens", HeaderValue::from_static("1000"));
+
+        let filtered = filter_passthrough_headers(&headers);
+        assert_eq!(filtered.len(), 2);
+        assert!(filtered.contains_key("x-ratelimit-limit-requests"));
+        assert!(filtered.contains_key("x-ratelimit-remaining-tokens"));
+    }
+
+    #[test]
+    fn test_passthrough_openai_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert("openai-organization", HeaderValue::from_static("org-123"));
+        headers.insert("openai-processing-ms", HeaderValue::from_static("42"));
+
+        let filtered = filter_passthrough_headers(&headers);
+        assert_eq!(filtered.len(), 2);
+    }
+
+    #[test]
+    fn test_passthrough_anthropic_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert("anthropic-ratelimit-requests", HeaderValue::from_static("100"));
+
+        let filtered = filter_passthrough_headers(&headers);
+        assert_eq!(filtered.len(), 1);
+    }
+
+    #[test]
+    fn test_filter_out_non_whitelisted_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert("server", HeaderValue::from_static("nginx"));
+        headers.insert("set-cookie", HeaderValue::from_static("session=abc"));
+        headers.insert("x-internal-debug", HeaderValue::from_static("secret"));
+        headers.insert("content-type", HeaderValue::from_static("application/json"));
+
+        let filtered = filter_passthrough_headers(&headers);
+        assert!(filtered.is_empty(), "Non-whitelisted headers should be filtered out");
+    }
+
+    #[test]
+    fn test_passthrough_empty_headers() {
+        let headers = HeaderMap::new();
+        let filtered = filter_passthrough_headers(&headers);
+        assert!(filtered.is_empty());
+    }
+
+    #[test]
+    fn test_passthrough_mixed_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-ratelimit-limit-requests", HeaderValue::from_static("60"));
+        headers.insert("server", HeaderValue::from_static("cloudflare"));
+        headers.insert("openai-model", HeaderValue::from_static("gpt-4"));
+
+        let filtered = filter_passthrough_headers(&headers);
+        assert_eq!(filtered.len(), 2);
+        assert!(filtered.contains_key("x-ratelimit-limit-requests"));
+        assert!(filtered.contains_key("openai-model"));
+        assert!(!filtered.contains_key("server"));
+    }
+
+    // ── with_request_id 测试 ─────────────────────────────────────
+
+    #[test]
+    fn test_with_request_id_adds_header() {
+        let resp = (StatusCode::OK, Json(json!({"ok": true}))).into_response();
+        let resp = with_request_id(resp, "abc123");
+        assert_eq!(
+            resp.headers().get("x-request-id").unwrap(),
+            "abc123"
+        );
+    }
+
+    #[test]
+    fn test_with_request_id_preserves_existing_headers() {
+        let mut resp = (StatusCode::OK, Json(json!({"ok": true}))).into_response();
+        resp.headers_mut().insert("content-type", HeaderValue::from_static("application/json"));
+        let resp = with_request_id(resp, "trace-xyz");
+        assert_eq!(
+            resp.headers().get("x-request-id").unwrap(),
+            "trace-xyz"
+        );
+        assert_eq!(
+            resp.headers().get("content-type").unwrap(),
+            "application/json"
+        );
+    }
+
+    // ── build_trace_headers 测试 ─────────────────────────────────
+
+    #[test]
+    fn test_build_trace_headers() {
+        let headers = build_trace_headers("test-trace-id");
+        assert_eq!(headers.len(), 1);
+        assert_eq!(
+            headers.get("x-request-id").unwrap(),
+            "test-trace-id"
+        );
+    }
+
+    #[test]
+    fn test_build_trace_headers_empty_string() {
+        // Empty string is still a valid header value
+        let headers = build_trace_headers("");
+        assert_eq!(headers.len(), 1);
+    }
+
+    // ── PASSTHROUGH_HEADER_PREFIXES 完整性测试 ────────────────────
+
+    #[test]
+    fn test_passthrough_prefixes_cover_expected_ranges() {
+        // Ensure all expected prefix patterns are defined
+        assert!(PASSTHROUGH_HEADER_PREFIXES.contains(&"x-ratelimit-"));
+        assert!(PASSTHROUGH_HEADER_PREFIXES.contains(&"openai-"));
+        assert!(PASSTHROUGH_HEADER_PREFIXES.contains(&"anthropic-"));
+    }
 }

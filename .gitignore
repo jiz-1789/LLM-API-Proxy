@@ -18,10 +18,15 @@ DEVELOPMENT.md
 LLM-API-Proxy-PRD.md
 LLM-API-Proxy-TECHDESIGN.md
 plan.md
+项目优化建议.md
+TODO.md
 
 # 测试数据 / 导出文件
 *.csv
 *.exe
+
+# 测试产生的临时数据库文件
+memdb*
 
 # IDE
 .idea/

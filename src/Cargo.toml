@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-only"
 description = "Multi-provider LLM API proxy gateway with native GUI"
+# Disable auto-discovery of integration tests in `tests/` directory.
+# Our `src/tests/` directory is an internal test module (via `#[cfg(test)] mod tests;`),
+# not a Cargo integration test target.
+autotests = false
 
 # Library target for unit tests on backend modules
 [lib]
@@ -36,6 +40,10 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 bytes = { workspace = true }
 log = "0.4"
+zip = { workspace = true }
+dashmap = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
+wiremock = "0.6"
+tower = { version = "0.5", features = ["util"] }

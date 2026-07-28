@@ -45,12 +45,26 @@ pub fn extract_usage_from_sse_chunk(json_str: &str) -> Option<(i64, i64, i64)> {
     }
 }
 
-/// Combined: parse JSON once, extract usage (if any), and replace model name.
-/// Returns `(output_line, Option<usage>)`.
-/// This avoids double-parsing the same JSON chunk for model replacement + usage extraction.
-pub fn process_sse_chunk(json_str: &str, display_name: &str) -> (String, Option<(i64, i64, i64)>) {
+/// Combined: parse JSON once, extract usage (if any), detect errors (if any),
+/// and replace model name.
+/// Returns `(output_line, Option<usage>, Option<error_message>)`.
+/// This avoids double-parsing the same JSON chunk for model replacement,
+/// usage extraction, and error detection.
+pub fn process_sse_chunk(
+    json_str: &str,
+    display_name: &str,
+) -> (String, Option<(i64, i64, i64)>, Option<String>) {
     match serde_json::from_str::<Value>(json_str) {
         Ok(mut v) => {
+            // Detect error field before mutating
+            let error_msg = v.get("error").map(|err| {
+                if let Some(m) = err.get("message").and_then(|m| m.as_str()) {
+                    m.to_string()
+                } else {
+                    err.to_string()
+                }
+            });
+
             if let Some(obj) = v.as_object_mut() {
                 obj.insert("model".to_string(), Value::String(display_name.to_string()));
             }
@@ -65,9 +79,9 @@ pub fn process_sse_chunk(json_str: &str, display_name: &str) -> (String, Option<
                     Some((prompt, completion, total))
                 }
             });
-            (format!("data: {}\n\n", v), usage)
+            (format!("data: {}\n\n", v), usage, error_msg)
         }
-        Err(_) => (format!("data: {}\n\n", json_str), None),
+        Err(_) => (format!("data: {}\n\n", json_str), None, None),
     }
 }
 
