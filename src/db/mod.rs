@@ -151,6 +151,36 @@ pub struct UpstreamStatusSummary {
     pub recovered_at: Option<String>,
 }
 
+/// A single failed upstream entry within a failover chain.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FailedUpstreamEntry {
+    pub provider: String,
+    pub model: String,
+    pub error: String,
+}
+
+/// A failover event: a request log that had at least one upstream failure
+/// before succeeding (or failing entirely).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FailoverEvent {
+    pub id: String,
+    pub request_id: String,
+    pub created_at: String,
+    pub pool_name: Option<String>,
+    /// The upstream that ultimately succeeded (None if all failed).
+    pub upstream_id: Option<String>,
+    /// The resolved name of the successful upstream.
+    pub upstream_name: Option<String>,
+    pub model: Option<String>,
+    pub status_code: i32,
+    pub response_time_ms: i32,
+    pub is_streaming: bool,
+    /// Parsed list of failed upstreams in the failover chain.
+    pub failed_upstreams: Vec<FailedUpstreamEntry>,
+    /// Total number of upstreams that were tried (failed + successful).
+    pub total_attempts: i32,
+}
+
 /// Log query filter parameters.
 #[derive(Debug, Clone, Default)]
 pub struct LogFilter {

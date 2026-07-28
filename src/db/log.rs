@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use tracing::warn;
 
-use super::{Database, DailyTokenUsage, HourlyTokenUsage, LogFilter, ModelTokenUsage, RequestLogEntry, RequestStatsEntry, StatsFilter, TokenTotals};
+use super::{Database, DailyTokenUsage, FailoverEvent, FailedUpstreamEntry, HourlyTokenUsage, LogFilter, ModelTokenUsage, RequestLogEntry, RequestStatsEntry, StatsFilter, TokenTotals};
 
 impl Database {
     // ========================================================================
@@ -594,6 +594,125 @@ impl Database {
         entries.sort_by_key(|e| std::cmp::Reverse(e.total_count));
 
         Ok(entries)
+    }
+
+    /// Get request logs that had failover events (where `failed_upstreams`
+    /// is not an empty JSON array).
+    ///
+    /// Returns parsed failover events with the full failure chain.
+    /// Results are sorted by `created_at` descending (most recent first).
+    pub fn get_failover_events(
+        &self,
+        start_date: Option<&str>,
+        end_date: Option<&str>,
+        pool_name: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<FailoverEvent>, AppError> {
+        let mut conditions = vec![
+            "failed_upstreams IS NOT NULL".to_string(),
+            "failed_upstreams != '[]'".to_string(),
+            "failed_upstreams != ''".to_string(),
+        ];
+        let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+        if let Some(start) = start_date {
+            conditions.push("created_at >= ?".to_string());
+            params_vec.push(Box::new(start.to_string()));
+        }
+        if let Some(end) = end_date {
+            conditions.push("created_at <= ?".to_string());
+            params_vec.push(Box::new(end.to_string()));
+        }
+        if let Some(pool) = pool_name {
+            conditions.push("pool_name = ?".to_string());
+            params_vec.push(Box::new(pool.to_string()));
+        }
+
+        let sql = format!(
+            "SELECT id, request_id, pool_name, upstream_id, model,
+                    failed_upstreams, status_code, response_time_ms,
+                    is_streaming, created_at
+             FROM request_logs
+             WHERE {}
+             ORDER BY created_at DESC
+             LIMIT ? OFFSET ?",
+            conditions.join(" AND ")
+        );
+
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare(&sql)?;
+        params_vec.push(Box::new(limit));
+        params_vec.push(Box::new(offset));
+        let params: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+
+        let rows = stmt.query_map(params.as_slice(), |row| {
+            let failed_json: String = row.get(5)?;
+            // Parse the failed_upstreams JSON into structured entries
+            let failed: Vec<FailedUpstreamEntry> =
+                serde_json::from_str(&failed_json).unwrap_or_default();
+
+            let upstream_id: Option<String> = row.get(3)?;
+            // total_attempts = failed count + 1 if there was a successful upstream
+            let total_attempts = failed.len() as i32 + if upstream_id.is_some() { 1 } else { 0 };
+
+            Ok(FailoverEvent {
+                id: row.get(0)?,
+                request_id: row.get(1)?,
+                pool_name: row.get(2)?,
+                upstream_id,
+                upstream_name: None, // Resolved by the caller
+                model: row.get(4)?,
+                failed_upstreams: failed,
+                status_code: row.get(6)?,
+                response_time_ms: row.get(7)?,
+                is_streaming: row.get::<_, i32>(8)? != 0,
+                created_at: row.get(9)?,
+                total_attempts,
+            })
+        })?;
+
+        Self::collect_rows(rows)
+    }
+
+    /// Count total failover events matching the filter (for pagination).
+    pub fn count_failover_events(
+        &self,
+        start_date: Option<&str>,
+        end_date: Option<&str>,
+        pool_name: Option<&str>,
+    ) -> Result<i64, AppError> {
+        let mut conditions = vec![
+            "failed_upstreams IS NOT NULL".to_string(),
+            "failed_upstreams != '[]'".to_string(),
+            "failed_upstreams != ''".to_string(),
+        ];
+        let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+        if let Some(start) = start_date {
+            conditions.push("created_at >= ?".to_string());
+            params_vec.push(Box::new(start.to_string()));
+        }
+        if let Some(end) = end_date {
+            conditions.push("created_at <= ?".to_string());
+            params_vec.push(Box::new(end.to_string()));
+        }
+        if let Some(pool) = pool_name {
+            conditions.push("pool_name = ?".to_string());
+            params_vec.push(Box::new(pool.to_string()));
+        }
+
+        let sql = format!(
+            "SELECT COUNT(*) FROM request_logs WHERE {}",
+            conditions.join(" AND ")
+        );
+
+        let conn = self.get_conn()?;
+        let params: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+        let count: i64 = conn.query_row(&sql, params.as_slice(), |row| row.get(0))?;
+        Ok(count)
     }
 }
 

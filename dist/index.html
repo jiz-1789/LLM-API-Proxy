@@ -1311,6 +1311,33 @@ gap: 8px;
                     </div>
                 </div>
 
+                <!-- Failover Events -->
+                <div id="logs-failover-section" style="margin-bottom:20px;">
+                    <div class="section-title" style="font-size:14px;">
+                        <span data-i18n="logs_failover_title">故障切换事件</span>
+                        <button class="btn btn-ghost btn-sm" style="margin-left:8px;" onclick="loadFailoverEvents(true)" data-i18n="logs_refresh">刷新</button>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th data-i18n="logs_time">时间</th>
+                                    <th data-i18n="logs_pool">模型池</th>
+                                    <th data-i18n="logs_failover_success_upstream">最终上游</th>
+                                    <th data-i18n="upstreams_model">模型</th>
+                                    <th data-i18n="logs_code">状态码</th>
+                                    <th data-i18n="logs_failover_attempts">尝试次数</th>
+                                    <th data-i18n="logs_failover_chain">故障链</th>
+                                </tr>
+                            </thead>
+                            <tbody id="logs-failover-tbody">
+                                <tr><td colspan="7" class="empty-state" data-i18n="empty_loading">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="failover-pagination" style="display:flex;align-items:center;justify-content:center;gap:12px;padding:12px 0;"></div>
+                </div>
+
                 <div class="table-wrap">
                     <table>
                         <thead>
@@ -1906,6 +1933,11 @@ logs_stats_success_rate: { zh: '成功率', en: 'Success Rate' },
 logs_stats_avg_latency: { zh: '平均耗时', en: 'Avg Latency' },
 logs_stats_p95: { zh: 'P95 耗时', en: 'P95 Latency' },
 logs_stats_p99: { zh: 'P99 耗时', en: 'P99 Latency' },
+logs_failover_title: { zh: '故障切换事件', en: 'Failover Events' },
+logs_failover_success_upstream: { zh: '最终上游', en: 'Final Upstream' },
+logs_failover_attempts: { zh: '尝试次数', en: 'Attempts' },
+logs_failover_chain: { zh: '故障链', en: 'Failover Chain' },
+logs_failover_all_failed: { zh: '全部失败', en: 'All Failed' },
 
         // ── Settings page ──
         settings_title: { zh: '系统设置', en: 'System Settings' },
@@ -2415,6 +2447,7 @@ populatePoolFilter();
 populateUpstreamFilter();
 loadLogs(true);
 loadRequestStats();
+loadFailoverEvents(true);
 }
 
 // Stop dashboard timer when leaving dashboard
@@ -3381,6 +3414,80 @@ loadLogs(false);
             }).join('');
         } catch (e) {
             /* ignore */
+        }
+    }
+
+    // ================================================================
+    // Failover Events (P2-5)
+    // ================================================================
+    let failoverCurrentPage = 0;
+
+    async function loadFailoverEvents(resetPage) {
+        try {
+            if (resetPage) failoverCurrentPage = 0;
+            const poolFilter = document.getElementById('log-filter-pool')?.value || '';
+            const pageLimit = 10;
+            const args = { limit: pageLimit, offset: failoverCurrentPage * pageLimit };
+            if (poolFilter) args.poolName = poolFilter;
+
+            const resp = await cmd('get_failover_events', args);
+            const tbody = document.getElementById('logs-failover-tbody');
+            if (!resp || !resp.events || resp.events.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="empty-state">' + t('logs_no_data') + '</td></tr>';
+                updateFailoverPagination(0, pageLimit, false, 0);
+                return;
+            }
+            tbody.innerHTML = resp.events.map(e => {
+                const codeBadge = e.status_code >= 200 && e.status_code < 300
+                    ? `<span class="badge badge-green">${e.status_code}</span>`
+                    : `<span class="badge badge-red">${e.status_code}</span>`;
+                const successUpstream = e.upstream_name || (e.upstream_id ? e.upstream_id.substring(0,8) : t('logs_failover_all_failed'));
+                const modelName = e.model || '-';
+                // Build failover chain display
+                const chainHtml = e.failed_upstreams.map(f => {
+                    return `<span style="display:inline-block;background:var(--danger-subtle);color:var(--danger);padding:2px 6px;border-radius:3px;font-size:11px;margin:1px;">${esc(f.provider)}: ${esc(f.error)}</span>`;
+                }).join(' ');
+                // If there was a successful upstream, show it in the chain
+                const successBadge = e.upstream_id
+                    ? `<span style="display:inline-block;background:var(--success-subtle);color:var(--success);padding:2px 6px;border-radius:3px;font-size:11px;margin:1px;">${esc(successUpstream)}: OK</span>`
+                    : '';
+                return `<tr>
+                    <td style="font-size:12px;">${esc(e.created_at)}</td>
+                    <td>${esc(e.pool_name || '-')}</td>
+                    <td>${esc(successUpstream)}</td>
+                    <td style="font-family:'SF Mono','Cascadia Code',monospace;font-size:11px;">${esc(modelName)}</td>
+                    <td>${codeBadge}</td>
+                    <td>${e.total_attempts}</td>
+                    <td style="max-width:400px;">${chainHtml} ${successBadge}</td>
+                </tr>`;
+            }).join('');
+            updateFailoverPagination(failoverCurrentPage, pageLimit, resp.events.length === pageLimit, resp.total);
+        } catch (e) {
+            /* ignore */
+        }
+    }
+
+    function updateFailoverPagination(page, limit, hasNext, total) {
+        const container = document.getElementById('failover-pagination');
+        if (!container) return;
+        if (total === 0) { container.innerHTML = ''; return; }
+        const start = page * limit + 1;
+        const end = hasNext ? (page + 1) * limit : Math.min(total, (page + 1) * limit);
+        container.innerHTML = `
+<button class="btn btn-ghost btn-sm" ${page === 0 ? 'disabled' : ''} onclick="failoverPrevPage()">${t('logs_prev')}</button>
+<span style="font-size:12px;color:var(--text-muted);">${start}-${end} / ${total}</span>
+<button class="btn btn-ghost btn-sm" ${!hasNext ? 'disabled' : ''} onclick="failoverNextPage()">${t('logs_next')}</button>
+`;
+    }
+
+    function failoverNextPage() {
+        failoverCurrentPage++;
+        loadFailoverEvents(false);
+    }
+    function failoverPrevPage() {
+        if (failoverCurrentPage > 0) {
+            failoverCurrentPage--;
+            loadFailoverEvents(false);
         }
     }
 

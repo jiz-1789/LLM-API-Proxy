@@ -53,6 +53,7 @@ pub fn run() {
             commands::log::get_upstream_model_detail,
             commands::log::export_request_logs,
             commands::log::get_request_stats,
+            commands::log::get_failover_events,
             commands::health::check_upstream_health,
             commands::health::check_all_upstreams_health,
             commands::settings::get_settings,

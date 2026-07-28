@@ -306,3 +306,96 @@ pub fn get_request_stats(
 
     Ok(entries.into_iter().map(Into::into).collect())
 }
+
+/// Failover event entry for the frontend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FailoverEventVO {
+    pub id: String,
+    pub request_id: String,
+    pub created_at: String,
+    pub pool_name: Option<String>,
+    pub upstream_id: Option<String>,
+    pub upstream_name: Option<String>,
+    pub model: Option<String>,
+    pub status_code: i32,
+    pub response_time_ms: i32,
+    pub is_streaming: bool,
+    pub failed_upstreams: Vec<llm_api_proxy_lib::db::FailedUpstreamEntry>,
+    pub total_attempts: i32,
+}
+
+impl From<llm_api_proxy_lib::db::FailoverEvent> for FailoverEventVO {
+    fn from(e: llm_api_proxy_lib::db::FailoverEvent) -> Self {
+        Self {
+            id: e.id,
+            request_id: e.request_id,
+            created_at: e.created_at,
+            pool_name: e.pool_name,
+            upstream_id: e.upstream_id,
+            upstream_name: e.upstream_name,
+            model: e.model,
+            status_code: e.status_code,
+            response_time_ms: e.response_time_ms,
+            is_streaming: e.is_streaming,
+            failed_upstreams: e.failed_upstreams,
+            total_attempts: e.total_attempts,
+        }
+    }
+}
+
+/// Response for failover events query with pagination info.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FailoverEventsResponse {
+    pub events: Vec<FailoverEventVO>,
+    pub total: i64,
+}
+
+/// Get failover events (request logs that had upstream failures).
+/// Supports filtering by time range and pool name, with pagination.
+#[tauri::command]
+pub fn get_failover_events(
+    start_date: Option<String>,
+    end_date: Option<String>,
+    pool_name: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+    state: State<'_, AppState>,
+) -> Result<FailoverEventsResponse, String> {
+    let limit = limit.unwrap_or(50).min(500);
+    let offset = offset.unwrap_or(0);
+
+    let mut events = state.db
+        .get_failover_events(
+            start_date.as_deref(),
+            end_date.as_deref(),
+            pool_name.as_deref(),
+            limit,
+            offset,
+        )
+        .map_err(|e| e.to_string())?;
+
+    // Resolve upstream names
+    let upstreams = state.db.get_upstreams().map_err(|e| e.to_string())?;
+    let upstream_map: std::collections::HashMap<String, String> = upstreams
+        .iter()
+        .map(|u| (u.id.clone(), u.provider_name.clone()))
+        .collect();
+    for event in &mut events {
+        if let Some(id) = &event.upstream_id {
+            event.upstream_name = upstream_map.get(id).cloned();
+        }
+    }
+
+    let total = state.db
+        .count_failover_events(
+            start_date.as_deref(),
+            end_date.as_deref(),
+            pool_name.as_deref(),
+        )
+        .map_err(|e| e.to_string())?;
+
+    Ok(FailoverEventsResponse {
+        events: events.into_iter().map(Into::into).collect(),
+        total,
+    })
+}
