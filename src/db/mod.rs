@@ -157,10 +157,37 @@ pub struct LogFilter {
     pub start_date: Option<String>,
     pub end_date: Option<String>,
     pub pool_name: Option<String>,
+    pub upstream_id: Option<String>,
+    pub model: Option<String>,
     /// Status code prefix for range filtering (e.g. 2 = 2xx, 4 = 4xx, 5 = 5xx).
     pub status_prefix: Option<i32>,
     pub limit: i64,
     pub offset: i64,
+}
+
+/// Statistics filter parameters for aggregated request stats.
+#[derive(Debug, Clone, Default)]
+pub struct StatsFilter {
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
+    pub pool_name: Option<String>,
+    pub upstream_id: Option<String>,
+    pub model: Option<String>,
+}
+
+/// Aggregated request statistics for a single upstream+model group.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestStatsEntry {
+    pub upstream_id: Option<String>,
+    pub upstream_name: Option<String>,
+    pub model: Option<String>,
+    pub total_count: i64,
+    pub success_count: i64,
+    pub error_count: i64,
+    pub success_rate: f64,
+    pub avg_response_time_ms: f64,
+    pub p95_response_time_ms: i32,
+    pub p99_response_time_ms: i32,
 }
 
 /// A configuration change audit entry.

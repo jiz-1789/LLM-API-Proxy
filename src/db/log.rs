@@ -1,9 +1,10 @@
 use crate::error::AppError;
 use rusqlite::params;
+use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use tracing::warn;
 
-use super::{Database, DailyTokenUsage, HourlyTokenUsage, LogFilter, ModelTokenUsage, RequestLogEntry, TokenTotals};
+use super::{Database, DailyTokenUsage, HourlyTokenUsage, LogFilter, ModelTokenUsage, RequestLogEntry, RequestStatsEntry, StatsFilter, TokenTotals};
 
 impl Database {
     // ========================================================================
@@ -99,6 +100,14 @@ impl Database {
         if let Some(pool) = &filter.pool_name {
             conditions.push("pool_name = ?".to_string());
             params_vec.push(Box::new(pool.clone()));
+        }
+        if let Some(upstream_id) = &filter.upstream_id {
+            conditions.push("upstream_id = ?".to_string());
+            params_vec.push(Box::new(upstream_id.clone()));
+        }
+        if let Some(model) = &filter.model {
+            conditions.push("model = ?".to_string());
+            params_vec.push(Box::new(model.clone()));
         }
         if let Some(prefix) = filter.status_prefix {
             // Range filtering: prefix 2 -> 200-299, 4 -> 400-499, 5 -> 500-599
@@ -456,5 +465,180 @@ impl Database {
             today_success_count,
             today_error_count,
         })
+    }
+
+    /// Get aggregated request statistics grouped by upstream + model.
+    ///
+    /// Computes total/success/error counts, success rate, average latency,
+    /// and P95/P99 latency percentiles for each group.
+    /// Results are sorted by total_count descending.
+    pub fn get_request_stats(&self, filter: &StatsFilter) -> Result<Vec<RequestStatsEntry>, AppError> {
+        let mut conditions = Vec::new();
+        let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+        if let Some(start) = &filter.start_date {
+            conditions.push("created_at >= ?".to_string());
+            params_vec.push(Box::new(start.clone()));
+        }
+        if let Some(end) = &filter.end_date {
+            conditions.push("created_at <= ?".to_string());
+            params_vec.push(Box::new(end.clone()));
+        }
+        if let Some(pool) = &filter.pool_name {
+            conditions.push("pool_name = ?".to_string());
+            params_vec.push(Box::new(pool.clone()));
+        }
+        if let Some(upstream_id) = &filter.upstream_id {
+            conditions.push("upstream_id = ?".to_string());
+            params_vec.push(Box::new(upstream_id.clone()));
+        }
+        if let Some(model) = &filter.model {
+            conditions.push("model = ?".to_string());
+            params_vec.push(Box::new(model.clone()));
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        // Fetch individual rows for percentile computation (capped at 10000 for safety)
+        let sql = format!(
+            "SELECT upstream_id, model, status_code, response_time_ms
+             FROM request_logs
+             {}
+             ORDER BY created_at DESC
+             LIMIT 10000",
+            where_clause
+        );
+
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare(&sql)?;
+        let params: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+
+        // Group rows by (upstream_id, model) and collect latency values
+        struct GroupData {
+            total: i64,
+            success: i64,
+            error: i64,
+            latencies: Vec<i32>,
+            upstream_id: Option<String>,
+            model: Option<String>,
+        }
+
+        let mut groups: HashMap<(Option<String>, Option<String>), GroupData> = HashMap::new();
+
+        let rows = stmt.query_map(params.as_slice(), |row| {
+            let upstream_id: Option<String> = row.get(0)?;
+            let model: Option<String> = row.get(1)?;
+            let status_code: i32 = row.get(2)?;
+            let response_time_ms: i32 = row.get(3)?;
+            Ok((upstream_id, model, status_code, response_time_ms))
+        })?;
+
+        for row in rows {
+            let (upstream_id, model, status_code, response_time_ms) = row?;
+            let key = (upstream_id.clone(), model.clone());
+            let group = groups.entry(key).or_insert_with(|| GroupData {
+                total: 0,
+                success: 0,
+                error: 0,
+                latencies: Vec::new(),
+                upstream_id,
+                model,
+            });
+            group.total += 1;
+            if (200..300).contains(&status_code) {
+                group.success += 1;
+            } else if status_code >= 400 {
+                group.error += 1;
+            }
+            group.latencies.push(response_time_ms);
+        }
+
+        // Compute stats for each group
+        let mut entries: Vec<RequestStatsEntry> = groups
+            .into_values()
+            .map(|g| {
+                let success_rate = if g.total > 0 {
+                    g.success as f64 / g.total as f64 * 100.0
+                } else {
+                    0.0
+                };
+                let avg_response_time_ms = if g.latencies.is_empty() {
+                    0.0
+                } else {
+                    g.latencies.iter().map(|&v| v as f64).sum::<f64>() / g.latencies.len() as f64
+                };
+                let p95 = percentile(&g.latencies, 95);
+                let p99 = percentile(&g.latencies, 99);
+
+                RequestStatsEntry {
+                    upstream_id: g.upstream_id,
+                    upstream_name: None, // Will be resolved by the caller
+                    model: g.model,
+                    total_count: g.total,
+                    success_count: g.success,
+                    error_count: g.error,
+                    success_rate,
+                    avg_response_time_ms,
+                    p95_response_time_ms: p95,
+                    p99_response_time_ms: p99,
+                }
+            })
+            .collect();
+
+        // Sort by total_count descending
+        entries.sort_by_key(|e| std::cmp::Reverse(e.total_count));
+
+        Ok(entries)
+    }
+}
+
+/// Compute the P-th percentile of a list of values.
+/// Uses the nearest-rank method.
+fn percentile(values: &[i32], p: u32) -> i32 {
+    if values.is_empty() {
+        return 0;
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort_unstable();
+    let rank = ((p as f64 / 100.0) * (sorted.len() as f64)).ceil() as usize;
+    let idx = rank.saturating_sub(1).min(sorted.len() - 1);
+    sorted[idx]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_percentile_empty() {
+        assert_eq!(percentile(&[], 95), 0);
+    }
+
+    #[test]
+    fn test_percentile_single() {
+        assert_eq!(percentile(&[42], 95), 42);
+        assert_eq!(percentile(&[42], 99), 42);
+    }
+
+    #[test]
+    fn test_percentile_multiple() {
+        let values: Vec<i32> = (1..=100).collect();
+        assert_eq!(percentile(&values, 95), 95);
+        assert_eq!(percentile(&values, 99), 99);
+        assert_eq!(percentile(&values, 50), 50);
+    }
+
+    #[test]
+    fn test_percentile_small_set() {
+        let values = vec![10, 20, 30, 40, 50];
+        // p=95: ceil(0.95 * 5) = ceil(4.75) = 5 → idx 4 → 50
+        assert_eq!(percentile(&values, 95), 50);
+        // p=99: ceil(0.99 * 5) = ceil(4.95) = 5 → idx 4 → 50
+        assert_eq!(percentile(&values, 99), 50);
     }
 }

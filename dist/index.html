@@ -1256,11 +1256,22 @@ gap: 8px;
 
             <!-- ==================== Logs ==================== -->
             <div class="page" id="page-logs">
-                <div class="section-title"><span data-i18n="logs_title">请求日志</span> <button class="btn btn-ghost btn-sm" style="margin-left:12px;" onclick="exportLogs()" data-i18n="logs_export">导出 CSV</button></div>
+                <div class="section-title">
+                    <span data-i18n="logs_title">请求日志</span>
+                    <select class="form-select" id="log-export-format" style="margin-left:12px;width:auto;display:inline-block;font-size:12px;padding:4px 8px;">
+                        <option value="csv">CSV</option>
+                        <option value="json">JSON</option>
+                    </select>
+                    <button class="btn btn-ghost btn-sm" onclick="exportLogs()" data-i18n="logs_export">导出</button>
+                </div>
                 <div class="filter-bar">
                     <label data-i18n="nav_pools">模型池</label>
                     <select class="form-select" id="log-filter-pool" onchange="loadLogs(true)">
                         <option value="" data-i18n="logs_filter_pool">全部</option>
+                    </select>
+                    <label data-i18n="logs_upstream">上游</label>
+                    <select class="form-select" id="log-filter-upstream" onchange="loadLogs(true)">
+                        <option value="" data-i18n="label_all">全部</option>
                     </select>
                     <label data-i18n="upstreams_status">状态码</label>
                     <select class="form-select" id="log-filter-status" onchange="loadLogs(true)">
@@ -1271,6 +1282,35 @@ gap: 8px;
                     </select>
                     <button class="btn btn-ghost btn-sm" onclick="loadLogs(true)" data-i18n="logs_refresh">刷新</button>
                 </div>
+
+                <!-- Request Statistics -->
+                <div id="logs-stats-section" style="margin-bottom:20px;">
+                    <div class="section-title" style="font-size:14px;">
+                        <span data-i18n="logs_stats_title">请求统计</span>
+                        <button class="btn btn-ghost btn-sm" style="margin-left:8px;" onclick="loadRequestStats()" data-i18n="logs_refresh">刷新</button>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th data-i18n="logs_upstream">上游</th>
+                                    <th data-i18n="upstreams_model">模型</th>
+                                    <th data-i18n="logs_stats_total">总请求</th>
+                                    <th data-i18n="logs_stats_success">成功</th>
+                                    <th data-i18n="logs_stats_error">失败</th>
+                                    <th data-i18n="logs_stats_success_rate">成功率</th>
+                                    <th data-i18n="logs_stats_avg_latency">平均耗时</th>
+                                    <th data-i18n="logs_stats_p95">P95 耗时</th>
+                                    <th data-i18n="logs_stats_p99">P99 耗时</th>
+                                </tr>
+                            </thead>
+                            <tbody id="logs-stats-tbody">
+                                <tr><td colspan="9" class="empty-state" data-i18n="empty_loading">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
                 <div class="table-wrap">
                     <table>
                         <thead>
@@ -1846,7 +1886,7 @@ print(response.choices[0].message.content)</code></pre>
         logs_status_2xx: { zh: '2xx 成功', en: '2xx Success' },
         logs_status_4xx: { zh: '4xx 客户端错误', en: '4xx Client Error' },
         logs_status_5xx: { zh: '5xx 服务端错误', en: '5xx Server Error' },
-        logs_export: { zh: '导出 CSV', en: 'Export CSV' },
+        logs_export: { zh: '导出', en: 'Export' },
         logs_time: { zh: '时间', en: 'Time' },
         logs_pool: { zh: '模型池', en: 'Pool' },
         logs_upstream: { zh: '上游', en: 'Upstream' },
@@ -1858,6 +1898,14 @@ print(response.choices[0].message.content)</code></pre>
         logs_prev: { zh: '上一页', en: 'Previous' },
         logs_next: { zh: '下一页', en: 'Next' },
         logs_refresh: { zh: '刷新', en: 'Refresh' },
+logs_stats_title: { zh: '请求统计', en: 'Request Statistics' },
+logs_stats_total: { zh: '总请求', en: 'Total' },
+logs_stats_success: { zh: '成功', en: 'Success' },
+logs_stats_error: { zh: '失败', en: 'Errors' },
+logs_stats_success_rate: { zh: '成功率', en: 'Success Rate' },
+logs_stats_avg_latency: { zh: '平均耗时', en: 'Avg Latency' },
+logs_stats_p95: { zh: 'P95 耗时', en: 'P95 Latency' },
+logs_stats_p99: { zh: 'P99 耗时', en: 'P99 Latency' },
 
         // ── Settings page ──
         settings_title: { zh: '系统设置', en: 'System Settings' },
@@ -2359,8 +2407,14 @@ if (page === 'logs') {
 logCurrentPage = 0;
 const poolSel = document.getElementById('log-filter-pool');
 const statusSel = document.getElementById('log-filter-status');
+const upstreamSel = document.getElementById('log-filter-upstream');
 if (poolSel) poolSel.value = '';
 if (statusSel) statusSel.value = '';
+if (upstreamSel) upstreamSel.value = '';
+populatePoolFilter();
+populateUpstreamFilter();
+loadLogs(true);
+loadRequestStats();
 }
 
 // Stop dashboard timer when leaving dashboard
@@ -3164,10 +3218,12 @@ async function loadLogs(resetPage) {
 try {
 if (resetPage) logCurrentPage = 0;
 const poolFilter = document.getElementById('log-filter-pool')?.value || '';
+const upstreamFilter = document.getElementById('log-filter-upstream')?.value || '';
 const statusFilter = document.getElementById('log-filter-status')?.value || '';
 const pageLimit = 20;
 const args = { limit: pageLimit, offset: logCurrentPage * pageLimit };
 if (poolFilter) args.poolName = poolFilter;
+if (upstreamFilter) args.upstreamId = upstreamFilter;
 if (statusFilter === '2') args.statusPrefix = 2;
 else if (statusFilter === '4') args.statusPrefix = 4;
 else if (statusFilter === '5') args.statusPrefix = 5;
@@ -3213,40 +3269,30 @@ toast(t('toast_load_logs_fail') + e, 'error');
 
 async function exportLogs() {
     try {
-        // Fetch recent 50 logs for export
-        const logs = await cmd('get_request_logs', { limit: 50, offset: 0 }) || [];
-        if (logs.length === 0) {
+        const format = document.getElementById('log-export-format')?.value || 'csv';
+        const poolFilter = document.getElementById('log-filter-pool')?.value || '';
+        const upstreamFilter = document.getElementById('log-filter-upstream')?.value || '';
+        const statusFilter = document.getElementById('log-filter-status')?.value || '';
+
+        const args = { format };
+        if (poolFilter) args.poolName = poolFilter;
+        if (upstreamFilter) args.upstreamId = upstreamFilter;
+        if (statusFilter === '2') args.statusPrefix = 2;
+        else if (statusFilter === '4') args.statusPrefix = 4;
+        else if (statusFilter === '5') args.statusPrefix = 5;
+
+        const content = await cmd('export_request_logs', args);
+        if (!content) {
             toast(t('toast_no_logs_export'), 'info');
             return;
         }
 
-        // Resolve upstream names
-        const upstreams = await cmd('list_upstreams') || [];
-        const upstreamMap = {};
-        upstreams.forEach(u => { upstreamMap[u.id] = u.provider_name; });
-
-        // Build CSV content
-        const header = t('csv_time') + ',' + t('csv_pool') + ',' + t('csv_upstream') + ',' + t('csv_model') + ',' + t('csv_status_code') + ',' + t('csv_latency') + ',' + t('csv_streaming') + ',' + t('csv_fail_detail') + '\n';
-        const rows = logs.map(l => {
-            const upstreamName = l.upstream_id ? (upstreamMap[l.upstream_id] || l.upstream_id) : '-';
-            let failDetail = '';
-            if (l.failed_upstreams && l.failed_upstreams !== '[]') {
-                try {
-                    const fails = JSON.parse(l.failed_upstreams);
-                    failDetail = fails.map(f => `${f.provider||''}(${f.model||''}): ${f.error||''}`).join('; ');
-                } catch(_) {}
-            }
-            // Escape CSV fields containing commas/quotes
-            const esc_csv = (s) => { s = String(s||''); return s.includes(',') || s.includes('"') ? `"${s.replace(/"/g,'""')}"` : s; };
-            return [l.created_at, l.pool_name||'-', upstreamName, l.model||'-', l.status_code, l.response_time_ms, l.is_streaming ? t('label_yes') : t('label_no'), failDetail]
-                .map(esc_csv).join(',');
-        }).join('\n');
-
-        const csv = '\uFEFF' + header + rows; // BOM for Excel UTF-8
-        const filename = `request_logs_${new Date().toISOString().slice(0,10)}.csv`;
-        const savedPath = await cmd('save_file_dialog', { filename, content: csv });
-        toast(t('toast_export_done') + ' (' + logs.length + ')', 'success');
+        const ext = format === 'json' ? 'json' : 'csv';
+        const filename = `request_logs_${new Date().toISOString().slice(0,10)}.${ext}`;
+        await cmd('save_file_dialog', { filename, content });
+        toast(t('toast_export_done'), 'success');
     } catch (e) {
+        if (e && String(e).includes('取消')) return;
         toast(t('toast_export_fail') + e, 'error');
     }
 }
@@ -3286,6 +3332,56 @@ loadLogs(false);
                 pools.map(p => `<option value="${esc(p.name)}">${esc(p.display_name || p.name)}</option>`).join('');
             select.value = current;
         } catch (e) { /* ignore */ }
+    }
+
+    async function populateUpstreamFilter() {
+        try {
+            const upstreams = await cmd('list_upstreams') || [];
+            const select = document.getElementById('log-filter-upstream');
+            if (!select) return;
+            const current = select.value;
+            select.innerHTML = '<option value="">' + t('label_all') + '</option>' +
+                upstreams.map(u => `<option value="${esc(u.id)}">${esc(u.provider_name)}</option>`).join('');
+            select.value = current;
+        } catch (e) { /* ignore */ }
+    }
+
+    // ================================================================
+    // Request Statistics (P2-4)
+    // ================================================================
+    async function loadRequestStats() {
+        try {
+            const poolFilter = document.getElementById('log-filter-pool')?.value || '';
+            const upstreamFilter = document.getElementById('log-filter-upstream')?.value || '';
+            const args = {};
+            if (poolFilter) args.poolName = poolFilter;
+            if (upstreamFilter) args.upstreamId = upstreamFilter;
+
+            const stats = await cmd('get_request_stats', args) || [];
+            const tbody = document.getElementById('logs-stats-tbody');
+            if (stats.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="9" class="empty-state">' + t('logs_no_data') + '</td></tr>';
+                return;
+            }
+            tbody.innerHTML = stats.map(s => {
+                const upstreamName = s.upstream_name || s.upstream_id?.substring(0,8) || '-';
+                const modelName = s.model || '-';
+                const rateColor = s.success_rate >= 95 ? 'var(--success)' : s.success_rate >= 80 ? 'var(--warning)' : 'var(--danger)';
+                return `<tr>
+                    <td>${esc(upstreamName)}</td>
+                    <td style="font-family:'SF Mono','Cascadia Code',monospace;font-size:11px;">${esc(modelName)}</td>
+                    <td>${s.total_count}</td>
+                    <td><span style="color:var(--success);">${s.success_count}</span></td>
+                    <td><span style="color:var(--danger);">${s.error_count}</span></td>
+                    <td><span style="color:${rateColor};font-weight:600;">${s.success_rate.toFixed(1)}%</span></td>
+                    <td>${s.avg_response_time_ms.toFixed(0)}ms</td>
+                    <td>${s.p95_response_time_ms}ms</td>
+                    <td>${s.p99_response_time_ms}ms</td>
+                </tr>`;
+            }).join('');
+        } catch (e) {
+            /* ignore */
+        }
     }
 
     // ================================================================

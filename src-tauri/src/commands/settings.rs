@@ -212,6 +212,7 @@ pub async fn save_file_dialog(
     let file_handle = rfd::AsyncFileDialog::new()
         .set_file_name(&filename)
         .add_filter("CSV 文件", &["csv"])
+        .add_filter("JSON 文件", &["json"])
         .add_filter("所有文件", &["*"])
         .save_file()
         .await

@@ -7,6 +7,38 @@ use llm_api_proxy_lib::AppState;
 // Token Usage DTOs
 // ============================================================================
 
+/// Request statistics entry for the frontend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestStatsVO {
+    pub upstream_id: Option<String>,
+    pub upstream_name: Option<String>,
+    pub model: Option<String>,
+    pub total_count: i64,
+    pub success_count: i64,
+    pub error_count: i64,
+    pub success_rate: f64,
+    pub avg_response_time_ms: f64,
+    pub p95_response_time_ms: i32,
+    pub p99_response_time_ms: i32,
+}
+
+impl From<llm_api_proxy_lib::db::RequestStatsEntry> for RequestStatsVO {
+    fn from(e: llm_api_proxy_lib::db::RequestStatsEntry) -> Self {
+        Self {
+            upstream_id: e.upstream_id,
+            upstream_name: e.upstream_name,
+            model: e.model,
+            total_count: e.total_count,
+            success_count: e.success_count,
+            error_count: e.error_count,
+            success_rate: e.success_rate,
+            avg_response_time_ms: e.avg_response_time_ms,
+            p95_response_time_ms: e.p95_response_time_ms,
+            p99_response_time_ms: e.p99_response_time_ms,
+        }
+    }
+}
+
 /// Token usage response for an upstream.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenUsageResponse {
@@ -31,10 +63,13 @@ pub struct ModelDetailResponse {
 
 /// Get recent request logs with optional filtering.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn get_request_logs(
     start_date: Option<String>,
     end_date: Option<String>,
     pool_name: Option<String>,
+    upstream_id: Option<String>,
+    model: Option<String>,
     status_prefix: Option<i32>,
     limit: Option<i64>,
     offset: Option<i64>,
@@ -44,6 +79,8 @@ pub fn get_request_logs(
         start_date,
         end_date,
         pool_name,
+        upstream_id,
+        model,
         status_prefix,
         limit: limit.unwrap_or(50),
         offset: offset.unwrap_or(0),
@@ -133,4 +170,139 @@ pub fn get_gateway_info(state: State<'_, AppState>) -> Result<serde_json::Value,
         "log_level": settings.log_level,
         "gateway_enabled": settings.gateway_enabled,
     }))
+}
+
+/// Export request logs as CSV or JSON string.
+/// Supports filtering by time range, pool, upstream, model, and status code.
+/// Returns the formatted content; the frontend uses `save_file_dialog` to write it.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn export_request_logs(
+    format: String,
+    start_date: Option<String>,
+    end_date: Option<String>,
+    pool_name: Option<String>,
+    upstream_id: Option<String>,
+    model: Option<String>,
+    status_prefix: Option<i32>,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let filter = llm_api_proxy_lib::db::LogFilter {
+        start_date,
+        end_date,
+        pool_name,
+        upstream_id,
+        model,
+        status_prefix,
+        limit: 10000,
+        offset: 0,
+    };
+    let logs = state.db.get_recent_logs(&filter).map_err(|e| e.to_string())?;
+
+    // Resolve upstream names
+    let upstreams = state.db.get_upstreams().map_err(|e| e.to_string())?;
+    let upstream_map: std::collections::HashMap<String, String> = upstreams
+        .iter()
+        .map(|u| (u.id.clone(), u.provider_name.clone()))
+        .collect();
+
+    match format.as_str() {
+        "json" => {
+            let json_entries: Vec<serde_json::Value> = logs
+                .iter()
+                .map(|l| {
+                    let upstream_name = l.upstream_id.as_ref().and_then(|id| upstream_map.get(id)).cloned();
+                    serde_json::json!({
+                        "id": l.id,
+                        "request_id": l.request_id,
+                        "created_at": l.created_at,
+                        "pool_name": l.pool_name,
+                        "upstream_id": l.upstream_id,
+                        "upstream_name": upstream_name,
+                        "model": l.model,
+                        "method": l.method,
+                        "endpoint": l.endpoint,
+                        "status_code": l.status_code,
+                        "response_time_ms": l.response_time_ms,
+                        "is_streaming": l.is_streaming,
+                        "prompt_tokens": l.prompt_tokens,
+                        "completion_tokens": l.completion_tokens,
+                        "total_tokens": l.total_tokens,
+                        "failed_upstreams": l.failed_upstreams,
+                    })
+                })
+                .collect();
+            serde_json::to_string_pretty(&json_entries).map_err(|e| e.to_string())
+        }
+        _ => {
+            // CSV format (default)
+            let mut csv = String::from("\u{FEFF}"); // BOM for Excel UTF-8
+            csv.push_str("time,pool,upstream_id,upstream_name,model,method,endpoint,status_code,response_time_ms,is_streaming,prompt_tokens,completion_tokens,total_tokens,failed_upstreams\n");
+            for l in &logs {
+                let upstream_name = l.upstream_id.as_ref().and_then(|id| upstream_map.get(id)).map(|s| s.as_str()).unwrap_or("");
+                let row = [
+                    l.created_at.as_str(),
+                    l.pool_name.as_deref().unwrap_or(""),
+                    l.upstream_id.as_deref().unwrap_or(""),
+                    upstream_name,
+                    l.model.as_deref().unwrap_or(""),
+                    l.method.as_str(),
+                    l.endpoint.as_str(),
+                    &l.status_code.to_string(),
+                    &l.response_time_ms.to_string(),
+                    if l.is_streaming { "true" } else { "false" },
+                    &l.prompt_tokens.to_string(),
+                    &l.completion_tokens.to_string(),
+                    &l.total_tokens.to_string(),
+                    &l.failed_upstreams,
+                ];
+                let escaped: Vec<String> = row.iter().map(|s| {
+                    let s = String::from(*s);
+                    if s.contains(',') || s.contains('"') || s.contains('\n') {
+                        format!("\"{}\"", s.replace('"', "\"\""))
+                    } else {
+                        s
+                    }
+                }).collect();
+                csv.push_str(&escaped.join(","));
+                csv.push('\n');
+            }
+            Ok(csv)
+        }
+    }
+}
+
+/// Get aggregated request statistics grouped by upstream + model.
+/// Returns success rate, avg/P95/P99 latency for each group.
+#[tauri::command]
+pub fn get_request_stats(
+    start_date: Option<String>,
+    end_date: Option<String>,
+    pool_name: Option<String>,
+    upstream_id: Option<String>,
+    model: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<RequestStatsVO>, String> {
+    let filter = llm_api_proxy_lib::db::StatsFilter {
+        start_date,
+        end_date,
+        pool_name,
+        upstream_id,
+        model,
+    };
+    let mut entries = state.db.get_request_stats(&filter).map_err(|e| e.to_string())?;
+
+    // Resolve upstream names
+    let upstreams = state.db.get_upstreams().map_err(|e| e.to_string())?;
+    let upstream_map: std::collections::HashMap<String, String> = upstreams
+        .iter()
+        .map(|u| (u.id.clone(), u.provider_name.clone()))
+        .collect();
+    for entry in &mut entries {
+        if let Some(id) = &entry.upstream_id {
+            entry.upstream_name = upstream_map.get(id).cloned();
+        }
+    }
+
+    Ok(entries.into_iter().map(Into::into).collect())
 }
