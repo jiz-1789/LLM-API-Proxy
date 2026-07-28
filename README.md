@@ -51,6 +51,13 @@
 - **模型伪装** — 终端工具看到的模型名始终是号池名，底层实际模型名被隐藏
 - **AES-256-GCM 加密** — API Key 加密后存入 SQLite，Master Key 跟随数据目录，U 盘即插即用
 - **请求日志** — 记录每次请求的状态码、耗时、Token 用量、失败上游链，支持按状态码/时间筛选与导出
+- **多密钥访问控制** — 支持创建多个 Gateway API Key，可配置允许访问的号池范围和过期时间
+- **请求限流** — 每 IP 限流（可配置窗口大小和请求数），限流状态持久化，重启不丢失
+- **上游健康追踪** — 自动记录失败次数、错误原因、恢复时间，状态分级（healthy/degraded/down），支持后台探测
+- **数据库备份恢复** — 一键备份数据库，从备份文件恢复（需重启生效），支持自动定时备份
+- **配置导入导出** — 导出全部上游、号池、设置为 JSON 文件，支持增量/全量导入
+- **一键诊断包** — 导出包含版本信息、配置摘要、上游状态、最近日志的 ZIP 包，敏感信息自动脱敏
+- **阈值告警** — 后台监控请求失败率，超过阈值时记录告警，支持静默期防疲劳
 - **健康检查** — 一键测试所有上游连通性
 - **在线更新** — 启动时自动检查新版本，支持 GitHub + Gitee 双数据源，一键下载并自动替换重启
 - **中英双语** — 界面支持中文 / English 切换，系统托盘菜单跟随语言设置
@@ -79,23 +86,43 @@
 ├── package.json
 ├── src/                    # Rust 核心库（后端逻辑）
 │   ├── lib.rs              # 模块声明 + AppState + 后端初始化
+│   ├── main.rs             # 独立运行模式入口（不带 GUI）
 │   ├── config.rs           # Gateway 配置与路径管理
+│   ├── config_io.rs        # 配置导入导出（JSON 格式）
 │   ├── crypto.rs           # AES-256-GCM 加解密 + Master Key 管理
-│   ├── db.rs               # SQLite 数据层（CRUD + 迁移 + 事务）
+│   ├── diagnostic.rs       # 一键诊断包（ZIP 导出 + 敏感数据脱敏）
 │   ├── error.rs            # 统一错误类型
+│   ├── db/                 # SQLite 数据层（模块化）
+│   │   ├── mod.rs          # Database 封装 + 读写分离 + 事务
+│   │   ├── migration.rs     # Schema 创建 + 迁移（幂等）
+│   │   ├── upstream.rs     # 上游 CRUD + 健康状态更新
+│   │   ├── pool.rs         # 号池 CRUD
+│   │   ├── log.rs          # 请求日志 + 统计 + 百分位计算
+│   │   ├── settings.rs     # 键值设置存储
+│   │   ├── api_key.rs      # 多密钥管理
+│   │   ├── backup.rs       # 数据库备份与恢复
+│   │   └── rate_limit.rs   # 限流状态持久化
 │   ├── gateway/            # OpenAI 兼容网关
 │   │   ├── mod.rs          # /v1/models, /v1/chat/completions 路由
-│   │   ├── auth.rs         # API Key 认证（常量时间比较防侧信道）
-│   │   └── stream.rs       # SSE 流式处理（模型名替换 + Token 提取）
+│   │   ├── auth.rs         # 多密钥认证（常量时间比较 + 号池权限）
+│   │   ├── stream.rs       # SSE 流式处理（模型名替换 + 用量提取 + 错误检测）
+│   │   ├── rate_limit.rs   # 限流器（DashMap + 持久化）
+│   │   ├── error_response.rs # OpenAI 兼容错误响应
+│   │   └── health.rs       # 三级健康检查
 │   ├── pool/               # 号池与轮询逻辑
 │   │   ├── mod.rs          # Pool 数据结构
-│   │   ├── round_robin.rs  # 顺序轮询选择器
 │   │   └── thinking.rs     # 思考模式参数注入（按厂商映射）
-│   └── proxy/              # 上游转发
-│       ├── mod.rs          # ProxyEngine
-│       ├── client.rs       # UpstreamConfig 定义
-│       ├── failover.rs     # HTTP 转发与故障转移链
-│       └── model_filter.rs # 模型名替换
+│   ├── proxy/              # 上游转发
+│   │   ├── mod.rs          # 模块声明
+│   │   ├── failover.rs     # HTTP 转发与故障转移链
+│   │   └── error.rs        # 结构化上游错误分类
+│   ├── probe/              # 后台上游探测
+│   │   └── mod.rs          # 定时探测 + 健康状态更新
+│   ├── alert/              # 阈值告警监控
+│   │   └── mod.rs          # 失败率监控 + 静默期
+│   └── tests/              # 集成测试
+│       ├── common/mod.rs   # 测试工具
+│       └── integration/    # 网关 + 流式集成测试
 ├── src-tauri/              # Tauri 桌面应用外壳
 │   ├── tauri.conf.json     # 窗口/打包配置
 │   ├── capabilities/       # Tauri 权限配置
@@ -103,7 +130,18 @@
 │   └── src/
 │       ├── lib.rs          # Tauri 应用入口 + 系统托盘 + 窗口事件
 │       ├── main.rs         # main 入口
-│       └── commands.rs     # Tauri 命令（GUI ↔ 后端桥接）
+│       └── commands/       # Tauri 命令（模块化）
+│           ├── mod.rs      # 共享 DTO + ID 生成
+│           ├── upstream.rs # 上游管理命令
+│           ├── pool.rs     # 号池管理命令
+│           ├── log.rs      # 日志与统计命令
+│           ├── settings.rs # 设置命令
+│           ├── health.rs   # 健康检查命令
+│           ├── api_key.rs  # 多密钥管理命令
+│           ├── backup.rs   # 备份恢复命令
+│           ├── diagnostic.rs # 诊断导出命令
+│           ├── update.rs   # 在线更新命令
+│           └── shortcut.rs # 快捷方式命令
 └── dist/                   # 前端构建产物
     └── index.html          # 单页应用（内嵌 CSS/JS）
 ```
@@ -225,8 +263,17 @@ Content-Type: application/json
 
 - 上游返回 HTTP 5xx 或连接超时 → 自动尝试下一个上游
 - 上游返回 HTTP 200 但响应体包含 `error` 字段 → 同样触发故障转移
+- 上游认证失败（401/403）→ 触发故障转移（不同上游 Key 不同）
+- 4xx 客户端错误（400/404 等）→ 不触发故障转移（请求本身的问题）
 - 所有上游均失败 → 返回 `502 Bad Gateway`，响应体包含每个失败上游的错误详情
 - 号池内无可用上游（全部禁用）→ 返回 `503 Service Unavailable`
+
+### 限流行为
+
+- 每个 IP 在配置的窗口时间内最多发送配置数量的请求（默认 60 次/分钟）
+- 超出限制时返回 `429 Too Many Requests`，包含 `Retry-After` 头
+- 限流状态持久化到数据库，重启不丢失
+- 支持反向代理模式（通过 `X-Forwarded-For` 识别真实客户端 IP）
 
 ## 🔒 安全设计
 
@@ -234,9 +281,13 @@ Content-Type: application/json
 |------|------|
 | 仅监听本地 | 默认绑定 `127.0.0.1`，不对外网开放 |
 | API Key 加密存储 | 使用 AES-256-GCM 加密，Master Key 存于本地文件，明文不落盘 |
+| 多密钥访问控制 | 支持多个 Gateway API Key，可配置号池权限和过期时间 |
 | 常量时间比较 | API Key 校验使用常量时间比较，防止时序侧信道攻击 |
+| 请求限流 | 每 IP 限流（可配置窗口和请求数），支持反向代理 X-Forwarded-For |
+| 读写分离 | SQLite WAL 模式 + 独立只读连接，SELECT 不阻塞写入 |
 | XSS 防护 | 前端动态内容输出经过 HTML 转义 |
 | 命令注入防护 | 外部链接打开前校验 URL 协议白名单 |
+| 响应头过滤 | 仅白名单透传上游响应头，防止泄露内部信息 |
 | 事务隔离 | 数据库写操作使用事务 + Mutex 锁，防止并发干扰 |
 | UUID 标识 | 请求日志使用 UUID v4 生成 ID，避免碰撞导致日志丢失 |
 
