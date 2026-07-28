@@ -130,6 +130,9 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            // Start background alert monitoring task
+            llm_api_proxy_lib::alert::start_alert_task(state.db.clone());
+
             Ok(())
         })
         // Respect user's minimize-to-tray preference on window close

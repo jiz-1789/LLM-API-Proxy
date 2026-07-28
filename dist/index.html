@@ -1541,6 +1541,26 @@ gap: 8px;
                         </div>
                     </div>
                     <div class="settings-section">
+                        <div class="section-title" data-i18n="settings_alert_title">阈值告警</div>
+                        <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="settings_alert_desc">当请求失败率超过阈值时自动记录告警事件。需达到最低请求数才会触发，避免低流量误报。</p>
+                        <div class="settings-row">
+                            <label data-i18n="settings_alert_enabled">启用告警</label>
+                            <label class="switch"><input type="checkbox" id="set-alert-enabled"><span class="slider"></span></label>
+                        </div>
+                        <div class="settings-row">
+                            <label data-i18n="settings_alert_failure_rate">失败率阈值 (%)</label>
+                            <input class="form-input" id="set-alert-failure-rate" type="number" min="1" max="100" step="1" value="50" style="max-width:120px;">
+                        </div>
+                        <div class="settings-row">
+                            <label data-i18n="settings_alert_min_requests">最低请求数</label>
+                            <input class="form-input" id="set-alert-min-requests" type="number" min="1" max="10000" value="10" style="max-width:120px;">
+                        </div>
+                        <div class="settings-row">
+                            <label data-i18n="settings_alert_silence">静默期 (分钟)</label>
+                            <input class="form-input" id="set-alert-silence" type="number" min="5" max="1440" value="30" style="max-width:120px;">
+                        </div>
+                    </div>
+                    <div class="settings-section">
                         <div class="section-title" data-i18n="settings_version">版本更新</div>
                         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
                             <span style="font-size:13px;color:var(--text-secondary);"><span data-i18n="settings_current_version">当前版本：</span><code id="settings-app-version" style="font-family:'SF Mono','Cascadia Code',monospace;font-size:13px;">v0.1.0</code></span>
@@ -2034,6 +2054,12 @@ logs_token_total_req: { zh: '累计请求', en: 'Total Requests' },
         settings_log_retention_desc: { zh: '控制请求日志的保留时间和最大条数，超出后自动清理旧日志。', en: 'Control how long request logs are kept and the maximum number of entries. Old logs are automatically cleaned up.' },
         settings_log_retention_days: { zh: '保留天数', en: 'Retention Days' },
         settings_log_max_entries: { zh: '最大条数', en: 'Max Entries' },
+settings_alert_title: { zh: '阈值告警', en: 'Threshold Alerts' },
+settings_alert_desc: { zh: '当请求失败率超过阈值时自动记录告警事件。需达到最低请求数才会触发，避免低流量误报。', en: 'Automatically record alert events when request failure rate exceeds the threshold. A minimum number of requests is required to trigger, avoiding false alerts from low traffic.' },
+settings_alert_enabled: { zh: '启用告警', en: 'Enable Alerts' },
+settings_alert_failure_rate: { zh: '失败率阈值 (%)', en: 'Failure Rate Threshold (%)' },
+settings_alert_min_requests: { zh: '最低请求数', en: 'Min Request Count' },
+settings_alert_silence: { zh: '静默期 (分钟)', en: 'Silence Period (min)' },
         settings_save: { zh: '保存设置', en: 'Save Settings' },
         settings_saved: { zh: '设置已保存', en: 'Settings saved' },
         settings_save_fail: { zh: '保存失败: ', en: 'Save failed: ' },
@@ -3758,6 +3784,12 @@ function generateApiKey() {
             document.getElementById('set-log-retention-days').value = s.log_retention_days || 5;
             document.getElementById('set-log-max-entries').value = s.log_max_entries || 200;
 
+            // Alert settings
+            document.getElementById('set-alert-enabled').checked = s.alert_enabled || false;
+            document.getElementById('set-alert-failure-rate').value = s.alert_failure_rate_threshold || 50;
+            document.getElementById('set-alert-min-requests').value = s.alert_min_request_count || 10;
+            document.getElementById('set-alert-silence').value = s.alert_silence_minutes || 30;
+
             // Load pool list for quick copy
             const poolList = document.getElementById('settings-pool-list');
             try {
@@ -3818,6 +3850,10 @@ function generateApiKey() {
                 probe_failure_threshold: parseInt(document.getElementById('set-probe-threshold').value) || 3,
                 log_retention_days: parseInt(document.getElementById('set-log-retention-days').value) || 5,
                 log_max_entries: parseInt(document.getElementById('set-log-max-entries').value) || 200,
+                alert_enabled: document.getElementById('set-alert-enabled').checked,
+                alert_failure_rate_threshold: parseFloat(document.getElementById('set-alert-failure-rate').value) || 50,
+                alert_min_request_count: parseInt(document.getElementById('set-alert-min-requests').value) || 10,
+                alert_silence_minutes: parseInt(document.getElementById('set-alert-silence').value) || 30,
             };
             await cmd('update_settings', { req });
             applyTheme(req.theme);

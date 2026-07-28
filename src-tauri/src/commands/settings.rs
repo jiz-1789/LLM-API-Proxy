@@ -40,6 +40,15 @@ pub struct SettingsVO {
     pub log_retention_days: i32,
     #[serde(default = "super::default_200_i64")]
     pub log_max_entries: i64,
+    // Alert settings
+    #[serde(default)]
+    pub alert_enabled: bool,
+    #[serde(default = "super::default_50_f64")]
+    pub alert_failure_rate_threshold: f64,
+    #[serde(default = "super::default_10_u32")]
+    pub alert_min_request_count: u32,
+    #[serde(default = "super::default_30_u32")]
+    pub alert_silence_minutes: u32,
 }
 
 // ============================================================================
@@ -53,6 +62,7 @@ pub fn get_settings(state: State<'_, AppState>) -> Result<SettingsVO, String> {
     let rl = llm_api_proxy_lib::config::RateLimitSettings::load(db);
     let probe = llm_api_proxy_lib::config::ProbeSettings::load(db);
     let log_retention = llm_api_proxy_lib::config::LogRetentionSettings::load(db);
+    let alert = llm_api_proxy_lib::config::AlertSettings::load(db);
     Ok(SettingsVO {
         listen_address: db.get_setting("listen_address").ok().flatten()
             .unwrap_or_else(|| "127.0.0.1".to_string()),
@@ -79,6 +89,10 @@ pub fn get_settings(state: State<'_, AppState>) -> Result<SettingsVO, String> {
         probe_failure_threshold: probe.failure_threshold,
         log_retention_days: log_retention.retention_days,
         log_max_entries: log_retention.max_entries,
+        alert_enabled: alert.enabled,
+        alert_failure_rate_threshold: alert.failure_rate_threshold,
+        alert_min_request_count: alert.min_request_count,
+        alert_silence_minutes: alert.silence_minutes,
     })
 }
 
@@ -141,6 +155,18 @@ pub fn update_settings(req: SettingsVO, state: State<'_, AppState>) -> Result<()
     // Save log retention settings with audit for each key
     db.save_setting_with_audit("log_retention_days", &log_retention.retention_days.max(1).to_string()).map_err(|e| e.to_string())?;
     db.save_setting_with_audit("log_max_entries", &log_retention.max_entries.max(10).to_string()).map_err(|e| e.to_string())?;
+
+    let alert = llm_api_proxy_lib::config::AlertSettings {
+        enabled: req.alert_enabled,
+        failure_rate_threshold: req.alert_failure_rate_threshold,
+        min_request_count: req.alert_min_request_count,
+        silence_minutes: req.alert_silence_minutes,
+    };
+    // Save alert settings with audit for each key
+    db.save_setting_with_audit("alert_enabled", &alert.enabled.to_string()).map_err(|e| e.to_string())?;
+    db.save_setting_with_audit("alert_failure_rate_threshold", &alert.failure_rate_threshold.max(1.0).to_string()).map_err(|e| e.to_string())?;
+    db.save_setting_with_audit("alert_min_request_count", &alert.min_request_count.max(1).to_string()).map_err(|e| e.to_string())?;
+    db.save_setting_with_audit("alert_silence_minutes", &alert.silence_minutes.max(5).to_string()).map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -291,6 +317,10 @@ mod tests {
         assert_eq!(vo.probe_failure_threshold, 3); // default: 3
         assert_eq!(vo.log_retention_days, 5); // default: 5
         assert_eq!(vo.log_max_entries, 200); // default: 200
+        assert!(!vo.alert_enabled); // default: false
+        assert_eq!(vo.alert_failure_rate_threshold, 50.0); // default: 50.0
+        assert_eq!(vo.alert_min_request_count, 10); // default: 10
+        assert_eq!(vo.alert_silence_minutes, 30); // default: 30
     }
 
     #[test]
@@ -311,7 +341,11 @@ mod tests {
             "probe_interval_seconds": 600,
             "probe_failure_threshold": 5,
             "log_retention_days": 30,
-            "log_max_entries": 1000
+            "log_max_entries": 1000,
+            "alert_enabled": true,
+            "alert_failure_rate_threshold": 80.0,
+            "alert_min_request_count": 20,
+            "alert_silence_minutes": 60
         }"#;
         let vo: SettingsVO = serde_json::from_str(json).unwrap();
         assert_eq!(vo.listen_address, "0.0.0.0");
@@ -327,6 +361,10 @@ mod tests {
         assert_eq!(vo.probe_failure_threshold, 5);
         assert_eq!(vo.log_retention_days, 30);
         assert_eq!(vo.log_max_entries, 1000);
+        assert!(vo.alert_enabled);
+        assert_eq!(vo.alert_failure_rate_threshold, 80.0);
+        assert_eq!(vo.alert_min_request_count, 20);
+        assert_eq!(vo.alert_silence_minutes, 60);
     }
 
     #[test]

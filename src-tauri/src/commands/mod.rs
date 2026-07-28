@@ -50,6 +50,18 @@ fn default_200_i64() -> i64 {
     200
 }
 
+fn default_50_f64() -> f64 {
+    50.0
+}
+
+fn default_10_u32() -> u32 {
+    10
+}
+
+fn default_30_u32() -> u32 {
+    30
+}
+
 /// Generate a unique ID for a new upstream record.
 pub fn generate_id() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};

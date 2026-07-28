@@ -314,6 +314,91 @@ impl LogRetentionSettings {
     }
 }
 
+// ============================================================================
+// Alert Settings
+// ============================================================================
+
+/// Alert configuration persisted in the settings table.
+///
+/// Settings keys (all stored as strings):
+/// - `alert_enabled` (default: false)
+/// - `alert_failure_rate_threshold` (default: 50.0, minimum: 1.0)
+/// - `alert_min_request_count` (default: 10, minimum: 1)
+/// - `alert_silence_minutes` (default: 30, minimum: 5)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AlertSettings {
+    pub enabled: bool,
+    pub failure_rate_threshold: f64,
+    pub min_request_count: u32,
+    pub silence_minutes: u32,
+}
+
+impl Default for AlertSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            failure_rate_threshold: 50.0,
+            min_request_count: 10,
+            silence_minutes: 30,
+        }
+    }
+}
+
+impl AlertSettings {
+    /// Load alert settings from the database settings table.
+    /// Values are clamped to minimum bounds to prevent misconfiguration.
+    pub fn load(db: &crate::db::Database) -> Self {
+        Self {
+            enabled: db
+                .get_setting("alert_enabled")
+                .ok()
+                .flatten()
+                .map(|v| v == "true")
+                .unwrap_or(false),
+            failure_rate_threshold: db
+                .get_setting("alert_failure_rate_threshold")
+                .ok()
+                .flatten()
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(50.0)
+                .max(1.0),
+            min_request_count: db
+                .get_setting("alert_min_request_count")
+                .ok()
+                .flatten()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(10)
+                .max(1),
+            silence_minutes: db
+                .get_setting("alert_silence_minutes")
+                .ok()
+                .flatten()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(30)
+                .max(5),
+        }
+    }
+
+    /// Save alert settings to the database settings table.
+    /// Values are clamped before saving.
+    pub fn save(&self, db: &crate::db::Database) -> Result<(), crate::error::AppError> {
+        db.save_setting("alert_enabled", &self.enabled.to_string())?;
+        db.save_setting(
+            "alert_failure_rate_threshold",
+            &self.failure_rate_threshold.max(1.0).to_string(),
+        )?;
+        db.save_setting(
+            "alert_min_request_count",
+            &self.min_request_count.max(1).to_string(),
+        )?;
+        db.save_setting(
+            "alert_silence_minutes",
+            &self.silence_minutes.max(5).to_string(),
+        )?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,5 +1,6 @@
 // LLM-API-Proxy Gateway Library
 
+pub mod alert;
 pub mod config;
 pub mod crypto;
 pub mod db;
