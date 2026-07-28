@@ -1,22 +1,26 @@
 use crate::error::AppError;
-use rusqlite::{params, Connection};
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
-use tracing::{debug, info, warn};
+use std::sync::atomic::AtomicU64;
+use tracing::{debug, info};
 
 mod migration;
 mod upstream;
 mod pool;
 mod log;
 mod settings;
+mod rate_limit;
+pub mod backup;
+mod api_key;
 
 pub use migration::*;
 pub use upstream::*;
 pub use pool::*;
 pub use log::*;
 pub use settings::*;
+pub use api_key::*;
 
 // ============================================================================
 // Public Data Types
@@ -245,28 +249,73 @@ pub struct ConfigChangeEntry {
     pub changed_at: String,
 }
 
+/// A gateway API key record for multi-key access control (P2-8).
+///
+/// Each key can be individually enabled/disabled, assigned to specific pools,
+/// and configured with an optional expiration time.
+/// An empty `allowed_pools` means the key has access to all pools.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiKey {
+    pub id: String,
+    /// The actual API key string (e.g., `sk-gw-xxxx`).
+    pub key: String,
+    /// Human-readable name/label for this key.
+    pub name: String,
+    /// Whether this key is currently active.
+    pub enabled: bool,
+    /// JSON array of pool IDs. Empty array = all pools allowed.
+    pub allowed_pools: String,
+    /// Optional expiration timestamp (NULL = never expires).
+    /// Format: `YYYY-MM-DD HH:MM:SS` (SQLite datetime).
+    pub expires_at: Option<String>,
+    /// Last time this key was used for authentication (NULL = never used).
+    pub last_used_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 // ============================================================================
 // Database
 // ============================================================================
 
 /// Database wrapper around SQLite.
 /// All configuration and request logs are stored here.
+///
+/// Uses two connections for read-write separation (P2-17):
+/// - `conn`: write connection (INSERT/UPDATE/DELETE/transactions)
+/// - `read_conn`: read-only connection (SELECT queries)
+/// SQLite WAL mode allows concurrent reads while writing.
 pub struct Database {
     conn: Mutex<Connection>,
+    /// Read-only connection for SELECT queries (None in tests — falls back to write conn).
+    read_conn: Option<Mutex<Connection>>,
     /// Counter to trigger periodic log cleanup (every 100 inserts).
     log_insert_counter: AtomicU64,
 }
 
 impl Database {
-    /// Helper to acquire the database connection lock safely.
+    /// Helper to acquire the database write connection lock safely.
     /// Returns an error if the mutex is poisoned (another thread panicked while holding it).
     pub(crate) fn get_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>, AppError> {
         self.conn.lock()
             .map_err(|_| AppError::Internal("Database connection lock poisoned".into()))
     }
 
+    /// Acquire the read-only connection for SELECT queries (P2-17).
+    /// SQLite WAL mode allows concurrent reads while a write is in progress.
+    /// In test mode, falls back to the write connection (read_conn is None).
+    pub(crate) fn get_read_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>, AppError> {
+        if let Some(rc) = &self.read_conn {
+            rc.lock()
+                .map_err(|_| AppError::Internal("Database read connection lock poisoned".into()))
+        } else {
+            self.get_conn()
+        }
+    }
+
     /// Open or create the SQLite database at the given path.
     /// Configures WAL mode for better concurrent read/write performance.
+    /// Opens a second read-only connection for read-write separation (P2-17).
     pub fn open(path: &Path) -> Result<Self, AppError> {
         let conn = Connection::open(path)?;
         conn.execute_batch(
@@ -276,16 +325,35 @@ impl Database {
              PRAGMA cache_size=-64000;
              PRAGMA temp_store=MEMORY;"
         )?;
-        debug!("Opened SQLite database at {:?} (WAL mode)", path);
-        Ok(Self { conn: Mutex::new(conn), log_insert_counter: AtomicU64::new(0) })
+
+        // Read-only connection for SELECT queries (P2-17)
+        let read_conn = Connection::open(path)?;
+        read_conn.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             PRAGMA query_only=1;
+             PRAGMA cache_size=-64000;
+             PRAGMA temp_store=MEMORY;"
+        )?;
+
+        debug!("Opened SQLite database at {:?} (WAL mode, read-write separated)", path);
+        Ok(Self {
+            conn: Mutex::new(conn),
+            read_conn: Some(Mutex::new(read_conn)),
+            log_insert_counter: AtomicU64::new(0),
+        })
     }
 
     /// Create an in-memory database (for testing).
+    /// No separate read connection — reads fall back to the write connection.
     #[cfg(test)]
     pub(crate) fn open_in_memory() -> Result<Self, AppError> {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch("PRAGMA foreign_keys=ON;")?;
-        Ok(Self { conn: Mutex::new(conn), log_insert_counter: AtomicU64::new(0) })
+        Ok(Self {
+            conn: Mutex::new(conn),
+            read_conn: None,
+            log_insert_counter: AtomicU64::new(0),
+        })
     }
 
     /// Initialize all tables and run migrations. Safe to call multiple times.
@@ -343,6 +411,20 @@ impl Database {
         })
     }
 
+    pub(crate) fn map_api_key_row(row: &rusqlite::Row) -> rusqlite::Result<ApiKey> {
+        Ok(ApiKey {
+            id: row.get(0)?,
+            key: row.get(1)?,
+            name: row.get(2)?,
+            enabled: row.get::<_, i32>(3)? != 0,
+            allowed_pools: row.get(4)?,
+            expires_at: row.get(5)?,
+            last_used_at: row.get(6)?,
+            created_at: row.get(7)?,
+            updated_at: row.get(8)?,
+        })
+    }
+
     pub(crate) fn map_log_row(row: &rusqlite::Row) -> rusqlite::Result<RequestLogEntry> {
         Ok(RequestLogEntry {
             id: row.get(0)?,
@@ -395,5 +477,67 @@ impl Database {
                 Err(e)
             }
         }
+    }
+}
+
+// ============================================================================
+// Tests (P2-17: read-write separation)
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::thread;
+
+    #[test]
+    fn test_concurrent_read_and_write_do_not_block() {
+        let db = Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+
+        // Insert a pool so get_stats has data to read
+        db.create_pool("pool_test", "test", "Test", 5, false).unwrap();
+
+        let db_clone = Arc::new(db);
+        let db_write = db_clone.clone();
+        let db_read = db_clone.clone();
+
+        // Writer thread: insert request logs
+        let writer = thread::spawn(move || {
+            for i in 0..50 {
+                db_write.insert_request_log(
+                    &format!("log_{}", i),
+                    &format!("req_{}", i),
+                    Some("test"),
+                    None,
+                    Some("gpt-4"),
+                    "",
+                    "POST",
+                    "/v1/chat/completions",
+                    200,
+                    100,
+                    false,
+                    10,
+                    20,
+                    30,
+                ).unwrap();
+            }
+        });
+
+        // Reader thread: query stats concurrently
+        let reader = thread::spawn(move || {
+            for _ in 0..50 {
+                // This should not block on the writer's Mutex
+                let stats = db_read.get_stats().unwrap();
+                assert!(stats.pool_count >= 1);
+            }
+        });
+
+        writer.join().unwrap();
+        reader.join().unwrap();
+
+        // Verify final state
+        let stats = db_clone.get_stats().unwrap();
+        assert_eq!(stats.today_request_count, 50);
     }
 }

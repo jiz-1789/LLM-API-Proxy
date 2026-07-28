@@ -2,8 +2,10 @@
 
 pub mod alert;
 pub mod config;
+pub mod config_io;
 pub mod crypto;
 pub mod db;
+pub mod diagnostic;
 pub mod error;
 pub mod gateway;
 pub mod pool;
@@ -85,6 +87,11 @@ pub fn initialize_backend() -> anyhow::Result<AppState> {
     std::fs::create_dir_all(&data_dir)?;
     tracing::info!("Data directory: {:?}", data_dir);
 
+    // Check for pending database restore (applied before opening the database)
+    if db::backup::apply_pending_restore() {
+        tracing::info!("Database restore applied, continuing with restored database");
+    }
+
     // Open and initialize database with migrations
     let db = db::Database::open(&config::GatewaySettings::db_path())?;
     db.initialize()?;
@@ -165,6 +172,10 @@ pub fn initialize_backend() -> anyhow::Result<AppState> {
 
     // Share the SAME database connection for both gateway and Tauri commands
     let state = AppState::new(settings, db_arc.clone(), crypto, shutdown, minimize);
+
+    // Start background auto-backup task (if enabled)
+    db::backup::start_auto_backup_task(db_arc.clone());
+
     Ok(state)
 }
 

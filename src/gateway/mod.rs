@@ -98,6 +98,10 @@ pub fn create_router(
     rate_limit_config: RateLimitConfig,
 ) -> Router {
     let rate_limiter = RateLimiter::new(rate_limit_config);
+    // Load persisted rate limit state from database (P2-15)
+    rate_limiter.load_from_db(&db);
+    // Start background persistence task (P2-15)
+    rate_limiter.clone().start_persist_task(db.clone());
     let state = GatewayState {
         db,
         proxy_client,
@@ -227,9 +231,9 @@ async fn handle_chat_completions(
     let request_id = format!("req_{}", trace_id);
     let trace_headers = build_trace_headers(&trace_id);
 
-    // Authenticate Gateway Key
-    let _api_key = match auth::validate_api_key(&headers, &state.db) {
-        Ok(key) => key,
+    // Authenticate Gateway Key (P2-8: multi-key with pool access control)
+    let auth_result = match auth::validate_api_key(&headers, &state.db) {
+        Ok(auth) => auth,
         Err(e) => {
             let msg = e.get("error").and_then(|v| v.as_str()).unwrap_or("authentication failed");
             return with_request_id(error_response::authentication_error(msg), &trace_id);
@@ -279,6 +283,15 @@ async fn handle_chat_completions(
         }
     };
 
+    // P2-8: Check if the authenticated API key has access to this pool.
+    // Legacy keys (from settings) and keys with empty allowed_pools have full access.
+    if !auth_result.can_access_pool(&pool.id) {
+        return with_request_id(
+            error_response::forbidden("This API key does not have access to the requested model"),
+            &trace_id,
+        );
+    }
+
     if pool_upstreams.is_empty() {
         return with_request_id(
             error_response::no_available_upstream("pool has no associated upstreams"),
@@ -303,7 +316,10 @@ async fn handle_chat_completions(
     // Determine round-robin starting index
     let n = pool_upstreams.len();
     let start_idx = if pool.round_robin_strategy == "round_robin" {
-        let mut counters = state.rr_counters.lock().unwrap();
+        let mut counters = state.rr_counters.lock().unwrap_or_else(|e| {
+            warn!("rr_counters mutex poisoned, recovering");
+            e.into_inner()
+        });
         let counter = counters.entry(pool.id.clone()).or_insert(0);
         let idx = *counter % n;
         *counter = (*counter + 1) % n;
@@ -397,7 +413,10 @@ async fn handle_chat_completions(
         } else {
             // Round-robin across models: use a composite key of pool_id + upstream_id
             let key = format!("{}:{}", pool.id, pu.upstream_id);
-            let mut counters = state.rr_counters.lock().unwrap();
+            let mut counters = state.rr_counters.lock().unwrap_or_else(|e| {
+                warn!("rr_counters mutex poisoned, recovering");
+                e.into_inner()
+            });
             let counter = counters.entry(key).or_insert(0);
             let idx = *counter % models.len();
             *counter = (*counter + 1) % models.len();
@@ -511,22 +530,17 @@ async fn handle_chat_completions(
                                         if trimmed == "[DONE]" {
                                             "data: [DONE]\n\n".to_string()
                                         } else {
-                                            // Single-pass: parse JSON once, replace model + extract usage
-                                            let (chunk, usage) = stream::process_sse_chunk(trimmed, &display_name);
+                                            // Single-pass: parse JSON once, replace model,
+                                            // extract usage, and detect errors
+                                            let (chunk, usage, error_msg) =
+                                                stream::process_sse_chunk(trimmed, &display_name);
                                             if let Some(u) = usage {
                                                 last_usage = Some(u);
                                             }
-                                            // Detect error in stream chunk
-                                            if stream_error.is_none()
-                                                && let Ok(v) = serde_json::from_str::<Value>(trimmed)
-                                                && let Some(err) = v.get("error")
-                                            {
-                                                let msg = if let Some(m) = err.get("message").and_then(|m| m.as_str()) {
-                                                    m.to_string()
-                                                } else {
-                                                    err.to_string()
-                                                };
-                                                stream_error = Some(msg);
+                                            if stream_error.is_none() {
+                                                if let Some(msg) = error_msg {
+                                                    stream_error = Some(msg);
+                                                }
                                             }
                                             chunk
                                         }

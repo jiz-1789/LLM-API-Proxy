@@ -399,6 +399,77 @@ impl AlertSettings {
     }
 }
 
+// ============================================================================
+// Auto-Backup Settings
+// ============================================================================
+
+/// Auto-backup configuration persisted in the settings table.
+///
+/// Settings keys (all stored as strings):
+/// - `auto_backup_enabled` (default: false)
+/// - `auto_backup_interval_days` (default: 7, minimum: 1)
+/// - `auto_backup_max_count` (default: 5, minimum: 1)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoBackupSettings {
+    pub enabled: bool,
+    pub interval_days: u32,
+    pub max_count: u32,
+}
+
+impl Default for AutoBackupSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            interval_days: 7,
+            max_count: 5,
+        }
+    }
+}
+
+impl AutoBackupSettings {
+    /// Load auto-backup settings from the database settings table.
+    /// Values are clamped to minimum bounds to prevent misconfiguration.
+    pub fn load(db: &crate::db::Database) -> Self {
+        Self {
+            enabled: db
+                .get_setting("auto_backup_enabled")
+                .ok()
+                .flatten()
+                .map(|v| v == "true")
+                .unwrap_or(false),
+            interval_days: db
+                .get_setting("auto_backup_interval_days")
+                .ok()
+                .flatten()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(7)
+                .max(1),
+            max_count: db
+                .get_setting("auto_backup_max_count")
+                .ok()
+                .flatten()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(5)
+                .max(1),
+        }
+    }
+
+    /// Save auto-backup settings to the database settings table.
+    /// Values are clamped before saving.
+    pub fn save(&self, db: &crate::db::Database) -> Result<(), crate::error::AppError> {
+        db.save_setting("auto_backup_enabled", &self.enabled.to_string())?;
+        db.save_setting(
+            "auto_backup_interval_days",
+            &self.interval_days.max(1).to_string(),
+        )?;
+        db.save_setting(
+            "auto_backup_max_count",
+            &self.max_count.max(1).to_string(),
+        )?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

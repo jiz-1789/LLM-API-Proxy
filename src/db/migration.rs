@@ -85,7 +85,27 @@ impl Database {
                 changed_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
             );
 
-            CREATE INDEX IF NOT EXISTS idx_config_changes_changed_at ON config_changes(changed_at);"
+            CREATE INDEX IF NOT EXISTS idx_config_changes_changed_at ON config_changes(changed_at);
+
+            CREATE TABLE IF NOT EXISTS rate_limit_state (
+                client_ip TEXT PRIMARY KEY,
+                count INTEGER NOT NULL,
+                window_start INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id TEXT PRIMARY KEY,
+                key TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL DEFAULT '',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                allowed_pools TEXT NOT NULL DEFAULT '[]',
+                expires_at TEXT,
+                last_used_at TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_api_keys_key ON api_keys(key);"
         )?;
         Ok(())
     }
@@ -183,6 +203,45 @@ impl Database {
             info!("Database migrated to version 8");
         }
 
+        // v9 migration: create rate_limit_state table for persistence (idempotent)
+        if current < 9 {
+            self.get_conn()?.execute_batch(
+                "CREATE TABLE IF NOT EXISTS rate_limit_state (
+                    client_ip TEXT PRIMARY KEY,
+                    count INTEGER NOT NULL,
+                    window_start INTEGER NOT NULL
+                );",
+            )?;
+            self.get_conn()?.execute(
+                "UPDATE schema_version SET version = ?1",
+                params![9],
+            )?;
+            info!("Database migrated to version 9");
+        }
+
+        // v10 migration: create api_keys table for multi-key access control (idempotent)
+        if current < 10 {
+            self.get_conn()?.execute_batch(
+                "CREATE TABLE IF NOT EXISTS api_keys (
+                    id TEXT PRIMARY KEY,
+                    key TEXT NOT NULL UNIQUE,
+                    name TEXT NOT NULL DEFAULT '',
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    allowed_pools TEXT NOT NULL DEFAULT '[]',
+                    expires_at TEXT,
+                    last_used_at TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+                );
+                CREATE INDEX IF NOT EXISTS idx_api_keys_key ON api_keys(key);",
+            )?;
+            self.get_conn()?.execute(
+                "UPDATE schema_version SET version = ?1",
+                params![10],
+            )?;
+            info!("Database migrated to version 10");
+        }
+
         Ok(())
     }
 
@@ -268,11 +327,11 @@ mod tests {
     }
 
     #[test]
-    fn test_schema_version_is_v7_after_migration() {
+    fn test_schema_version_is_v10_after_migration() {
         let db = Database::open_in_memory().unwrap();
         db.initialize().unwrap();
         let version = db.get_schema_version().unwrap();
-        assert_eq!(version, 8);
+        assert_eq!(version, 10);
     }
 
     #[test]

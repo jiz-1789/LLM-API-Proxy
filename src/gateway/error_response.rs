@@ -157,3 +157,14 @@ pub fn internal_error(message: &str) -> Response {
         None,
     )
 }
+
+/// 403 禁止访问错误响应（API Key 无权访问指定池）。
+pub fn forbidden(message: &str) -> Response {
+    error_response(
+        StatusCode::FORBIDDEN,
+        message,
+        "authentication_error",
+        "pool_access_denied",
+        None,
+    )
+}

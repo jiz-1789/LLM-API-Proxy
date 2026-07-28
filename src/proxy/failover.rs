@@ -11,12 +11,14 @@ pub struct UpstreamClient {
 
 impl UpstreamClient {
     pub fn new() -> Self {
-        Self {
-            http_client: Client::builder()
-                .connect_timeout(std::time::Duration::from_secs(15))
-                .build()
-                .expect("failed to build HTTP client"),
-        }
+        let http_client = Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(15))
+            .build()
+            .unwrap_or_else(|e| {
+                tracing::error!("Failed to build HTTP client with custom settings, falling back to default: {}", e);
+                Client::new()
+            });
+        Self { http_client }
     }
 
     /// Forward a single request to the given upstream (non-streaming).

@@ -4,19 +4,31 @@
 //! 采用固定窗口计数法：每个客户端 IP 在 `window_seconds` 秒内最多发起
 //! `max_requests` 次请求。窗口过期后自动重置。
 //!
+//! ## 并发安全（P2-16）
+//! 使用 `DashMap` 替代 `Mutex<HashMap>`，提供分片级别的并发访问，
+//! 避免全局锁争用。每个 key 的读写操作只持有对应分片的锁。
+//!
+//! ## 状态持久化（P2-15）
+//! 限流计数通过 `SystemTime`（而非 `Instant`）记录窗口起始时间，
+//! 使得状态可以序列化到 SQLite。启动时从数据库加载，后台定期持久化，
+//! 应用重启后限流计数不丢失。
+//!
 //! ## 客户端 IP 识别
 //! 支持两种模式，由 `trust_forwarded_for` 配置项控制：
 //! - **直连模式**（默认）：使用 TCP 连接的 `remote_addr`，安全且不可伪造。
 //! - **反向代理模式**：从 `X-Forwarded-For` 头取最右侧（最接近本服务）的 IP。
 //!   仅在部署于受信任的反向代理后才应启用。
 
-use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use axum::http::{HeaderMap, Request};
 use axum::body::Body;
+use axum::http::{HeaderMap, Request};
+use dashmap::DashMap;
+use tracing::{info, warn};
+
+use crate::db::Database;
 
 /// 限流配置，从 settings 表加载，支持运行时修改。
 #[derive(Debug, Clone)]
@@ -43,16 +55,19 @@ impl Default for RateLimitConfig {
 }
 
 /// 内存固定窗口限流器：client IP → (count, window_start)。
+///
+/// 使用 `DashMap` 实现并发安全的 per-key 访问，
+/// 使用 `SystemTime` 使窗口起始时间可持久化到数据库。
 #[derive(Clone)]
 pub struct RateLimiter {
-    requests: Arc<Mutex<HashMap<String, (u32, Instant)>>>,
+    requests: Arc<DashMap<String, (u32, SystemTime)>>,
     config: RateLimitConfig,
 }
 
 impl RateLimiter {
     pub fn new(config: RateLimitConfig) -> Self {
         Self {
-            requests: Arc::new(Mutex::new(HashMap::new())),
+            requests: Arc::new(DashMap::new()),
             config,
         }
     }
@@ -60,7 +75,7 @@ impl RateLimiter {
     /// 更新配置（运行时热更新，不影响已有计数器）。
     pub fn update_config(&self, config: RateLimitConfig) {
         // config 是 Clone 的，但此处需要可变更新
-        // 由于 RateLimiter 被 Clone 共享 Arc<Mutex<HashMap>>，
+        // 由于 RateLimiter 被 Clone 共享 Arc<DashMap>，
         // 我们不能直接替换 config 字段。
         // 实际使用中每次创建 router 时读取最新配置即可。
         // 这里保留方法签名以备未来扩展（如 ArcSwap）。
@@ -79,12 +94,13 @@ impl RateLimiter {
             return Ok(());
         }
 
-        let mut requests = self.requests.lock().expect("rate limiter mutex poisoned");
-        let now = Instant::now();
+        let now = SystemTime::now();
         let window = Duration::from_secs(self.config.window_seconds);
 
-        if let Some((count, window_start)) = requests.get_mut(client_ip) {
-            if now.duration_since(*window_start) > window {
+        // DashMap entry() provides per-key locking without global lock
+        if let Some(mut entry) = self.requests.get_mut(client_ip) {
+            let (count, window_start) = entry.value_mut();
+            if now.duration_since(*window_start).map(|d| d > window).unwrap_or(true) {
                 // 窗口已过期，重置
                 *count = 1;
                 *window_start = now;
@@ -94,12 +110,12 @@ impl RateLimiter {
                 Ok(())
             } else {
                 // 计算距离窗口重置还需多少秒
-                let elapsed = now.duration_since(*window_start);
+                let elapsed = now.duration_since(*window_start).unwrap_or(Duration::ZERO);
                 let remaining = window.saturating_sub(elapsed);
                 Err(remaining.as_secs().max(1))
             }
         } else {
-            requests.insert(client_ip.to_string(), (1, now));
+            self.requests.insert(client_ip.to_string(), (1, now));
             Ok(())
         }
     }
@@ -107,10 +123,110 @@ impl RateLimiter {
     /// 清理过期的 IP 记录，避免内存无限增长。
     /// 建议在后台定时调用（如每 5 分钟一次）。
     pub fn cleanup_expired(&self) {
-        let mut requests = self.requests.lock().expect("rate limiter mutex poisoned");
-        let now = Instant::now();
+        let now = SystemTime::now();
         let window = Duration::from_secs(self.config.window_seconds);
-        requests.retain(|_, (_, window_start)| now.duration_since(*window_start) <= window);
+        self.requests.retain(|_, (_, window_start)| {
+            now.duration_since(*window_start).map(|d| d <= window).unwrap_or(true)
+        });
+    }
+
+    // ========================================================================
+    // Persistence (P2-15)
+    // ========================================================================
+
+    /// Load rate limit state from the database into the in-memory map.
+    /// Expired entries (window already passed) are discarded.
+    pub fn load_from_db(&self, db: &Database) {
+        match db.load_rate_limit_state() {
+            Ok(entries) => {
+                let now = SystemTime::now();
+                let window = Duration::from_secs(self.config.window_seconds);
+                let mut loaded = 0;
+                for (ip, count, window_start_secs) in entries {
+                    // Convert unix secs back to SystemTime
+                    let window_start = UNIX_EPOCH + Duration::from_secs(window_start_secs as u64);
+                    // Skip expired entries
+                    if now.duration_since(window_start).map(|d| d <= window).unwrap_or(false) {
+                        self.requests.insert(ip, (count, window_start));
+                        loaded += 1;
+                    }
+                }
+                if loaded > 0 {
+                    info!("Loaded {} rate limit entries from database", loaded);
+                }
+            }
+            Err(e) => {
+                warn!("Failed to load rate limit state from database: {}", e);
+            }
+        }
+    }
+
+    /// Persist the current in-memory rate limit state to the database.
+    pub fn persist_to_db(&self, db: &Database) {
+        let now = SystemTime::now();
+        let window = Duration::from_secs(self.config.window_seconds);
+
+        // Collect non-expired entries
+        let entries: Vec<(String, u32, i64)> = self
+            .requests
+            .iter()
+            .filter_map(|ref_entry| {
+                let (ip, (count, window_start)) = ref_entry.pair();
+                // Skip expired entries
+                if now.duration_since(*window_start).map(|d| d <= window).unwrap_or(false) {
+                    let secs = window_start
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_secs() as i64)
+                        .unwrap_or(0);
+                    Some((ip.clone(), *count, secs))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if entries.is_empty() {
+            // Clear the table to remove stale entries
+            if let Err(e) = db.clear_rate_limit_state() {
+                warn!("Failed to clear rate limit state: {}", e);
+            }
+            return;
+        }
+
+        // Clear and re-insert (simpler than per-key upsert for batch)
+        if let Err(e) = db.clear_rate_limit_state() {
+            warn!("Failed to clear rate limit state: {}", e);
+            return;
+        }
+        if let Err(e) = db.save_rate_limit_state(&entries) {
+            warn!("Failed to persist rate limit state: {}", e);
+        } else {
+            info!("Persisted {} rate limit entries to database", entries.len());
+        }
+    }
+
+    /// Start a background task that periodically persists the rate limit state.
+    /// Runs every 5 minutes.
+    pub fn start_persist_task(self, db: Arc<Database>) {
+        std::thread::spawn(move || {
+            let rt = match tokio::runtime::Runtime::new() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    warn!("Failed to create tokio runtime for rate limit persistence: {}", e);
+                    return;
+                }
+            };
+            rt.block_on(async move {
+                let interval = Duration::from_secs(300); // 5 minutes
+                loop {
+                    tokio::time::sleep(interval).await;
+                    // Cleanup expired entries first
+                    self.cleanup_expired();
+                    // Persist to database
+                    self.persist_to_db(&db);
+                }
+            });
+        });
     }
 }
 
@@ -275,9 +391,169 @@ mod tests {
 
         limiter.cleanup_expired();
 
-        // 内部 HashMap 应被清理
-        let requests = limiter.requests.lock().unwrap();
-        assert!(requests.is_empty());
+        // 内部 DashMap 应被清理
+        assert!(limiter.requests.is_empty());
+    }
+
+    // ── 并发安全测试（P2-16） ─────────────────────────────────
+
+    #[test]
+    fn test_concurrent_access_different_ips() {
+        let config = RateLimitConfig {
+            enabled: true,
+            max_requests: 1000,
+            window_seconds: 60,
+            trust_forwarded_for: false,
+        };
+        let limiter = RateLimiter::new(config);
+
+        let mut handles = vec![];
+        for i in 0..10 {
+            let lim = limiter.clone();
+            handles.push(std::thread::spawn(move || {
+                let ip = format!("10.0.0.{}", i);
+                for _ in 0..100 {
+                    assert!(lim.check(&ip).is_ok());
+                }
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        // Each IP should have 100 requests
+        for i in 0..10 {
+            let ip = format!("10.0.0.{}", i);
+            let entry = limiter.requests.get(&ip).unwrap();
+            assert_eq!(entry.0, 100);
+        }
+    }
+
+    #[test]
+    fn test_concurrent_access_same_ip() {
+        let config = RateLimitConfig {
+            enabled: true,
+            max_requests: 500,
+            window_seconds: 60,
+            trust_forwarded_for: false,
+        };
+        let limiter = RateLimiter::new(config);
+
+        let mut handles = vec![];
+        for _ in 0..10 {
+            let lim = limiter.clone();
+            handles.push(std::thread::spawn(move || {
+                let mut ok = 0;
+                for _ in 0..100 {
+                    if lim.check("1.2.3.4").is_ok() {
+                        ok += 1;
+                    }
+                }
+                ok
+            }));
+        }
+
+        let total_ok: u32 = handles.into_iter().map(|h| h.join().unwrap()).sum();
+        // Total successful requests should be exactly 500 (max_requests)
+        assert_eq!(total_ok, 500);
+
+        // Final count should be 500
+        let entry = limiter.requests.get("1.2.3.4").unwrap();
+        assert_eq!(entry.0, 500);
+    }
+
+    // ── 持久化测试（P2-15） ───────────────────────────────────
+
+    #[test]
+    fn test_persist_and_load_roundtrip() {
+        let db = crate::db::Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+
+        let config = RateLimitConfig {
+            enabled: true,
+            max_requests: 60,
+            window_seconds: 60,
+            trust_forwarded_for: false,
+        };
+        let limiter = RateLimiter::new(config.clone());
+
+        // Add some entries
+        limiter.check("1.1.1.1");
+        limiter.check("1.1.1.1");
+        limiter.check("2.2.2.2");
+
+        // Persist
+        limiter.persist_to_db(&db);
+
+        // Create a new limiter and load from DB
+        let limiter2 = RateLimiter::new(config);
+        limiter2.load_from_db(&db);
+
+        // Verify state was restored
+        let e1 = limiter2.requests.get("1.1.1.1").unwrap();
+        assert_eq!(e1.0, 2);
+
+        let e2 = limiter2.requests.get("2.2.2.2").unwrap();
+        assert_eq!(e2.0, 1);
+    }
+
+    #[test]
+    fn test_load_skips_expired_entries() {
+        let db = crate::db::Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+
+        // Insert an expired entry directly into the database
+        let past_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+            - 120; // 2 minutes ago (expired for 60s window)
+        db.save_rate_limit_state(&[
+            ("expired.ip".to_string(), 5u32, past_time),
+            ("valid.ip".to_string(), 3u32, SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64),
+        ])
+        .unwrap();
+
+        let config = RateLimitConfig {
+            enabled: true,
+            max_requests: 60,
+            window_seconds: 60,
+            trust_forwarded_for: false,
+        };
+        let limiter = RateLimiter::new(config);
+        limiter.load_from_db(&db);
+
+        // Expired entry should not be loaded
+        assert!(limiter.requests.get("expired.ip").is_none());
+        // Valid entry should be loaded
+        assert!(limiter.requests.get("valid.ip").is_some());
+    }
+
+    #[test]
+    fn test_persist_skips_expired() {
+        let db = crate::db::Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+
+        let config = RateLimitConfig {
+            enabled: true,
+            max_requests: 60,
+            window_seconds: 1, // 1 second window for testing
+            trust_forwarded_for: false,
+        };
+        let limiter = RateLimiter::new(config);
+
+        limiter.check("1.1.1.1");
+        limiter.check("2.2.2.2");
+
+        // Wait for entries to expire
+        std::thread::sleep(Duration::from_millis(1100));
+
+        // Persist should skip expired entries
+        limiter.persist_to_db(&db);
+
+        // Database should be empty (all entries were expired)
+        let state = db.load_rate_limit_state().unwrap();
+        assert!(state.is_empty());
     }
 
     // ── 客户端 IP 识别测试 ──────────────────────────────────────

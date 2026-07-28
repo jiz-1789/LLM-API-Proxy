@@ -30,7 +30,7 @@ impl Database {
 
     /// Get all upstreams ordered by creation time (newest first).
     pub fn get_upstreams(&self) -> Result<Vec<Upstream>, AppError> {
-        let conn = self.get_conn()?;
+        let conn = self.get_read_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, provider_name, base_url, api_key_encrypted, selected_model,
                     available_models, enabled, remark, status, failure_count, last_failure_time,
@@ -44,7 +44,7 @@ impl Database {
 
     /// Get a single upstream by its ID.
     pub fn get_upstream_by_id(&self, id: &str) -> Result<Option<Upstream>, AppError> {
-        let conn = self.get_conn()?;
+        let conn = self.get_read_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, provider_name, base_url, api_key_encrypted, selected_model,
                     available_models, enabled, remark, status, failure_count, last_failure_time,
@@ -75,7 +75,7 @@ impl Database {
             placeholders.join(", ")
         );
 
-        let conn = self.get_conn()?;
+        let conn = self.get_read_conn()?;
         let mut stmt = conn.prepare(&sql)?;
         let params: Vec<&dyn rusqlite::types::ToSql> = ids
             .iter()
@@ -202,31 +202,33 @@ impl Database {
                 )?;
             }
         } else {
+            // Use the write connection (not read_conn) and perform an atomic
+            // UPDATE to avoid the TOCTOU race where two threads read the same
+            // failure_count, each increment by 1, and one increment is lost.
+            // The new status is computed inside SQL using CASE WHEN.
             let conn = self.get_conn()?;
-            let current: (i32, String) = conn.query_row(
-                "SELECT failure_count, status FROM upstreams WHERE id = ?1",
-                params![upstream_id],
-                |row| Ok((row.get::<_, i32>(0)?, row.get::<_, String>(1)?)),
-            )?;
 
-            let new_count = current.0 + 1;
-            let new_status = if failure_threshold <= 0 {
-                "degraded"
-            } else if new_count >= failure_threshold {
-                "down"
+            // Determine the new status expression based on threshold.
+            // When threshold <= 0, always "degraded"; otherwise "down" when
+            // failure_count + 1 >= threshold, else "degraded".
+            let new_status_expr = if failure_threshold <= 0 {
+                "'degraded'"
             } else {
-                "degraded"
+                "CASE WHEN failure_count + 1 >= ?2 THEN 'down' ELSE 'degraded' END"
             };
 
             conn.execute(
-                "UPDATE upstreams SET
-                    status = ?1,
-                    failure_count = ?2,
-                    last_failure_time = datetime('now', 'localtime'),
-                    last_error_reason = ?3,
-                    updated_at = datetime('now', 'localtime')
-                 WHERE id = ?4",
-                params![new_status, new_count, error_reason, upstream_id],
+                &format!(
+                    "UPDATE upstreams SET
+                        status = {status_expr},
+                        failure_count = failure_count + 1,
+                        last_failure_time = datetime('now', 'localtime'),
+                        last_error_reason = ?3,
+                        updated_at = datetime('now', 'localtime')
+                     WHERE id = ?4",
+                    status_expr = new_status_expr
+                ),
+                params![failure_threshold, failure_threshold, error_reason, upstream_id],
             )?;
         }
         Ok(())
@@ -260,7 +262,7 @@ impl Database {
 
     /// Get status summary for all upstreams.
     pub fn get_upstream_status_summary(&self) -> Result<Vec<super::UpstreamStatusSummary>, AppError> {
-        let conn = self.get_conn()?;
+        let conn = self.get_read_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, provider_name, status, failure_count, last_failure_time,
                     last_success_time, last_error_reason, recovered_at

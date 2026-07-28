@@ -40,6 +40,8 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 bytes = { workspace = true }
 log = "0.4"
+zip = { workspace = true }
+dashmap = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

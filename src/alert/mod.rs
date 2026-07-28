@@ -94,7 +94,19 @@ pub fn start_alert_task(db: Arc<Database>) {
         "Starting alert monitoring task"
     );
 
-    tokio::spawn(async move {
+    // Spawn a dedicated OS thread with its own tokio runtime, matching the
+    // pattern used by start_auto_backup_task and rate_limit::start_persist_task.
+    // This avoids panicking when called outside a tokio runtime context (e.g.
+    // from Tauri's setup callback).
+    std::thread::spawn(move || {
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                warn!("Failed to create tokio runtime for alert monitoring: {}", e);
+                return;
+            }
+        };
+        rt.block_on(async move {
         // Initial delay to allow requests to accumulate
         tokio::time::sleep(Duration::from_secs(30)).await;
 
@@ -138,6 +150,7 @@ pub fn start_alert_task(db: Arc<Database>) {
 
             tokio::time::sleep(check_interval).await;
         }
+        });
     });
 }
 

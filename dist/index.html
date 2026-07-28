@@ -1431,6 +1431,16 @@ gap: 8px;
                         </div>
                     </div>
                     <div class="settings-section">
+                        <div class="section-title">
+                            <span data-i18n="settings_api_keys_title">API 密钥管理</span>
+                            <button class="btn btn-primary btn-sm" onclick="showApiKeyModal()" style="margin-left:auto;" data-i18n="settings_api_keys_add">新建密钥</button>
+                        </div>
+                        <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="settings_api_keys_desc">创建多个网关 API 密钥，可为不同密钥分配可访问的模型池。上方「接入信息」中的密钥为默认密钥，拥有所有池的访问权限。</p>
+                        <div id="api-keys-list" style="display:flex;flex-direction:column;gap:8px;">
+                            <span style="font-size:12px;color:var(--text-muted);" data-i18n="dash_loading">加载中...</span>
+                        </div>
+                    </div>
+                    <div class="settings-section">
                         <div class="section-title" data-i18n="settings_pools_title">可用模型池</div>
                         <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="settings_pools_desc">客户端请求时使用以下模型名称作为 <code>model</code> 参数，点击可复制。</p>
                         <div id="settings-pool-list" style="display:flex;flex-direction:column;gap:8px;">
@@ -1569,6 +1579,44 @@ gap: 8px;
                         </div>
                         <div id="update-result" style="display:none;margin-top:12px;padding:14px 16px;background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-md);font-size:12px;line-height:1.6;"></div>
                     </div>
+                    <div class="settings-section">
+                        <div class="section-title" data-i18n="settings_backup_title">数据备份与恢复</div>
+                        <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="settings_backup_desc">一键备份数据库为 .db 文件，或从备份文件恢复。恢复操作需要重启应用以生效。</p>
+                        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
+                            <button class="btn btn-ghost btn-sm" onclick="backupDatabase()" data-i18n="settings_backup_btn">备份数据库</button>
+                            <button class="btn btn-ghost btn-sm" onclick="restoreDatabase()" data-i18n="settings_restore_btn">恢复数据库</button>
+                            <button class="btn btn-ghost btn-sm" onclick="createBackupNow()" data-i18n="settings_backup_now">立即创建自动备份</button>
+                        </div>
+                        <div id="backup-restore-pending" style="display:none;margin-bottom:12px;padding:10px 14px;background:var(--bg-primary);border:1px solid var(--accent);border-radius:var(--radius-md);font-size:12px;color:var(--text-secondary);"></div>
+                        <div class="settings-row" style="margin-bottom:8px;">
+                            <label data-i18n="settings_auto_backup_enabled">启用自动备份</label>
+                            <label class="switch"><input type="checkbox" id="set-auto-backup-enabled"><span class="slider"></span></label>
+                        </div>
+                        <div class="settings-row" style="margin-bottom:8px;">
+                            <label data-i18n="settings_auto_backup_interval">备份间隔 (天)</label>
+                            <input class="form-input" id="set-auto-backup-interval" type="number" min="1" max="365" value="7" style="max-width:120px;">
+                        </div>
+                        <div class="settings-row" style="margin-bottom:8px;">
+                            <label data-i18n="settings_auto_backup_max">最大备份数量</label>
+                            <input class="form-input" id="set-auto-backup-max" type="number" min="1" max="100" value="5" style="max-width:120px;">
+                        </div>
+                        <div id="auto-backup-list" style="margin-top:12px;"></div>
+                    </div>
+                    <div class="settings-section">
+                        <div class="section-title" data-i18n="settings_config_io_title">配置导入导出</div>
+                        <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="settings_config_io_desc">导出所有上游、号池和设置为 JSON 文件，或从 JSON 文件导入配置。导出文件包含 API Key 明文，请妥善保管。</p>
+                        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                            <button class="btn btn-ghost btn-sm" onclick="exportConfig()" data-i18n="settings_export_btn">导出配置</button>
+                            <button class="btn btn-ghost btn-sm" onclick="importConfig('incremental')" data-i18n="settings_import_incremental">增量导入</button>
+                            <button class="btn btn-ghost btn-sm" onclick="importConfig('full')" data-i18n="settings_import_full">全量导入</button>
+                        </div>
+                        <div id="config-import-result" style="display:none;margin-top:12px;padding:14px 16px;background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-md);font-size:12px;line-height:1.6;"></div>
+                    </div>
+                    <div class="settings-section">
+                        <div class="section-title" data-i18n="settings_diagnostic_title">诊断包</div>
+                        <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="settings_diagnostic_desc">导出包含版本信息、配置摘要、上游状态、最近日志等诊断信息的 ZIP 压缩包，用于问题排查。所有敏感信息（API Key 等）已脱敏处理。</p>
+                        <button class="btn btn-ghost btn-sm" onclick="exportDiagnostic()" data-i18n="settings_diagnostic_btn">导出诊断包</button>
+                    </div>
                     <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px;">
                         <button class="btn btn-primary" id="btn-save-settings" onclick="saveSettings()" data-i18n="settings_save">保存设置</button>
                     </div>
@@ -1602,7 +1650,7 @@ gap: 8px;
 
                 <div class="help-section">
                     <h3><span class="help-icon">1</span><span data-i18n="help_quick_start">快速开始</span></h3>
-                    <p data-i18n="help_quick_start_desc">从零到跑通只需四步：</p>
+                    <p data-i18n="help_quick_start_desc">从零到跑通只需五步：</p>
                     <div class="help-flow">
                         <div class="help-step">
                             <span class="step-num">1</span>
@@ -1624,6 +1672,12 @@ gap: 8px;
                         <div class="help-arrow">→</div>
                         <div class="help-step">
                             <span class="step-num">4</span>
+                            <div class="step-title" data-i18n="help_step_manage_keys">管理密钥</div>
+                            <div class="step-desc" data-i18n="help_step_manage_keys_desc">按需创建多个 API 密钥，分配池访问权限</div>
+                        </div>
+                        <div class="help-arrow">→</div>
+                        <div class="help-step">
+                            <span class="step-num">5</span>
                             <div class="step-title" data-i18n="help_step_connect">接入客户端</div>
                             <div class="step-desc" data-i18n="help_step_connect_desc">将地址和密钥填入任意 OpenAI 兼容客户端即可</div>
                         </div>
@@ -1657,6 +1711,8 @@ gap: 8px;
                         <li data-i18n="help_upstreams_op_1">点击「+ 新增上游」添加新服务商</li>
                         <li data-i18n="help_upstreams_op_2">右键点击表格行可弹出菜单：编辑、Token 消耗、启用/禁用、复制信息、删除（右键删除直接执行，无需二次确认）</li>
                         <li data-i18n-html="help_upstreams_op_3"><strong>启用/禁用开关</strong>：禁用后网关不会再向该上游转发请求。适合余额用完或临时维护时使用</li>
+                        <li data-i18n-html="help_upstreams_op_4"><strong>测试连接</strong>：编辑上游时可点击「测试连接」即时验证 API Key 和 Base URL 的连通性，支持显示可用模型数量和响应延迟</li>
+                        <li data-i18n-html="help_upstreams_op_5"><strong>异常详情</strong>：上游列表展示错误原因分类（连接失败、认证失败、超时等）、失败次数、最近成功/失败时间和恢复时间</li>
                     </ul>
                     <div class="help-tip" data-i18n-html="help_upstreams_tip">编辑上游时如果 API Key 显示为 <code>••••••</code>（已脱敏），不修改则保持原密钥不变。获取模型列表时会自动调用服务商接口。</div>
                 </div>
@@ -1678,31 +1734,134 @@ gap: 8px;
                         <li data-i18n-html="help_pools_lb_1"><strong>第一层 — 上游轮询</strong>：每次请求在上游列表中轮换起始位置，使请求均匀分布到不同上游</li>
                         <li data-i18n-html="help_pools_lb_2"><strong>第二层 — 模型轮询</strong>：若某上游关联了多个模型，每次请求到该上游时在模型间轮换</li>
                     </ul>
-                    <div class="help-tip" data-i18n="help_pools_tip">请求转发逻辑：轮询选择上游 → 跳过已禁用的上游 → 失败时若开启故障转移则自动尝试下一个上游 → 全部失败则返回错误。右键删除模型池直接执行，无需二次确认。日志自动保留最近5天且不超过200条，过期自动清理。</div>
+                    <p data-i18n-html="help_pools_detail_title"><strong>号池详情视图：</strong></p>
+                    <ul>
+                        <li data-i18n-html="help_pools_detail_1">点击号池表格行的「详情」按钮可打开号池详情弹窗</li>
+                        <li data-i18n-html="help_pools_detail_2">详情页可视化展示池内上游的排序、模型、健康状态</li>
+                        <li data-i18n-html="help_pools_detail_3"><strong>拖拽排序</strong>：在详情弹窗中拖拽行可调整上游顺序，保存后立即生效</li>
+                    </ul>
+                    <div class="help-tip" data-i18n="help_pools_tip">请求转发逻辑：轮询选择上游 → 跳过已禁用的上游 → 失败时若开启故障转移则自动尝试下一个上游 → 全部失败则返回错误。右键删除模型池直接执行，无需二次确认。日志自动保留策略可在设置中配置。</div>
                 </div>
 
                 <div class="help-section">
-                    <h3><span class="help-icon">📋</span><span data-i18n="help_logs">请求日志</span></h3>
-                    <p data-i18n="help_logs_desc">记录所有经过网关转发的请求，用于排查问题和监控。</p>
+                    <h3><span class="help-icon">📋</span><span data-i18n="help_logs">请求日志与统计</span></h3>
+                    <p data-i18n="help_logs_desc">请求日志页记录所有经过网关转发的请求，并提供多维度的统计分析和故障切换事件追踪。</p>
+                    <p data-i18n-html="help_logs_filter_title"><strong>日志筛选与导出：</strong></p>
                     <ul>
-                        <li data-i18n-html="help_logs_item_1"><strong>筛选</strong>：按模型池或状态码（2xx / 4xx / 5xx）过滤</li>
+                        <li data-i18n-html="help_logs_item_1"><strong>筛选</strong>：按模型池、上游或状态码（2xx / 4xx / 5xx）过滤</li>
                         <li data-i18n-html="help_logs_item_2"><strong>分页</strong>：每页显示 20 条，可翻页查看历史记录</li>
                         <li data-i18n-html="help_logs_item_3"><strong>状态码</strong>：绿色标签表示成功（2xx），红色标签表示失败（4xx/5xx）</li>
                         <li data-i18n-html="help_logs_item_4"><strong>耗时</strong>：从收到请求到上游响应的毫秒数</li>
                         <li data-i18n-html="help_logs_item_5"><strong>流式</strong>：该请求是否为 SSE 流式响应</li>
+                        <li data-i18n-html="help_logs_item_6"><strong>导出</strong>：选择 CSV 或 JSON 格式，按当前筛选条件导出日志文件</li>
                     </ul>
+                    <p data-i18n-html="help_logs_stats_title2"><strong>请求统计：</strong></p>
+                    <ul>
+                        <li data-i18n-html="help_logs_stats_1">按上游和模型维度聚合，展示总请求数、成功数、失败数、成功率</li>
+                        <li data-i18n-html="help_logs_stats_2">展示平均耗时、P95 和 P99 百分位耗时，评估性能分布</li>
+                        <li data-i18n-html="help_logs_stats_3">点击「刷新」按钮可手动更新统计数据</li>
+                    </ul>
+                    <p data-i18n-html="help_logs_failover_title2"><strong>故障切换事件：</strong></p>
+                    <ul>
+                        <li data-i18n-html="help_logs_failover_1">记录每次故障切换的时间、模型池、最终成功上游、尝试次数</li>
+                        <li data-i18n-html="help_logs_failover_2">可视化展示故障链，清晰呈现哪些上游被依次尝试</li>
+                        <li data-i18n-html="help_logs_failover_3">支持分页浏览历史故障切换事件</li>
+                    </ul>
+                    <p data-i18n-html="help_logs_token_title2"><strong>Token 用量统计：</strong></p>
+                    <ul>
+                        <li data-i18n-html="help_logs_token_1"><strong>按模型池</strong>：展示每个池的今日 Token、累计 Token、今日请求数、累计请求数</li>
+                        <li data-i18n-html="help_logs_token_2"><strong>按上游</strong>：展示每个上游的今日 Token、累计 Token、今日请求数、累计请求数</li>
+                        <li data-i18n-html="help_logs_token_3">双视图并列展示，便于对比不同维度的用量分布</li>
+                    </ul>
+                    <div class="help-tip" data-i18n="help_logs_tip">日志保留策略可在「设置 → 日志保留」中配置，支持自定义保留天数和最大条数，超出后自动清理旧日志。</div>
                 </div>
 
                 <div class="help-section">
                     <h3><span class="help-icon">⚙️</span><span data-i18n="help_settings">设置</span></h3>
+                    <p data-i18n="help_settings_desc">设置页包含接入信息、密钥管理、显示偏好、限流、探测、日志保留、告警、备份恢复、配置导入导出、诊断包和版本更新等多个模块。</p>
+
+                    <p data-i18n-html="help_settings_access_title"><strong>接入信息</strong></p>
                     <ul>
                         <li data-i18n-html="help_settings_item_1"><strong>API 地址</strong>：网关的 OpenAI 兼容地址，格式为 <code>http://&lt;监听地址&gt;/v1</code></li>
-                        <li data-i18n-html="help_settings_item_2"><strong>API Key</strong>：客户端连接网关时使用的密钥（<code>sk-gw-...</code> 格式），可重新生成</li>
+                        <li data-i18n-html="help_settings_item_2"><strong>API Key</strong>：默认密钥（<code>sk-gw-...</code> 格式），拥有所有池的访问权限，可重新生成</li>
+                    </ul>
+
+                    <p data-i18n-html="help_settings_apikeys_title"><strong>API 密钥管理</strong></p>
+                    <ul>
+                        <li data-i18n-html="help_settings_apikeys_1"><strong>多密钥支持</strong>：可创建多个网关 API 密钥，每个密钥独立管理</li>
+                        <li data-i18n-html="help_settings_apikeys_2"><strong>池级权限</strong>：为每个密钥指定可访问的模型池，未选中的池将拒绝访问（留空表示允许所有池）</li>
+                        <li data-i18n-html="help_settings_apikeys_3"><strong>启用/禁用</strong>：可随时禁用某个密钥，禁用后该密钥的请求将被拒绝</li>
+                        <li data-i18n-html="help_settings_apikeys_4"><strong>过期时间</strong>：可设置密钥的过期时间，过期后自动失效</li>
+                        <li data-i18n-html="help_settings_apikeys_5"><strong>重新生成</strong>：可为已有密钥重新生成 Key 字符串，旧 Key 立即失效</li>
+                        <li data-i18n-html="help_settings_apikeys_6"><strong>脱敏显示</strong>：密钥列表中 Key 自动脱敏（前8后4可见），仅在创建或重新生成时显示完整 Key</li>
+                    </ul>
+                    <div class="help-tip" data-i18n="help_settings_apikeys_tip">认证优先级：网关先查 api_keys 表，命中后按密钥的池权限放行；未命中则回退到默认密钥（拥有全部池权限）。这确保了旧版用户升级后无需修改即可继续使用。</div>
+
+                    <p data-i18n-html="help_settings_display_title"><strong>显示与日志</strong></p>
+                    <ul>
                         <li data-i18n-html="help_settings_item_3"><strong>日志级别</strong>：控制后台日志输出详细程度（trace > debug > info > warn > error）</li>
                         <li data-i18n-html="help_settings_item_4"><strong>界面主题</strong>：暗色 / 亮色切换</li>
+                        <li data-i18n-html="help_settings_lang"><strong>界面语言</strong>：中文 / English 切换</li>
                         <li data-i18n-html="help_settings_item_5"><strong>关闭窗口时</strong>：开启后点击关闭按钮会最小化到系统托盘而非退出程序</li>
                     </ul>
-                    <div class="help-tip" data-i18n="help_settings_tip">重新生成 API Key 后，之前使用的客户端需要更新密钥才能继续连接。</div>
+
+                    <p data-i18n-html="help_settings_ratelimit_title"><strong>限流配置</strong></p>
+                    <ul>
+                        <li data-i18n-html="help_settings_ratelimit_1"><strong>启用限流</strong>：开启后按客户端 IP 限制请求频率</li>
+                        <li data-i18n-html="help_settings_ratelimit_2"><strong>最大请求数</strong>：时间窗口内允许的最大请求数</li>
+                        <li data-i18n-html="help_settings_ratelimit_3"><strong>时间窗口</strong>：限流计数的时间范围（秒）</li>
+                        <li data-i18n-html="help_settings_ratelimit_4"><strong>信任 X-Forwarded-For</strong>：反向代理模式下启用，直连模式无需开启</li>
+                    </ul>
+                    <div class="help-tip" data-i18n="help_settings_ratelimit_tip">限流配置修改后需重启应用生效。超限请求将返回 429 状态码并携带 Retry-After 头。</div>
+
+                    <p data-i18n-html="help_settings_probe_title2"><strong>主动探测</strong></p>
+                    <ul>
+                        <li data-i18n-html="help_settings_probe_1"><strong>启用探测</strong>：开启后定期向上游发送测试请求（GET /v1/models），自动标记不可用上游</li>
+                        <li data-i18n-html="help_settings_probe_2"><strong>探测间隔</strong>：两次探测之间的时间间隔（秒），最小 60 秒</li>
+                        <li data-i18n-html="help_settings_probe_3"><strong>失败阈值</strong>：连续失败达到阈值后上游状态降级为「离线」，探测成功后自动恢复</li>
+                    </ul>
+
+                    <p data-i18n-html="help_settings_logretention_title"><strong>日志保留</strong></p>
+                    <ul>
+                        <li data-i18n-html="help_settings_logretention_1"><strong>保留天数</strong>：日志记录的保留天数，超出后自动清理</li>
+                        <li data-i18n-html="help_settings_logretention_2"><strong>最大条数</strong>：日志记录的最大数量上限，超出后自动清理最早的记录</li>
+                    </ul>
+
+                    <p data-i18n-html="help_settings_alert_title2"><strong>阈值告警</strong></p>
+                    <ul>
+                        <li data-i18n-html="help_settings_alert_1"><strong>启用告警</strong>：开启后后台任务定期检查请求失败率</li>
+                        <li data-i18n-html="help_settings_alert_2"><strong>失败率阈值</strong>：当失败率超过此百分比时触发告警</li>
+                        <li data-i18n-html="help_settings_alert_3"><strong>最低请求数</strong>：需达到此请求数才会评估，避免低流量误报</li>
+                        <li data-i18n-html="help_settings_alert_4"><strong>静默期</strong>：两次告警之间的最小间隔时间（分钟），避免告警疲劳</li>
+                    </ul>
+
+                    <p data-i18n-html="help_settings_backup_title2"><strong>数据备份与恢复</strong></p>
+                    <ul>
+                        <li data-i18n-html="help_settings_backup_1"><strong>备份数据库</strong>：一键将当前数据库导出为 <code>.db</code> 备份文件</li>
+                        <li data-i18n-html="help_settings_backup_2"><strong>恢复数据库</strong>：从备份文件恢复，恢复后需重启应用</li>
+                        <li data-i18n-html="help_settings_backup_3"><strong>自动备份</strong>：可启用定时自动备份，配置备份间隔和最大备份数量</li>
+                    </ul>
+
+                    <p data-i18n-html="help_settings_configio_title"><strong>配置导入导出</strong></p>
+                    <ul>
+                        <li data-i18n-html="help_settings_configio_1"><strong>导出配置</strong>：将所有上游、号池和设置导出为 JSON 文件</li>
+                        <li data-i18n-html="help_settings_configio_2"><strong>增量导入</strong>：将 JSON 中的配置追加到当前数据库，不删除已有数据</li>
+                        <li data-i18n-html="help_settings_configio_3"><strong>全量导入</strong>：用 JSON 中的配置替换当前所有上游和号池数据</li>
+                    </ul>
+                    <div class="help-tip" data-i18n="help_settings_configio_tip">导出的 JSON 文件包含 API Key 明文，请妥善保管。导入时会自动验证配置合法性。</div>
+
+                    <p data-i18n-html="help_settings_diagnostic_title2"><strong>诊断包</strong></p>
+                    <ul>
+                        <li data-i18n-html="help_settings_diagnostic_1">一键导出包含版本号、配置摘要、上游状态、最近日志、健康检查结果的 ZIP 压缩包</li>
+                        <li data-i18n-html="help_settings_diagnostic_2">所有敏感信息（API Key 等）已脱敏处理，可安全分享用于问题排查</li>
+                    </ul>
+
+                    <p data-i18n-html="help_settings_version_title"><strong>版本更新</strong></p>
+                    <ul>
+                        <li data-i18n-html="help_settings_version_1">点击「检查更新」自动查询 GitHub 上的最新发布版本</li>
+                        <li data-i18n-html="help_settings_version_2">有新版本时可一键下载并自动重启升级</li>
+                    </ul>
+                    <div class="help-tip" data-i18n="help_settings_tip">重新生成 API Key 后，之前使用的客户端需要更新密钥才能继续连接。所有设置修改后需点击「保存设置」按钮生效。</div>
                 </div>
 
                 <div class="help-section">
@@ -1716,23 +1875,37 @@ gap: 8px;
                 </div>
 
                 <div class="help-section">
-                    <h3><span class="help-icon">🔄</span><span data-i18n="help_version_update">版本更新</span></h3>
-                    <p data-i18n="help_version_desc">程序支持在线检查更新并一键下载升级，操作步骤如下：</p>
+                    <h3><span class="help-icon">🔄</span><span data-i18n="help_failover">故障转移机制</span></h3>
+                    <p data-i18n="help_failover_desc">当请求转发到某个上游失败时，网关会自动尝试下一个可用上游，确保请求尽可能成功。</p>
+                    <p data-i18n-html="help_failover_trigger_title"><strong>触发故障转移的条件：</strong></p>
                     <ul>
-                        <li data-i18n="help_version_item_1">在「设置」页点击「检查更新」，程序会自动查询 GitHub 上的最新发布版本</li>
-                        <li data-i18n="help_version_item_2">如果有新版本，点击「下载并更新」按钮，程序会自动下载最新版本并重启</li>
-                        <li data-i18n-html="help_version_item_3">也可以手动访问 <code>github.com/jiz-1789/LLM-API-Proxy/releases</code> 下载 <code>.exe</code> 文件覆盖更新</li>
-                        <li data-i18n-html="help_version_item_4">更新不会丢失数据 — 所有配置和日志存储在 <code>data/</code> 目录中，与程序文件分离</li>
+                        <li data-i18n-html="help_failover_trigger_1">HTTP 连接错误或超时（连接阶段、响应头阶段、响应体阶段）</li>
+                        <li data-i18n-html="help_failover_trigger_2">上游返回 HTTP 5xx 服务端错误</li>
+                        <li data-i18n-html="help_failover_trigger_3">上游返回 HTTP 200 但响应体包含 <code>error</code> 字段（"假成功"检测）</li>
+                        <li data-i18n-html="help_failover_trigger_4">流式响应中 SSE chunk 包含 <code>error</code> 字段</li>
                     </ul>
-                    <div class="help-tip" data-i18n-html="help_version_tip">也可以直接访问 <code>github.com/jiz-1789/LLM-API-Proxy/releases</code> 手动查看所有版本。建议关注 Releases 页面或给仓库点 Star 以获取更新通知。</div>
+                    <div class="help-tip" data-i18n="help_failover_tip">4xx 客户端错误（如 401 认证失败、400 参数错误）不会触发故障转移，因为这类错误对所有上游都会一样。只有服务端问题或连接问题才会切换上游。</div>
+                </div>
+
+                <div class="help-section">
+                    <h3><span class="help-icon">🔐</span><span data-i18n="help_security">安全与加密</span></h3>
+                    <ul>
+                        <li data-i18n-html="help_security_1"><strong>API Key 加密</strong>：所有上游 API Key 使用 AES-256-GCM 加密存储，明文绝不出现在数据库或日志中</li>
+                        <li data-i18n-html="help_security_2"><strong>主密钥</strong>：加密主密钥存储在 <code>data/master_key.bin</code> 中，使用密码学安全随机数生成</li>
+                        <li data-i18n-html="help_security_3"><strong>常量时间比较</strong>：默认 API Key 校验使用常量时间比较，防止时序侧信道攻击</li>
+                        <li data-i18n-html="help_security_4"><strong>本地运行</strong>：默认仅监听 <code>127.0.0.1</code>，不对外网开放</li>
+                        <li data-i18n-html="help_security_5"><strong>XSS 防护</strong>：前端所有动态内容输出经过 HTML 转义</li>
+                        <li data-i18n-html="help_security_6"><strong>URL 白名单</strong>：外部链接打开前校验协议白名单（仅允许 http/https），防止命令注入</li>
+                    </ul>
                 </div>
 
                 <div class="help-section">
                     <h3><span class="help-icon">💾</span><span data-i18n="help_portability">数据与便携性</span></h3>
                     <p data-i18n-html="help_portability_desc">所有数据存储在程序同目录的 <code>data/</code> 文件夹中，不会写入系统注册表或其他系统目录。</p>
                     <ul>
-                        <li data-i18n-html="help_portability_item_1"><strong>proxy.db</strong>：SQLite 数据库，存储所有上游配置、模型池、请求日志、统计、设置等</li>
+                        <li data-i18n-html="help_portability_item_1"><strong>proxy.db</strong>：SQLite 数据库，存储所有上游配置、模型池、请求日志、统计、设置、API 密钥等</li>
                         <li data-i18n-html="help_portability_item_2"><strong>master_key.bin</strong>：AES-256-GCM 主密钥，用于加密 API Key</li>
+                        <li data-i18n-html="help_portability_item_3"><strong>backups/</strong>：自动备份和手动备份的数据库文件存放目录</li>
                     </ul>
                     <div class="help-tip" data-i18n="help_portability_tip">将便捷版 .exe 放入 U 盘或任意目录运行，所有数据会自动在程序同级目录生成。拔走即带走，不在电脑上残留任何用户数据。</div>
                 </div>
@@ -1752,6 +1925,14 @@ response = client.chat.completions.create(
     messages=[{"role": "user", "content": "Hello!"}]
 )
 print(response.choices[0].message.content)</code></pre>
+                    <p data-i18n="help_client_curl_desc" style="margin-top:12px;">使用 curl 命令行：</p>
+                    <pre style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;font-size:12px;font-family:'SF Mono','Cascadia Code',monospace;overflow-x:auto;color:var(--text-primary);"><code>curl http://127.0.0.1:47339/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-gw-your-key-here" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'</code></pre>
                     <div class="help-tip" data-i18n="help_client_example_tip">任意兼容 OpenAI API 的客户端（如 ChatBox、NextChat、Cursor 等）均可直接使用上述地址和密钥接入。</div>
                 </div>
             </div>
@@ -1777,6 +1958,8 @@ print(response.choices[0].message.content)</code></pre>
                 <label class="form-label" data-i18n="modal_apikey">API Key *</label>
                 <input class="form-input" id="f-apikey" type="password" data-i18n-ph="modal_apikey_ph" placeholder="输入 API Key" autocomplete="new-password">
                 <div class="form-hint" data-i18n="modal_apikey_encrypted">API Key 将以 AES-256-GCM 加密存储</div>
+                <div id="conn-test-result" style="display:none;margin-top:6px;padding:8px 12px;border-radius:var(--radius-sm);font-size:12px;line-height:1.5;"></div>
+                <button class="btn btn-ghost btn-sm" id="btn-test-conn" onclick="testConnection()" style="margin-top:6px;" data-i18n="btn_test_conn">测试连接</button>
             </div>
             <div class="form-group">
                 <label class="form-label" data-i18n="modal_select_model">选择模型</label>
@@ -1878,6 +2061,24 @@ print(response.choices[0].message.content)</code></pre>
         </div>
     </div>
 
+    <!-- ==================== Pool Detail Modal ==================== -->
+    <div class="modal-overlay" id="pool-detail-modal">
+        <div class="modal" style="width:680px;">
+            <div class="modal-title"><span data-i18n="pool_detail_title">号池详情</span></div>
+            <div id="pool-detail-info" style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;margin-bottom:16px;font-size:13px;"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                <span style="font-weight:600;font-size:13px;" data-i18n="pool_detail_upstreams">关联上游</span>
+                <span style="font-size:11px;color:var(--text-muted);" data-i18n="pool_detail_drag_hint">拖拽行可调整上游顺序</span>
+            </div>
+            <div id="pool-detail-upstreams" style="max-height:320px;overflow-y:auto;">
+                <div class="empty-state" data-i18n="dash_loading">加载中...</div>
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-ghost" onclick="closePoolDetailModal()" data-i18n="modal_close">关闭</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ==================== Token Usage Modal ==================== -->
     <div class="modal-overlay" id="token-modal">
         <div class="modal" style="width:680px;">
@@ -1888,6 +2089,54 @@ print(response.choices[0].message.content)</code></pre>
             <div class="form-actions">
                 <button class="btn btn-danger" id="token-reset-btn" onclick="resetTokenStats()" style="margin-right:auto;display:none;" data-i18n="token_reset">重置统计</button>
                 <button class="btn btn-ghost" onclick="closeTokenModal()" data-i18n="token_close">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== API Key Modal ==================== -->
+    <div class="modal-overlay" id="apikey-modal">
+        <div class="modal" style="width:520px;">
+            <div class="modal-title" id="apikey-modal-title" data-i18n="apikey_modal_create">新建 API 密钥</div>
+            <input type="hidden" id="ak-edit-id">
+            <div class="form-group">
+                <label class="form-label" data-i18n="apikey_name">密钥名称 *</label>
+                <input class="form-input" id="ak-name" data-i18n-ph="apikey_name_ph" placeholder="例如：开发环境、测试客户端" autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label class="form-label" data-i18n="apikey_allowed_pools">可访问的模型池</label>
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;" data-i18n="apikey_allowed_pools_hint">不选择则可访问所有模型池</div>
+                <div id="ak-pools-list" style="display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto;padding:8px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--bg-primary);"></div>
+            </div>
+            <div class="form-group">
+                <label class="form-label" data-i18n="apikey_expires_at">过期时间</label>
+                <input class="form-input" id="ak-expires" type="datetime-local" style="max-width:240px;">
+                <div class="form-hint" data-i18n="apikey_expires_hint">留空则永不过期</div>
+            </div>
+            <div class="form-group" id="ak-enabled-group">
+                <label class="form-label" data-i18n="apikey_enabled">启用状态</label>
+                <label class="toggle" style="margin-top:4px;">
+                    <input type="checkbox" id="ak-enabled" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-ghost" onclick="closeApiKeyModal()" data-i18n="modal_cancel">取消</button>
+                <button class="btn btn-primary" id="btn-save-apikey" onclick="saveApiKey()" data-i18n="modal_save">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== API Key Created Modal ==================== -->
+    <div class="modal-overlay" id="apikey-created-modal">
+        <div class="modal" style="width:480px;">
+            <div class="modal-title" data-i18n="apikey_created_title">密钥已创建</div>
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px;line-height:1.6;" data-i18n="apikey_created_desc">请立即复制此密钥，关闭后将无法再次查看完整密钥。</p>
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;">
+                <code id="ak-created-key" style="flex:1;padding:10px 14px;background:var(--bg-primary);border:1px solid var(--border-strong);border-radius:var(--radius-sm);font-size:13px;color:var(--text-primary);font-family:'SF Mono','Cascadia Code',monospace;word-break:break-all;"></code>
+                <button class="btn btn-ghost btn-sm" onclick="copyCreatedApiKey()" data-i18n="settings_copy">复制</button>
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-primary" onclick="closeCreatedModal()" data-i18n="modal_close">关闭</button>
             </div>
         </div>
     </div>
@@ -2022,6 +2271,42 @@ logs_token_total_req: { zh: '累计请求', en: 'Total Requests' },
         settings_api_key: { zh: 'API Key', en: 'API Key' },
         settings_copy: { zh: '复制', en: 'Copy' },
         settings_regen_key: { zh: '重新生成', en: 'Regenerate' },
+        settings_api_keys_title: { zh: 'API 密钥管理', en: 'API Key Management' },
+        settings_api_keys_add: { zh: '新建密钥', en: 'New Key' },
+        settings_api_keys_desc: { zh: '创建多个网关 API 密钥，可为不同密钥分配可访问的模型池。上方「接入信息」中的密钥为默认密钥，拥有所有池的访问权限。', en: 'Create multiple gateway API keys with per-key pool access control. The key in "Access Info" above is the default key with full access.' },
+        apikey_modal_create: { zh: '新建 API 密钥', en: 'Create API Key' },
+        apikey_modal_edit: { zh: '编辑 API 密钥', en: 'Edit API Key' },
+        apikey_name: { zh: '密钥名称 *', en: 'Key Name *' },
+        apikey_name_ph: { zh: '例如：开发环境、测试客户端', en: 'e.g., Dev Environment, Test Client' },
+        apikey_allowed_pools: { zh: '可访问的模型池', en: 'Allowed Pools' },
+        apikey_allowed_pools_hint: { zh: '不选择则可访问所有模型池', en: 'Leave unchecked for all pools' },
+        apikey_expires_at: { zh: '过期时间', en: 'Expires At' },
+        apikey_expires_hint: { zh: '留空则永不过期', en: 'Leave empty for no expiration' },
+        apikey_enabled: { zh: '启用状态', en: 'Enabled' },
+        apikey_created_title: { zh: '密钥已创建', en: 'Key Created' },
+        apikey_created_desc: { zh: '请立即复制此密钥，关闭后将无法再次查看完整密钥。', en: 'Copy this key now. You won\'t be able to see it again.' },
+        apikey_all_pools: { zh: '所有模型池', en: 'All Pools' },
+        apikey_no_keys: { zh: '暂无额外密钥，点击「新建密钥」创建', en: 'No additional keys. Click "New Key" to create one.' },
+        apikey_last_used: { zh: '最后使用', en: 'Last used' },
+        apikey_never_used: { zh: '从未使用', en: 'Never used' },
+        apikey_expired: { zh: '已过期', en: 'Expired' },
+        apikey_disabled: { zh: '已禁用', en: 'Disabled' },
+        apikey_active: { zh: '活跃', en: 'Active' },
+        apikey_btn_edit: { zh: '编辑', en: 'Edit' },
+        apikey_btn_toggle: { zh: '启用/禁用', en: 'Toggle' },
+        apikey_btn_regen: { zh: '重新生成', en: 'Regenerate' },
+        apikey_btn_delete: { zh: '删除', en: 'Delete' },
+        apikey_delete_confirm: { zh: '确定要删除此密钥吗？使用此密钥的客户端将无法访问网关。', en: 'Delete this API key? Clients using this key will lose access.' },
+        apikey_regen_confirm: { zh: '确定要重新生成密钥吗？旧密钥将立即失效。', en: 'Regenerate key? The old key will be invalidated immediately.' },
+        toast_apikey_created: { zh: 'API 密钥已创建', en: 'API key created' },
+        toast_apikey_updated: { zh: 'API 密钥已更新', en: 'API key updated' },
+        toast_apikey_deleted: { zh: 'API 密钥已删除', en: 'API key deleted' },
+        toast_apikey_regen: { zh: '密钥已重新生成', en: 'Key regenerated' },
+        toast_apikey_toggled: { zh: '密钥状态已更新', en: 'Key status updated' },
+        toast_apikey_create_fail: { zh: '创建密钥失败：', en: 'Failed to create key: ' },
+        toast_apikey_update_fail: { zh: '更新密钥失败：', en: 'Failed to update key: ' },
+        toast_apikey_load_fail: { zh: '加载密钥列表失败：', en: 'Failed to load keys: ' },
+        modal_close: { zh: '关闭', en: 'Close' },
         settings_pools_title: { zh: '可用模型池', en: 'Available Model Pools' },
         settings_pools_desc: { zh: '客户端请求时使用以下模型名称作为 model 参数，点击可复制。', en: 'Use these model names as the model parameter. Click to copy.' },
         settings_display_log: { zh: '显示与日志', en: 'Display & Logs' },
@@ -2060,6 +2345,22 @@ settings_alert_enabled: { zh: '启用告警', en: 'Enable Alerts' },
 settings_alert_failure_rate: { zh: '失败率阈值 (%)', en: 'Failure Rate Threshold (%)' },
 settings_alert_min_requests: { zh: '最低请求数', en: 'Min Request Count' },
 settings_alert_silence: { zh: '静默期 (分钟)', en: 'Silence Period (min)' },
+settings_backup_title: { zh: '数据备份与恢复', en: 'Backup & Restore' },
+settings_backup_desc: { zh: '一键备份数据库为 .db 文件，或从备份文件恢复。恢复操作需要重启应用以生效。', en: 'Backup the database to a .db file, or restore from a backup. Restore requires app restart to take effect.' },
+settings_backup_btn: { zh: '备份数据库', en: 'Backup Database' },
+settings_restore_btn: { zh: '恢复数据库', en: 'Restore Database' },
+settings_backup_now: { zh: '立即创建自动备份', en: 'Create Auto-Backup Now' },
+settings_auto_backup_enabled: { zh: '启用自动备份', en: 'Enable Auto-Backup' },
+settings_auto_backup_interval: { zh: '备份间隔 (天)', en: 'Backup Interval (days)' },
+settings_auto_backup_max: { zh: '最大备份数量', en: 'Max Backups' },
+settings_config_io_title: { zh: '配置导入导出', en: 'Config Import/Export' },
+settings_config_io_desc: { zh: '导出所有上游、号池和设置为 JSON 文件，或从 JSON 文件导入配置。导出文件包含 API Key 明文，请妥善保管。', en: 'Export all upstreams, pools, and settings to a JSON file, or import from a JSON file. The export file contains plaintext API keys — keep it safe.' },
+settings_export_btn: { zh: '导出配置', en: 'Export Config' },
+settings_import_incremental: { zh: '增量导入', en: 'Import (Incremental)' },
+settings_import_full: { zh: '全量导入', en: 'Import (Full)' },
+        settings_diagnostic_title: { zh: '诊断包', en: 'Diagnostic Package' },
+        settings_diagnostic_desc: { zh: '导出包含版本信息、配置摘要、上游状态、最近日志等诊断信息的 ZIP 压缩包，用于问题排查。所有敏感信息（API Key 等）已脱敏处理。', en: 'Export a ZIP archive with version info, config summary, upstream status, recent logs and health check results for troubleshooting. All sensitive data (API keys, etc.) is masked.' },
+        settings_diagnostic_btn: { zh: '导出诊断包', en: 'Export Diagnostic Package' },
         settings_save: { zh: '保存设置', en: 'Save Settings' },
         settings_saved: { zh: '设置已保存', en: 'Settings saved' },
         settings_save_fail: { zh: '保存失败: ', en: 'Save failed: ' },
@@ -2189,7 +2490,7 @@ settings_alert_silence: { zh: '静默期 (分钟)', en: 'Silence Period (min)' }
         help_title: { zh: '使用教程', en: 'User Guide' },
         help_intro: { zh: 'LLM-API-Proxy 是一个本地运行的 LLM API 网关，将多个上游 AI 服务商聚合为统一的 OpenAI 兼容接口。以下按功能模块逐一介绍使用方法。', en: 'LLM-API-Proxy is a local LLM API gateway that aggregates multiple upstream AI providers into a unified OpenAI-compatible interface. Below is a guide for each module.' },
         help_quick_start: { zh: '快速开始', en: 'Quick Start' },
-        help_quick_start_desc: { zh: '从零到跑通只需四步：', en: 'Four steps to get started:' },
+        help_quick_start_desc: { zh: '从零到跑通只需五步：', en: 'Five steps to get started:' },
         help_step_add_upstream: { zh: '添加上游', en: 'Add Upstream' },
         help_step_add_upstream_desc: { zh: '在「上游服务」页填入服务商的 Base URL、API Key 和模型名', en: 'Enter provider Base URL, API Key, and model name in Upstreams page' },
         help_step_create_pool: { zh: '创建模型池', en: 'Create Pool' },
@@ -2198,13 +2499,16 @@ settings_alert_silence: { zh: '静默期 (分钟)', en: 'Silence Period (min)' }
         help_step_get_addr_desc: { zh: '在「设置」页复制 API 地址和 API Key', en: 'Copy API URL and API Key from Settings page' },
         help_step_connect: { zh: '接入客户端', en: 'Connect Client' },
         help_step_connect_desc: { zh: '将地址和密钥填入任意 OpenAI 兼容客户端即可', en: 'Paste into any OpenAI-compatible client' },
+        help_step_manage_keys: { zh: '管理密钥', en: 'Manage Keys' },
+        help_step_manage_keys_desc: { zh: '按需创建多个 API 密钥，分配池访问权限', en: 'Create multiple API keys with pool-level permissions' },
         help_dashboard: { zh: '仪表盘', en: 'Dashboard' },
         help_upstreams: { zh: '上游服务', en: 'Upstreams' },
         help_pools: { zh: '模型池', en: 'Model Pools' },
-        help_logs: { zh: '请求日志', en: 'Request Logs' },
+        help_logs: { zh: '请求日志与统计', en: 'Logs & Stats' },
         help_settings: { zh: '设置', en: 'Settings' },
         help_health: { zh: '健康检查', en: 'Health Check' },
-        help_version_update: { zh: '版本更新', en: 'Version Updates' },
+        help_failover: { zh: '故障转移机制', en: 'Failover' },
+        help_security: { zh: '安全与加密', en: 'Security' },
         help_portability: { zh: '数据与便携性', en: 'Data & Portability' },
         help_client_example: { zh: '接入客户端示例', en: 'Client Example' },
 
@@ -2247,6 +2551,46 @@ settings_alert_silence: { zh: '静默期 (分钟)', en: 'Silence Period (min)' }
         status_healthy: { zh: '正常', en: 'Healthy' },
         status_degraded: { zh: '降级', en: 'Degraded' },
         status_down: { zh: '离线', en: 'Offline' },
+
+        // ── Error categories (P2-12) ──
+        err_cat_connection: { zh: '连接失败', en: 'Connection Failed' },
+        err_cat_auth: { zh: '认证失败', en: 'Auth Failed' },
+        err_cat_timeout: { zh: '超时', en: 'Timeout' },
+        err_cat_server: { zh: '服务器错误', en: 'Server Error' },
+        err_cat_client: { zh: '客户端错误', en: 'Client Error' },
+        err_cat_response: { zh: '响应格式错误', en: 'Response Format Error' },
+        err_cat_embedded: { zh: '上游返回错误', en: 'Embedded Error' },
+        err_cat_unknown: { zh: '未知错误', en: 'Unknown Error' },
+        upstream_err_reason: { zh: '错误原因', en: 'Error Reason' },
+        upstream_fail_count: { zh: '失败次数', en: 'Failure Count' },
+        upstream_last_fail: { zh: '最近失败', en: 'Last Failure' },
+        upstream_last_success: { zh: '最近成功', en: 'Last Success' },
+        upstream_recovered: { zh: '恢复时间', en: 'Recovered At' },
+        upstream_err_detail: { zh: '异常详情', en: 'Error Details' },
+
+        // ── Pool detail (P2-13) ──
+        btn_detail: { zh: '详情', en: 'Detail' },
+        pool_detail_title: { zh: '号池详情', en: 'Pool Detail' },
+        pool_detail_upstreams: { zh: '关联上游', en: 'Associated Upstreams' },
+        pool_detail_sort: { zh: '顺序', en: 'Order' },
+        pool_detail_model: { zh: '模型', en: 'Model' },
+        pool_detail_health: { zh: '健康状态', en: 'Health' },
+        pool_detail_drag_hint: { zh: '拖拽行可调整上游顺序', en: 'Drag rows to reorder upstreams' },
+        pool_detail_empty: { zh: '该号池暂无关联上游', en: 'No upstreams associated with this pool' },
+        pool_detail_reorder_ok: { zh: '顺序已更新', en: 'Order updated' },
+        pool_detail_reorder_fail: { zh: '排序失败: ', en: 'Reorder failed: ' },
+        modal_close: { zh: '关闭', en: 'Close' },
+
+        // ── Connection test (P2-14) ──
+        btn_test_conn: { zh: '测试连接', en: 'Test Connection' },
+        btn_test: { zh: '测试', en: 'Test' },
+        test_connecting: { zh: '测试中...', en: 'Testing...' },
+        test_success: { zh: '连接成功', en: 'Connection OK' },
+        test_success_models: { zh: '连接成功，获取到 {n} 个模型', en: 'Connected, {n} models available' },
+        test_fail: { zh: '连接失败', en: 'Connection Failed' },
+        test_result_ok: { zh: '✓ 连接成功 · {n} 个模型 · {ms}ms', en: '✓ Connected · {n} models · {ms}ms' },
+        test_result_fail: { zh: '✗ {reason}', en: '✗ {reason}' },
+        pool_validate_no_upstream: { zh: '请至少选择一个上游', en: 'Please select at least one upstream' },
 
         // ── Buttons / labels ──
         btn_edit: { zh: '编辑', en: 'Edit' },
@@ -2348,6 +2692,8 @@ settings_alert_silence: { zh: '静默期 (分钟)', en: 'Silence Period (min)' }
         help_upstreams_op_1: { zh: '点击「+ 新增上游」添加新服务商', en: 'Click "+ Add Upstream" to add a new provider' },
         help_upstreams_op_2: { zh: '右键点击表格行可弹出菜单：编辑、Token 消耗、启用/禁用、复制信息、删除（右键删除直接执行，无需二次确认）', en: 'Right-click a table row for context menu: Edit, Token Usage, Enable/Disable, Copy Info, Delete (right-click delete executes immediately without confirmation)' },
         help_upstreams_op_3: { zh: '<strong>启用/禁用开关</strong>：禁用后网关不会再向该上游转发请求。适合余额用完或临时维护时使用', en: '<strong>Enable/Disable Toggle</strong>: When disabled, the gateway will not forward requests to this upstream. Useful when out of credits or under maintenance' },
+        help_upstreams_op_4: { zh: '<strong>测试连接</strong>：编辑上游时可点击「测试连接」即时验证 API Key 和 Base URL 的连通性，支持显示可用模型数量和响应延迟', en: '<strong>Test Connection</strong>: Click "Test Connection" while editing to verify API Key and Base URL connectivity, showing available model count and latency' },
+        help_upstreams_op_5: { zh: '<strong>异常详情</strong>：上游列表展示错误原因分类（连接失败、认证失败、超时等）、失败次数、最近成功/失败时间和恢复时间', en: '<strong>Error Details</strong>: Upstream list shows error category (connection failed, auth failed, timeout, etc.), failure count, last success/failure time, and recovery time' },
         help_upstreams_tip: { zh: '编辑上游时如果 API Key 显示为 <code>••••••</code>（已脱敏），不修改则保持原密钥不变。获取模型列表时会自动调用服务商接口。', en: 'When editing, if the API Key shows <code>••••••</code> (masked), leaving it unchanged keeps the original key. Fetching models automatically calls the provider API.' },
         help_pools_desc: { zh: '模型池将一个或多个上游组合为一个统一的 OpenAI 兼容端点。客户端只需请求一个池地址，网关自动在多个上游之间做负载均衡。', en: 'Model pools combine one or more upstreams into a unified OpenAI-compatible endpoint. Clients request a single pool address, and the gateway load-balances across upstreams.' },
         help_pools_config: { zh: '<strong>配置项说明：</strong>', en: '<strong>Configuration:</strong>' },
@@ -2360,19 +2706,38 @@ settings_alert_silence: { zh: '静默期 (分钟)', en: 'Silence Period (min)' }
         help_pools_lb: { zh: '<strong>负载均衡机制（两层轮询）：</strong>', en: '<strong>Load Balancing (Two-Layer Round-Robin):</strong>' },
         help_pools_lb_1: { zh: '<strong>第一层 — 上游轮询</strong>：每次请求在上游列表中轮换起始位置，使请求均匀分布到不同上游', en: '<strong>Layer 1 — Upstream Round-Robin</strong>: Rotates the starting position in the upstream list for each request, distributing load evenly' },
         help_pools_lb_2: { zh: '<strong>第二层 — 模型轮询</strong>：若某上游关联了多个模型，每次请求到该上游时在模型间轮换', en: '<strong>Layer 2 — Model Round-Robin</strong>: If an upstream has multiple models, rotates between them on each request' },
-        help_pools_tip: { zh: '请求转发逻辑：轮询选择上游 → 跳过已禁用的上游 → 失败时若开启故障转移则自动尝试下一个上游 → 全部失败则返回错误。右键删除模型池直接执行，无需二次确认。日志自动保留最近5天且不超过200条，过期自动清理。', en: 'Request flow: Round-robin select upstream → Skip disabled → If failover is on, try next upstream on failure → Return error if all fail. Right-click delete executes immediately. Logs are auto-pruned to 5 days / 200 entries max.' },
-        help_logs_desc: { zh: '记录所有经过网关转发的请求，用于排查问题和监控。', en: 'Records all requests forwarded by the gateway for troubleshooting and monitoring.' },
-        help_logs_item_1: { zh: '<strong>筛选</strong>：按模型池或状态码（2xx / 4xx / 5xx）过滤', en: '<strong>Filter</strong>: By pool or status code (2xx / 4xx / 5xx)' },
+        help_pools_detail_title: { zh: '<strong>号池详情视图：</strong>', en: '<strong>Pool Detail View:</strong>' },
+        help_pools_detail_1: { zh: '点击号池表格行的「详情」按钮可打开号池详情弹窗', en: 'Click the "Detail" button on a pool row to open the pool detail modal' },
+        help_pools_detail_2: { zh: '详情页可视化展示池内上游的排序、模型、健康状态', en: 'The detail view shows upstream order, models, and health status visually' },
+        help_pools_detail_3: { zh: '<strong>拖拽排序</strong>：在详情弹窗中拖拽行可调整上游顺序，保存后立即生效', en: '<strong>Drag to Reorder</strong>: Drag rows in the detail modal to reorder upstreams. Saved immediately' },
+        help_pools_tip: { zh: '请求转发逻辑：轮询选择上游 → 跳过已禁用的上游 → 失败时若开启故障转移则自动尝试下一个上游 → 全部失败则返回错误。右键删除模型池直接执行，无需二次确认。日志自动保留策略可在设置中配置。', en: 'Request flow: Round-robin select upstream → Skip disabled → If failover is on, try next upstream on failure → Return error if all fail. Right-click delete executes immediately. Log retention is configurable in Settings.' },
+        help_logs_desc: { zh: '请求日志页记录所有经过网关转发的请求，并提供多维度的统计分析和故障切换事件追踪。', en: 'The Logs page records all gateway-forwarded requests with multi-dimensional statistics and failover event tracking.' },
+        help_logs_filter_title: { zh: '<strong>日志筛选与导出：</strong>', en: '<strong>Filter & Export:</strong>' },
+        help_logs_item_1: { zh: '<strong>筛选</strong>：按模型池、上游或状态码（2xx / 4xx / 5xx）过滤', en: '<strong>Filter</strong>: By pool, upstream, or status code (2xx / 4xx / 5xx)' },
         help_logs_item_2: { zh: '<strong>分页</strong>：每页显示 20 条，可翻页查看历史记录', en: '<strong>Pagination</strong>: 20 per page, navigate to view history' },
         help_logs_item_3: { zh: '<strong>状态码</strong>：绿色标签表示成功（2xx），红色标签表示失败（4xx/5xx）', en: '<strong>Status Code</strong>: Green = success (2xx), Red = failure (4xx/5xx)' },
         help_logs_item_4: { zh: '<strong>耗时</strong>：从收到请求到上游响应的毫秒数', en: '<strong>Latency</strong>: Milliseconds from request to upstream response' },
         help_logs_item_5: { zh: '<strong>流式</strong>：该请求是否为 SSE 流式响应', en: '<strong>Stream</strong>: Whether the request was an SSE streaming response' },
+        help_logs_item_6: { zh: '<strong>导出</strong>：选择 CSV 或 JSON 格式，按当前筛选条件导出日志文件', en: '<strong>Export</strong>: Choose CSV or JSON format to export logs with current filters' },
+        help_logs_stats_title2: { zh: '<strong>请求统计：</strong>', en: '<strong>Request Statistics:</strong>' },
+        help_logs_stats_1: { zh: '按上游和模型维度聚合，展示总请求数、成功数、失败数、成功率', en: 'Aggregated by upstream and model, showing total/success/failure counts and success rate' },
+        help_logs_stats_2: { zh: '展示平均耗时、P95 和 P99 百分位耗时，评估性能分布', en: 'Shows average, P95, and P99 latency to evaluate performance distribution' },
+        help_logs_stats_3: { zh: '点击「刷新」按钮可手动更新统计数据', en: 'Click "Refresh" to manually update statistics' },
+        help_logs_failover_title2: { zh: '<strong>故障切换事件：</strong>', en: '<strong>Failover Events:</strong>' },
+        help_logs_failover_1: { zh: '记录每次故障切换的时间、模型池、最终成功上游、尝试次数', en: 'Records each failover event with time, pool, final upstream, and attempt count' },
+        help_logs_failover_2: { zh: '可视化展示故障链，清晰呈现哪些上游被依次尝试', en: 'Visualizes the failover chain showing which upstreams were tried' },
+        help_logs_failover_3: { zh: '支持分页浏览历史故障切换事件', en: 'Supports paginated browsing of historical failover events' },
+        help_logs_token_title2: { zh: '<strong>Token 用量统计：</strong>', en: '<strong>Token Usage:</strong>' },
+        help_logs_token_1: { zh: '<strong>按模型池</strong>：展示每个池的今日 Token、累计 Token、今日请求数、累计请求数', en: '<strong>By Pool</strong>: Shows today/total tokens and request counts per pool' },
+        help_logs_token_2: { zh: '<strong>按上游</strong>：展示每个上游的今日 Token、累计 Token、今日请求数、累计请求数', en: '<strong>By Upstream</strong>: Shows today/total tokens and request counts per upstream' },
+        help_logs_token_3: { zh: '双视图并列展示，便于对比不同维度的用量分布', en: 'Side-by-side dual view for comparing usage across dimensions' },
+        help_logs_tip: { zh: '日志保留策略可在「设置 → 日志保留」中配置，支持自定义保留天数和最大条数，超出后自动清理旧日志。', en: 'Log retention is configurable in Settings → Log Retention, with custom days and max entries. Old logs are auto-pruned.' },
         help_settings_item_1: { zh: '<strong>API 地址</strong>：网关的 OpenAI 兼容地址，格式为 <code>http://&lt;监听地址&gt;/v1</code>', en: '<strong>API URL</strong>: Gateway OpenAI-compatible URL, format <code>http://&lt;listen-address&gt;/v1</code>' },
-        help_settings_item_2: { zh: '<strong>API Key</strong>：客户端连接网关时使用的密钥（<code>sk-gw-...</code> 格式），可重新生成', en: '<strong>API Key</strong>: Client key for connecting (<code>sk-gw-...</code> format), can be regenerated' },
+        help_settings_item_2: { zh: '<strong>API Key</strong>：默认密钥（<code>sk-gw-...</code> 格式），拥有所有池的访问权限，可重新生成', en: '<strong>API Key</strong>: Default key (<code>sk-gw-...</code> format) with full pool access, can be regenerated' },
         help_settings_item_3: { zh: '<strong>日志级别</strong>：控制后台日志输出详细程度（trace > debug > info > warn > error）', en: '<strong>Log Level</strong>: Controls backend log verbosity (trace > debug > info > warn > error)' },
         help_settings_item_4: { zh: '<strong>界面主题</strong>：暗色 / 亮色切换', en: '<strong>Theme</strong>: Dark / Light toggle' },
         help_settings_item_5: { zh: '<strong>关闭窗口时</strong>：开启后点击关闭按钮会最小化到系统托盘而非退出程序', en: '<strong>On Window Close</strong>: When enabled, closing the window minimizes to system tray instead of quitting' },
-        help_settings_tip: { zh: '重新生成 API Key 后，之前使用的客户端需要更新密钥才能继续连接。', en: 'After regenerating the API Key, existing clients must update their key to reconnect.' },
+        help_settings_tip: { zh: '重新生成 API Key 后，之前使用的客户端需要更新密钥才能继续连接。所有设置修改后需点击「保存设置」按钮生效。', en: 'After regenerating the API Key, existing clients must update their key. All settings require clicking "Save" to take effect.' },
         help_health_desc: { zh: '点击「一键检测」向所有上游发送测试请求，检查 API 连通性和响应延迟。', en: 'Click "Check All" to send test requests to all upstreams, checking API connectivity and latency.' },
         help_health_item_1: { zh: '检测结果包含：连通状态、响应延迟、错误信息', en: 'Results include: connectivity status, response latency, error messages' },
         help_health_item_2: { zh: '健康检查会消耗少量上游 Token，请按需使用', en: 'Health checks consume a small amount of upstream tokens. Use as needed.' },
@@ -2384,11 +2749,77 @@ settings_alert_silence: { zh: '静默期 (分钟)', en: 'Silence Period (min)' }
         help_version_item_4: { zh: '更新不会丢失数据 — 所有配置和日志存储在 <code>data/</code> 目录中，与程序文件分离', en: 'Updates do not lose data — all configs and logs are stored in the <code>data/</code> directory, separate from the program files' },
         help_version_tip: { zh: '也可以直接访问 <code>github.com/jiz-1789/LLM-API-Proxy/releases</code> 手动查看所有版本。建议关注 Releases 页面或给仓库点 Star 以获取更新通知。', en: 'You can also visit <code>github.com/jiz-1789/LLM-API-Proxy/releases</code> directly. Follow the Releases page or star the repo for update notifications.' },
         help_portability_desc: { zh: '所有数据存储在程序同目录的 <code>data/</code> 文件夹中，不会写入系统注册表或其他系统目录。', en: 'All data is stored in the <code>data/</code> folder next to the program. No registry entries or system directories are used.' },
-        help_portability_item_1: { zh: '<strong>proxy.db</strong>：SQLite 数据库，存储所有上游配置、模型池、请求日志、统计、设置等', en: '<strong>proxy.db</strong>: SQLite database storing all upstream configs, pools, request logs, stats, and settings' },
+        help_portability_item_1: { zh: '<strong>proxy.db</strong>：SQLite 数据库，存储所有上游配置、模型池、请求日志、统计、设置、API 密钥等', en: '<strong>proxy.db</strong>: SQLite database storing all upstream configs, pools, request logs, stats, settings, and API keys' },
         help_portability_item_2: { zh: '<strong>master_key.bin</strong>：AES-256-GCM 主密钥，用于加密 API Key', en: '<strong>master_key.bin</strong>: AES-256-GCM master key for encrypting API Keys' },
+        help_portability_item_3: { zh: '<strong>backups/</strong>：自动备份和手动备份的数据库文件存放目录', en: '<strong>backups/</strong>: Directory for automatic and manual database backup files' },
         help_portability_tip: { zh: '将便捷版 .exe 放入 U 盘或任意目录运行，所有数据会自动在程序同级目录生成。拔走即带走，不在电脑上残留任何用户数据。', en: 'Place the portable .exe on a USB drive or any directory. All data is generated alongside the program. Take it with you — no user data remains on the computer.' },
         help_client_example_desc: { zh: '以 Python OpenAI SDK 为例：', en: 'Example with Python OpenAI SDK:' },
+        help_client_curl_desc: { zh: '使用 curl 命令行：', en: 'Using curl:' },
         help_client_example_tip: { zh: '任意兼容 OpenAI API 的客户端（如 ChatBox、NextChat、Cursor 等）均可直接使用上述地址和密钥接入。', en: 'Any OpenAI-compatible client (e.g. ChatBox, NextChat, Cursor) can use the above address and key.' },
+
+        // ── Help: Settings sub-sections ──
+        help_settings_desc: { zh: '设置页包含接入信息、密钥管理、显示偏好、限流、探测、日志保留、告警、备份恢复、配置导入导出、诊断包和版本更新等多个模块。', en: 'The Settings page includes access info, key management, display preferences, rate limiting, probing, log retention, alerts, backup/restore, config import/export, diagnostics, and version updates.' },
+        help_settings_access_title: { zh: '<strong>接入信息</strong>', en: '<strong>Access Info</strong>' },
+        help_settings_apikeys_title: { zh: '<strong>API 密钥管理</strong>', en: '<strong>API Key Management</strong>' },
+        help_settings_apikeys_1: { zh: '<strong>多密钥支持</strong>：可创建多个网关 API 密钥，每个密钥独立管理', en: '<strong>Multi-Key</strong>: Create multiple gateway API keys, each managed independently' },
+        help_settings_apikeys_2: { zh: '<strong>池级权限</strong>：为每个密钥指定可访问的模型池，未选中的池将拒绝访问（留空表示允许所有池）', en: '<strong>Pool Permissions</strong>: Assign accessible pools per key. Unselected pools are denied (empty = all pools allowed)' },
+        help_settings_apikeys_3: { zh: '<strong>启用/禁用</strong>：可随时禁用某个密钥，禁用后该密钥的请求将被拒绝', en: '<strong>Enable/Disable</strong>: Disable a key at any time. Disabled keys are rejected on request' },
+        help_settings_apikeys_4: { zh: '<strong>过期时间</strong>：可设置密钥的过期时间，过期后自动失效', en: '<strong>Expiration</strong>: Set an expiration time. Keys auto-expire after the deadline' },
+        help_settings_apikeys_5: { zh: '<strong>重新生成</strong>：可为已有密钥重新生成 Key 字符串，旧 Key 立即失效', en: '<strong>Regenerate</strong>: Generate a new key string for an existing key. Old key is invalidated immediately' },
+        help_settings_apikeys_6: { zh: '<strong>脱敏显示</strong>：密钥列表中 Key 自动脱敏（前8后4可见），仅在创建或重新生成时显示完整 Key', en: '<strong>Masked Display</strong>: Keys are masked in the list (first 8, last 4 visible). Full key shown only on creation/regeneration' },
+        help_settings_apikeys_tip: { zh: '认证优先级：网关先查 api_keys 表，命中后按密钥的池权限放行；未命中则回退到默认密钥（拥有全部池权限）。这确保了旧版用户升级后无需修改即可继续使用。', en: 'Auth priority: The gateway checks the api_keys table first. If matched, pool permissions are enforced. If not found, it falls back to the default key (full access). This ensures backward compatibility for existing users.' },
+        help_settings_display_title: { zh: '<strong>显示与日志</strong>', en: '<strong>Display & Logs</strong>' },
+        help_settings_lang: { zh: '<strong>界面语言</strong>：中文 / English 切换', en: '<strong>Language</strong>: Chinese / English toggle' },
+        help_settings_ratelimit_title: { zh: '<strong>限流配置</strong>', en: '<strong>Rate Limiting</strong>' },
+        help_settings_ratelimit_1: { zh: '<strong>启用限流</strong>：开启后按客户端 IP 限制请求频率', en: '<strong>Enable</strong>: Limits request frequency per client IP when enabled' },
+        help_settings_ratelimit_2: { zh: '<strong>最大请求数</strong>：时间窗口内允许的最大请求数', en: '<strong>Max Requests</strong>: Maximum requests allowed within the time window' },
+        help_settings_ratelimit_3: { zh: '<strong>时间窗口</strong>：限流计数的时间范围（秒）', en: '<strong>Time Window</strong>: Rate limit counting period in seconds' },
+        help_settings_ratelimit_4: { zh: '<strong>信任 X-Forwarded-For</strong>：反向代理模式下启用，直连模式无需开启', en: '<strong>Trust X-Forwarded-For</strong>: Enable for reverse proxy mode. Not needed for direct connection' },
+        help_settings_ratelimit_tip: { zh: '限流配置修改后需重启应用生效。超限请求将返回 429 状态码并携带 Retry-After 头。', en: 'Rate limit changes require app restart. Exceeded requests return 429 with a Retry-After header.' },
+        help_settings_probe_title2: { zh: '<strong>主动探测</strong>', en: '<strong>Active Probing</strong>' },
+        help_settings_probe_1: { zh: '<strong>启用探测</strong>：开启后定期向上游发送测试请求（GET /v1/models），自动标记不可用上游', en: '<strong>Enable</strong>: Periodically sends test requests (GET /v1/models) to upstreams, auto-marking unavailable ones' },
+        help_settings_probe_2: { zh: '<strong>探测间隔</strong>：两次探测之间的时间间隔（秒），最小 60 秒', en: '<strong>Interval</strong>: Seconds between probes, minimum 60' },
+        help_settings_probe_3: { zh: '<strong>失败阈值</strong>：连续失败达到阈值后上游状态降级为「离线」，探测成功后自动恢复', en: '<strong>Failure Threshold</strong>: Consecutive failures to downgrade upstream to offline. Auto-recovers on successful probe' },
+        help_settings_logretention_title: { zh: '<strong>日志保留</strong>', en: '<strong>Log Retention</strong>' },
+        help_settings_logretention_1: { zh: '<strong>保留天数</strong>：日志记录的保留天数，超出后自动清理', en: '<strong>Retention Days</strong>: Days to keep logs. Older logs are auto-pruned' },
+        help_settings_logretention_2: { zh: '<strong>最大条数</strong>：日志记录的最大数量上限，超出后自动清理最早的记录', en: '<strong>Max Entries</strong>: Maximum log entries. Oldest are pruned when exceeded' },
+        help_settings_alert_title2: { zh: '<strong>阈值告警</strong>', en: '<strong>Threshold Alerts</strong>' },
+        help_settings_alert_1: { zh: '<strong>启用告警</strong>：开启后后台任务定期检查请求失败率', en: '<strong>Enable</strong>: Background task periodically checks request failure rate' },
+        help_settings_alert_2: { zh: '<strong>失败率阈值</strong>：当失败率超过此百分比时触发告警', en: '<strong>Failure Rate Threshold</strong>: Triggers alert when failure rate exceeds this percentage' },
+        help_settings_alert_3: { zh: '<strong>最低请求数</strong>：需达到此请求数才会评估，避免低流量误报', en: '<strong>Min Requests</strong>: Minimum requests before evaluation, avoiding low-traffic false positives' },
+        help_settings_alert_4: { zh: '<strong>静默期</strong>：两次告警之间的最小间隔时间（分钟），避免告警疲劳', en: '<strong>Silence Period</strong>: Minimum minutes between alerts to prevent fatigue' },
+        help_settings_backup_title2: { zh: '<strong>数据备份与恢复</strong>', en: '<strong>Backup & Restore</strong>' },
+        help_settings_backup_1: { zh: '<strong>备份数据库</strong>：一键将当前数据库导出为 <code>.db</code> 备份文件', en: '<strong>Backup</strong>: Export the current database as a <code>.db</code> file' },
+        help_settings_backup_2: { zh: '<strong>恢复数据库</strong>：从备份文件恢复，恢复后需重启应用', en: '<strong>Restore</strong>: Restore from a backup file. App restart required' },
+        help_settings_backup_3: { zh: '<strong>自动备份</strong>：可启用定时自动备份，配置备份间隔和最大备份数量', en: '<strong>Auto Backup</strong>: Enable scheduled backups with custom interval and max count' },
+        help_settings_configio_title: { zh: '<strong>配置导入导出</strong>', en: '<strong>Config Import/Export</strong>' },
+        help_settings_configio_1: { zh: '<strong>导出配置</strong>：将所有上游、号池和设置导出为 JSON 文件', en: '<strong>Export</strong>: Export all upstreams, pools, and settings as a JSON file' },
+        help_settings_configio_2: { zh: '<strong>增量导入</strong>：将 JSON 中的配置追加到当前数据库，不删除已有数据', en: '<strong>Incremental Import</strong>: Append JSON configs to current database without deleting existing data' },
+        help_settings_configio_3: { zh: '<strong>全量导入</strong>：用 JSON 中的配置替换当前所有上游和号池数据', en: '<strong>Full Import</strong>: Replace all current upstreams and pools with JSON data' },
+        help_settings_configio_tip: { zh: '导出的 JSON 文件包含 API Key 明文，请妥善保管。导入时会自动验证配置合法性。', en: 'The exported JSON contains plaintext API Keys. Store securely. Import validates config automatically.' },
+        help_settings_diagnostic_title2: { zh: '<strong>诊断包</strong>', en: '<strong>Diagnostics</strong>' },
+        help_settings_diagnostic_1: { zh: '一键导出包含版本号、配置摘要、上游状态、最近日志、健康检查结果的 ZIP 压缩包', en: 'One-click export of a ZIP archive with version, config summary, upstream status, recent logs, and health check results' },
+        help_settings_diagnostic_2: { zh: '所有敏感信息（API Key 等）已脱敏处理，可安全分享用于问题排查', en: 'All sensitive info (API Keys, etc.) is masked. Safe to share for troubleshooting' },
+        help_settings_version_title: { zh: '<strong>版本更新</strong>', en: '<strong>Version Updates</strong>' },
+        help_settings_version_1: { zh: '点击「检查更新」自动查询 GitHub 上的最新发布版本', en: 'Click "Check for Updates" to query the latest GitHub release' },
+        help_settings_version_2: { zh: '有新版本时可一键下载并自动重启升级', en: 'When a new version is available, download and restart with one click' },
+
+        // ── Help: Failover section ──
+        help_failover_desc: { zh: '当请求转发到某个上游失败时，网关会自动尝试下一个可用上游，确保请求尽可能成功。', en: 'When a request fails on one upstream, the gateway automatically tries the next available upstream to maximize success.' },
+        help_failover_trigger_title: { zh: '<strong>触发故障转移的条件：</strong>', en: '<strong>Failover Triggers:</strong>' },
+        help_failover_trigger_1: { zh: 'HTTP 连接错误或超时（连接阶段、响应头阶段、响应体阶段）', en: 'HTTP connection error or timeout (connect, response headers, response body phases)' },
+        help_failover_trigger_2: { zh: '上游返回 HTTP 5xx 服务端错误', en: 'Upstream returns HTTP 5xx server error' },
+        help_failover_trigger_3: { zh: '上游返回 HTTP 200 但响应体包含 <code>error</code> 字段（"假成功"检测）', en: 'Upstream returns HTTP 200 but response body contains an <code>error</code> field (false success detection)' },
+        help_failover_trigger_4: { zh: '流式响应中 SSE chunk 包含 <code>error</code> 字段', en: 'SSE chunk in streaming response contains an <code>error</code> field' },
+        help_failover_tip: { zh: '4xx 客户端错误（如 401 认证失败、400 参数错误）不会触发故障转移，因为这类错误对所有上游都会一样。只有服务端问题或连接问题才会切换上游。', en: '4xx client errors (e.g. 401 auth failure, 400 bad request) do not trigger failover, as these errors would be the same across all upstreams. Only server-side or connection issues trigger upstream switching.' },
+
+        // ── Help: Security section ──
+        help_security_1: { zh: '<strong>API Key 加密</strong>：所有上游 API Key 使用 AES-256-GCM 加密存储，明文绝不出现在数据库或日志中', en: '<strong>API Key Encryption</strong>: All upstream API Keys are encrypted with AES-256-GCM. Plaintext never appears in database or logs' },
+        help_security_2: { zh: '<strong>主密钥</strong>：加密主密钥存储在 <code>data/master_key.bin</code> 中，使用密码学安全随机数生成', en: '<strong>Master Key</strong>: Encryption master key stored in <code>data/master_key.bin</code>, generated with cryptographically secure random' },
+        help_security_3: { zh: '<strong>常量时间比较</strong>：默认 API Key 校验使用常量时间比较，防止时序侧信道攻击', en: '<strong>Constant-Time Comparison</strong>: Default API Key validation uses constant-time comparison to prevent timing side-channel attacks' },
+        help_security_4: { zh: '<strong>本地运行</strong>：默认仅监听 <code>127.0.0.1</code>，不对外网开放', en: '<strong>Local-Only</strong>: Listens on <code>127.0.0.1</code> by default, not exposed to the internet' },
+        help_security_5: { zh: '<strong>XSS 防护</strong>：前端所有动态内容输出经过 HTML 转义', en: '<strong>XSS Protection</strong>: All dynamic frontend content is HTML-escaped' },
+        help_security_6: { zh: '<strong>URL 白名单</strong>：外部链接打开前校验协议白名单（仅允许 http/https），防止命令注入', en: '<strong>URL Whitelist</strong>: External links are validated against a protocol whitelist (http/https only) to prevent command injection' },
     };
 
     function t(key) {
@@ -2599,13 +3030,39 @@ if (page === 'settings' && lastUpdateInfo) {
             tbody.innerHTML = '<tr><td colspan="7" class="empty-state">' + t('empty_no_upstreams') + '</td></tr>';
             return;
         }
-        tbody.innerHTML = upstreamsCache.map(u => `
-            <tr data-id="${u.id}">
+        tbody.innerHTML = upstreamsCache.map(u => {
+            const hasError = u.status !== 'healthy' && (u.last_error_reason || u.failure_count > 0);
+            const errCategory = hasError ? classifyError(u.last_error_reason) : null;
+            const errBadge = errCategory ? `<span class="badge ${errCategory.cls}" style="margin-left:6px;font-size:10px;">${esc(errCategory.label)}</span>` : '';
+            // Error trend dots: show up to 5 dots based on failure_count
+            const trendDots = u.failure_count > 0 ? '<span style="display:inline-flex;gap:2px;margin-left:6px;">' +
+                Array.from({length: Math.min(5, u.failure_count)}, () => '<span style="width:6px;height:6px;border-radius:50%;background:var(--danger);display:inline-block;"></span>').join('') +
+                '</span>' : '';
+            const detailRow = hasError ? `
+                <tr class="upstream-detail-row" data-parent="${u.id}" style="display:none;">
+                    <td colspan="7" style="padding:0;border:none;">
+                        <div style="padding:12px 16px;background:var(--bg-tertiary);border-top:1px solid var(--border);border-bottom:1px solid var(--border);font-size:12px;line-height:1.8;">
+                            <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 12px;max-width:700px;">
+                                <span style="color:var(--text-muted);">${t('upstream_err_reason')}:</span>
+                                <span style="color:var(--danger);">${esc(u.last_error_reason || '-')}</span>
+                                <span style="color:var(--text-muted);">${t('upstream_fail_count')}:</span>
+                                <span>${u.failure_count}</span>
+                                <span style="color:var(--text-muted);">${t('upstream_last_fail')}:</span>
+                                <span>${esc(u.last_failure_time || '-')}</span>
+                                <span style="color:var(--text-muted);">${t('upstream_last_success')}:</span>
+                                <span style="color:var(--success);">${esc(u.last_success_time || '-')}</span>
+                                ${u.recovered_at ? `<span style="color:var(--text-muted);">${t('upstream_recovered')}:</span><span>${esc(u.recovered_at)}</span>` : ''}
+                            </div>
+                        </div>
+                    </td>
+                </tr>` : '';
+            return `
+            <tr data-id="${u.id}" ${hasError ? `style="cursor:pointer;" onclick="toggleUpstreamDetail('${jsEsc(u.id)}')"` : ''}>
                 <td style="color:var(--text-primary);font-weight:500;">${esc(u.provider_name)}</td>
                 <td style="font-family:'SF Mono','Cascadia Code',monospace;font-size:12px;">${esc(u.base_url)}</td>
                 <td><span class="badge badge-blue">${esc(u.selected_model || '-')}</span></td>
                 <td style="font-family:'SF Mono','Cascadia Code',monospace;font-size:12px;color:var(--text-muted);">${esc(u.api_key_masked)}</td>
-                <td>${statusBadge(u.status)}</td>
+                <td>${statusBadge(u.status)}${errBadge}${trendDots}</td>
                 <td>
                     <label class="toggle">
                         <input type="checkbox" ${u.enabled ? 'checked' : ''} onchange="toggleUpstream('${jsEsc(u.id)}', this.checked)">
@@ -2613,12 +3070,56 @@ if (page === 'settings' && lastUpdateInfo) {
                     </label>
                 </td>
                 <td>
-                    <button class="btn btn-ghost btn-sm" onclick="openEditModal('${jsEsc(u.id)}')">${t('btn_edit')}</button>
-                    <button class="btn btn-ghost btn-sm" onclick="openTokenModal('${jsEsc(u.id)}', '${jsEsc(u.provider_name)}')">${t('btn_token')}</button>
-                    <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="openDeleteModal('${jsEsc(u.id)}')">${t('btn_delete')}</button>
+                    <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openEditModal('${jsEsc(u.id)}')">${t('btn_edit')}</button>
+                    <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();testUpstreamById('${jsEsc(u.id)}', this)">${t('btn_test')}</button>
+                    <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openTokenModal('${jsEsc(u.id)}', '${jsEsc(u.provider_name)}')">${t('btn_token')}</button>
+                    <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="event.stopPropagation();openDeleteModal('${jsEsc(u.id)}')">${t('btn_delete')}</button>
                 </td>
             </tr>
-        `).join('');
+            ${detailRow}
+        `;
+        }).join('');
+    }
+
+    function toggleUpstreamDetail(id) {
+        const row = document.querySelector(`.upstream-detail-row[data-parent="${id}"]`);
+        if (row) {
+            row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+        }
+    }
+
+    function classifyError(reason) {
+        if (!reason) return null;
+        const lower = (reason || '').toLowerCase();
+        // Connection errors
+        if (lower.includes('connection') || lower.includes('connect') || lower.includes('dns') || lower.includes('resolve') || lower.includes('refus')) {
+            return { cls: 'badge-red', label: t('err_cat_connection'), key: 'connection' };
+        }
+        // Auth errors
+        if (lower.includes('auth') || lower.includes('401') || lower.includes('403') || lower.includes('unauthorized') || lower.includes('forbidden') || lower.includes('key')) {
+            return { cls: 'badge-red', label: t('err_cat_auth'), key: 'auth' };
+        }
+        // Timeout errors
+        if (lower.includes('timeout') || lower.includes('timed out') || lower.includes('超时')) {
+            return { cls: 'badge-yellow', label: t('err_cat_timeout'), key: 'timeout' };
+        }
+        // Server errors (5xx)
+        if (lower.includes('500') || lower.includes('502') || lower.includes('503') || lower.includes('504') || lower.includes('server') || lower.includes('internal')) {
+            return { cls: 'badge-red', label: t('err_cat_server'), key: 'server' };
+        }
+        // Client errors (4xx)
+        if (lower.includes('400') || lower.includes('404') || lower.includes('429') || lower.includes('client') || lower.includes('rate')) {
+            return { cls: 'badge-yellow', label: t('err_cat_client'), key: 'client' };
+        }
+        // Response format errors
+        if (lower.includes('format') || lower.includes('parse') || lower.includes('json') || lower.includes('response')) {
+            return { cls: 'badge-yellow', label: t('err_cat_response'), key: 'response' };
+        }
+        // Embedded errors (error field in upstream response)
+        if (lower.includes('embedded') || lower.includes('error field')) {
+            return { cls: 'badge-yellow', label: t('err_cat_embedded'), key: 'embedded' };
+        }
+        return { cls: 'badge-blue', label: t('err_cat_unknown'), key: 'unknown' };
     }
 
     function statusBadge(status) {
@@ -2690,6 +3191,84 @@ if (page === 'settings' && lastUpdateInfo) {
 
     function closeModal() {
         document.getElementById('upstream-modal').classList.remove('open');
+        // Reset connection test result
+        const resultEl = document.getElementById('conn-test-result');
+        if (resultEl) resultEl.style.display = 'none';
+    }
+
+    // ================================================================
+    // Connection Test (P2-14)
+    // ================================================================
+
+    async function testConnection() {
+        const base_url = document.getElementById('f-baseurl').value.trim();
+        const api_key = document.getElementById('f-apikey').value;
+        const edit_id = document.getElementById('edit-id').value;
+        const isMasked = api_key === '••••••••';
+
+        if (!base_url) {
+            toast(t('toast_fill_baseurl'), 'error');
+            return;
+        }
+        if (!api_key || (isMasked && !edit_id)) {
+            toast(t('toast_fill_baseurl_key'), 'error');
+            return;
+        }
+
+        const btn = document.getElementById('btn-test-conn');
+        const resultEl = document.getElementById('conn-test-result');
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> ' + t('test_connecting');
+        resultEl.style.display = 'block';
+        resultEl.style.background = 'var(--bg-tertiary)';
+        resultEl.style.color = 'var(--text-muted)';
+        resultEl.textContent = t('test_connecting');
+
+        const start = Date.now();
+        try {
+            let models;
+            if (isMasked && edit_id) {
+                models = await cmd('fetch_upstream_models_by_id', { id: edit_id });
+            } else {
+                models = await cmd('fetch_upstream_models', { baseUrl: base_url, apiKey: api_key });
+            }
+            const elapsed = Date.now() - start;
+            const count = models ? models.length : 0;
+            const msg = t('test_result_ok').replace('{n}', count).replace('{ms}', elapsed);
+            resultEl.style.background = 'var(--success-subtle, rgba(34,197,94,0.1))';
+            resultEl.style.color = 'var(--success, #22c55e)';
+            resultEl.textContent = msg;
+        } catch (e) {
+            const elapsed = Date.now() - start;
+            const reason = String(e).substring(0, 200);
+            const msg = t('test_result_fail').replace('{reason}', reason);
+            resultEl.style.background = 'rgba(239,68,68,0.1)';
+            resultEl.style.color = 'var(--danger)';
+            resultEl.textContent = msg;
+        } finally {
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    }
+
+    async function testUpstreamById(id, btnEl) {
+        const originalText = btnEl.textContent;
+        btnEl.disabled = true;
+        btnEl.innerHTML = '<span class="spinner"></span>';
+        const start = Date.now();
+        try {
+            const models = await cmd('fetch_upstream_models_by_id', { id });
+            const elapsed = Date.now() - start;
+            const count = models ? models.length : 0;
+            toast(t('test_result_ok').replace('{n}', count).replace('{ms}', elapsed), 'success');
+        } catch (e) {
+            const reason = String(e).substring(0, 150);
+            toast(t('test_result_fail').replace('{reason}', reason), 'error');
+        } finally {
+            btnEl.disabled = false;
+            btnEl.textContent = originalText;
+        }
     }
 
     async function saveUpstream() {
@@ -3131,6 +3710,7 @@ if (page === 'settings' && lastUpdateInfo) {
                 <td>${p.max_concurrency}</td>
                 <td>${p.thinking_enabled ? '<span class="badge badge-green">' + t('label_on') + '</span>' : '<span style="color:var(--text-muted)">' + t('label_off') + '</span>'}</td>
                 <td>
+                    <button class="btn btn-ghost btn-sm" onclick="openPoolDetailModal('${jsEsc(p.id)}')">${t('btn_detail')}</button>
                     <button class="btn btn-ghost btn-sm" onclick="openEditPoolModal('${jsEsc(p.id)}')">${t('btn_edit')}</button>
                     <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="openPoolDeleteModal('${jsEsc(p.id)}')">${t('btn_delete')}</button>
                 </td>
@@ -3247,6 +3827,128 @@ if (page === 'settings' && lastUpdateInfo) {
         document.getElementById('pf-name').disabled = false;
     }
 
+    // ================================================================
+    // Pool Detail Modal (P2-13)
+    // ================================================================
+    let poolDetailUpstreamsCache = [];
+    let poolDetailPoolId = null;
+    let dragSrcEl = null;
+
+    async function openPoolDetailModal(poolId) {
+        poolDetailPoolId = poolId;
+        document.getElementById('pool-detail-modal').classList.add('open');
+        const infoEl = document.getElementById('pool-detail-info');
+        const listEl = document.getElementById('pool-detail-upstreams');
+        infoEl.innerHTML = '<span style="color:var(--text-muted);">' + t('dash_loading') + '</span>';
+        listEl.innerHTML = '<div class="empty-state">' + t('dash_loading') + '</div>';
+
+        try {
+            const pool = await cmd('get_pool', { id: poolId });
+            if (!pool) return;
+            infoEl.innerHTML = `
+                <div><span style="color:var(--text-muted);">${t('pools_name')}:</span> <span style="font-family:'SF Mono','Cascadia Code',monospace;font-weight:500;">${esc(pool.name)}</span></div>
+                <div><span style="color:var(--text-muted);">${t('pools_display_name')}:</span> ${esc(pool.display_name)}</div>
+                <div><span style="color:var(--text-muted);">${t('pools_max_concurrency')}:</span> ${pool.max_concurrency}</div>
+                <div><span style="color:var(--text-muted);">${t('modal_pool_thinking')}:</span> ${pool.thinking_enabled ? t('label_on') : t('label_off')}</div>
+            `;
+
+            const poolUpstreams = await cmd('get_pool_upstreams', { poolId }) || [];
+            poolDetailUpstreamsCache = poolUpstreams;
+
+            // Also get upstream health info
+            const allUpstreams = await cmd('list_upstreams') || [];
+            const upstreamMap = {};
+            allUpstreams.forEach(u => { upstreamMap[u.id] = u; });
+
+            if (poolUpstreams.length === 0) {
+                listEl.innerHTML = '<div class="empty-state">' + t('pool_detail_empty') + '</div>';
+                return;
+            }
+
+            listEl.innerHTML = poolUpstreams.map((pu, idx) => {
+                const u = upstreamMap[pu.upstream_id];
+                const healthBadge = u ? statusBadge(u.status) : '<span class="badge badge-blue">-</span>';
+                const providerName = u ? esc(u.provider_name) : esc(pu.upstream_id);
+                return `
+                    <div class="pool-detail-item" draggable="true" data-upstream-id="${esc(pu.upstream_id)}" data-sort="${idx}" style="display:flex;align-items:center;gap:12px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:8px;background:var(--bg-primary);cursor:grab;transition:border-color 0.15s;">
+                        <span style="color:var(--text-muted);font-size:18px;cursor:grab;">⣿</span>
+                        <span class="badge badge-blue" style="min-width:28px;text-align:center;">${idx + 1}</span>
+                        <span style="flex:1;font-weight:500;color:var(--text-primary);">${providerName}</span>
+                        <span style="font-size:12px;color:var(--text-secondary);font-family:'SF Mono','Cascadia Code',monospace;">${esc(pu.model || '-')}</span>
+                        <span>${healthBadge}</span>
+                    </div>`;
+            }).join('');
+
+            // Bind drag-and-drop events
+            bindDragAndDrop();
+        } catch (e) {
+            listEl.innerHTML = '<div class="empty-state" style="color:var(--danger);">' + esc(String(e)) + '</div>';
+        }
+    }
+
+    function closePoolDetailModal() {
+        document.getElementById('pool-detail-modal').classList.remove('open');
+        poolDetailPoolId = null;
+        poolDetailUpstreamsCache = [];
+    }
+
+    function bindDragAndDrop() {
+        const items = document.querySelectorAll('.pool-detail-item');
+        items.forEach(item => {
+            item.addEventListener('dragstart', function(e) {
+                dragSrcEl = this;
+                this.style.opacity = '0.5';
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', this.dataset.upstreamId);
+            });
+            item.addEventListener('dragend', function() {
+                this.style.opacity = '';
+                // Update order numbers
+                const allItems = document.querySelectorAll('.pool-detail-item');
+                allItems.forEach((el, idx) => {
+                    const badge = el.querySelector('.badge');
+                    if (badge) badge.textContent = idx + 1;
+                    el.dataset.sort = idx;
+                });
+            });
+            item.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+            });
+            item.addEventListener('dragleave', function() {
+                this.style.borderColor = 'var(--border)';
+            });
+            item.addEventListener('drop', async function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (dragSrcEl === this) return;
+
+                // Reorder DOM
+                const container = this.parentNode;
+                const allItems = Array.from(container.querySelectorAll('.pool-detail-item'));
+                const srcIdx = allItems.indexOf(dragSrcEl);
+                const tgtIdx = allItems.indexOf(this);
+
+                if (srcIdx < tgtIdx) {
+                    this.parentNode.insertBefore(dragSrcEl, this.nextSibling);
+                } else {
+                    this.parentNode.insertBefore(dragSrcEl, this);
+                }
+
+                // Collect new order and save
+                const newOrder = Array.from(container.querySelectorAll('.pool-detail-item'))
+                    .map(el => el.dataset.upstreamId);
+
+                try {
+                    await cmd('reorder_pool_upstreams', { poolId: poolDetailPoolId, upstreamIds: newOrder });
+                    toast(t('pool_detail_reorder_ok'), 'success');
+                } catch (err) {
+                    toast(t('pool_detail_reorder_fail') + err, 'error');
+                }
+            });
+        });
+    }
+
     async function savePool() {
         const id = document.getElementById('pool-edit-id').value;
         const name = document.getElementById('pf-name').value.trim();
@@ -3265,6 +3967,7 @@ if (page === 'settings' && lastUpdateInfo) {
         });
 
         if (!name) { toast(t('toast_pool_name_required'), 'error'); return; }
+        if (!id && upstreams.length === 0) { toast(t('pool_validate_no_upstream'), 'error'); return; }
 
         const btn = document.getElementById('btn-save-pool');
         btn.disabled = true;
@@ -3790,6 +4493,32 @@ function generateApiKey() {
             document.getElementById('set-alert-min-requests').value = s.alert_min_request_count || 10;
             document.getElementById('set-alert-silence').value = s.alert_silence_minutes || 30;
 
+            // Auto-backup settings
+            try {
+                const ab = await cmd('get_auto_backup_settings');
+                if (ab) {
+                    document.getElementById('set-auto-backup-enabled').checked = ab.enabled || false;
+                    document.getElementById('set-auto-backup-interval').value = ab.interval_days || 7;
+                    document.getElementById('set-auto-backup-max').value = ab.max_count || 5;
+                }
+            } catch(e) { /* auto-backup settings might not be available */ }
+            // Check for pending restore
+            try {
+                const pending = await cmd('check_restore_pending');
+                const el = document.getElementById('backup-restore-pending');
+                if (pending) {
+                    el.style.display = 'block';
+                    el.innerHTML = '⚠️ 数据库恢复已准备完成，请重启应用以完成恢复';
+                } else {
+                    el.style.display = 'none';
+                }
+            } catch(e) {}
+            // Load auto-backup list
+            loadAutoBackupList();
+
+            // Load API keys list (P2-8)
+            loadApiKeys();
+
             // Load pool list for quick copy
             const poolList = document.getElementById('settings-pool-list');
             try {
@@ -3856,6 +4585,8 @@ function generateApiKey() {
                 alert_silence_minutes: parseInt(document.getElementById('set-alert-silence').value) || 30,
             };
             await cmd('update_settings', { req });
+            // Save auto-backup settings separately
+            await saveAutoBackupSettings();
             applyTheme(req.theme);
             toast(t('settings_saved'), 'success');
         } catch (e) {
@@ -3863,6 +4594,388 @@ function generateApiKey() {
         } finally {
             btn.disabled = false;
             btn.textContent = t('settings_save');
+        }
+    }
+
+    // ================================================================
+    // Database Backup & Restore
+    // ================================================================
+
+    async function backupDatabase() {
+        try {
+            const path = await cmd('backup_database');
+            toast('数据库备份成功: ' + path, 'success');
+        } catch (e) {
+            if (e && e.includes('取消')) return;
+            toast('数据库备份失败: ' + e, 'error');
+        }
+    }
+
+    async function restoreDatabase() {
+        if (!confirm('恢复数据库将覆盖当前所有数据，且需要重启应用以生效。确定继续？')) return;
+        try {
+            const msg = await cmd('restore_database');
+            toast(msg, 'success');
+            // Show pending restore indicator
+            const el = document.getElementById('backup-restore-pending');
+            el.style.display = 'block';
+            el.innerHTML = '⚠️ 数据库恢复已准备完成，请重启应用以完成恢复';
+        } catch (e) {
+            if (e && e.includes('取消')) return;
+            toast('数据库恢复失败: ' + e, 'error');
+        }
+    }
+
+    async function createBackupNow() {
+        try {
+            const filename = await cmd('create_backup_now');
+            toast('自动备份创建成功: ' + filename, 'success');
+            loadAutoBackupList();
+        } catch (e) {
+            toast('创建备份失败: ' + e, 'error');
+        }
+    }
+
+    async function loadAutoBackupList() {
+        const container = document.getElementById('auto-backup-list');
+        if (!container) return;
+        try {
+            const backups = await cmd('list_auto_backups') || [];
+            if (backups.length === 0) {
+                container.innerHTML = '<span style="font-size:12px;color:var(--text-muted);">暂无自动备份文件</span>';
+                return;
+            }
+            const items = backups.map(b => {
+                const sizeKB = (b.size_bytes / 1024).toFixed(1);
+                return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;">' +
+                    '<span style="color:var(--text-secondary);">' + esc(b.filename) + ' <span style="color:var(--text-muted);">(' + sizeKB + ' KB, ' + esc(b.modified_time) + ')</span></span>' +
+                    '</div>';
+            }).join('');
+            container.innerHTML = '<div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">自动备份列表 (' + backups.length + ')</div>' + items;
+        } catch(e) {
+            container.innerHTML = '<span style="font-size:12px;color:var(--text-muted);">加载备份列表失败</span>';
+        }
+    }
+
+    async function saveAutoBackupSettings() {
+        const req = {
+            enabled: document.getElementById('set-auto-backup-enabled').checked,
+            interval_days: parseInt(document.getElementById('set-auto-backup-interval').value) || 7,
+            max_count: parseInt(document.getElementById('set-auto-backup-max').value) || 5,
+        };
+        try {
+            await cmd('update_auto_backup_settings', { req });
+        } catch(e) {
+            toast('保存自动备份设置失败: ' + e, 'error');
+        }
+    }
+
+    // ================================================================
+    // Config Import / Export
+    // ================================================================
+
+    async function exportConfig() {
+        try {
+            const path = await cmd('export_config');
+            toast('配置导出成功: ' + path, 'success');
+        } catch (e) {
+            if (e && e.includes('取消')) return;
+            toast('配置导出失败: ' + e, 'error');
+        }
+    }
+
+    async function importConfig(mode) {
+        const modeText = mode === 'full' ? '全量导入（将删除所有现有数据）' : '增量导入（保留现有数据，仅添加/更新）';
+        if (!confirm('确定要' + modeText + '？' + (mode === 'full' ? '此操作不可撤销！' : ''))) return;
+        try {
+            const result = await cmd('import_config', { mode });
+            const el = document.getElementById('config-import-result');
+            el.style.display = 'block';
+            let html = '<b>导入完成</b><br>';
+            html += '新增上游: ' + result.upstreams_added + '，更新上游: ' + result.upstreams_updated + '<br>';
+            html += '新增号池: ' + result.pools_added + '，更新号池: ' + result.pools_updated + '<br>';
+            html += '导入设置项: ' + result.settings_imported + '<br>';
+            if (result.warnings && result.warnings.length > 0) {
+                html += '<span style="color:var(--warning);">警告: ' + esc(result.warnings.join(', ')) + '</span>';
+            }
+            el.innerHTML = html;
+            toast('配置导入成功', 'success');
+            // Reload settings to reflect imported data
+            loadSettings();
+        } catch (e) {
+            if (e && e.includes('取消')) return;
+            toast('配置导入失败: ' + e, 'error');
+        }
+    }
+
+    async function exportDiagnostic() {
+        try {
+            const path = await cmd('export_diagnostic');
+            toast('诊断包导出成功: ' + path, 'success');
+        } catch (e) {
+            if (e && e.includes('取消')) return;
+            toast('诊断包导出失败: ' + e, 'error');
+        }
+    }
+
+    // ================================================================
+    // API Key Management (P2-8: Multi-key access control)
+    // ================================================================
+
+    async function loadApiKeys() {
+        const container = document.getElementById('api-keys-list');
+        if (!container) return;
+        try {
+            const keys = await cmd('list_api_keys') || [];
+            if (keys.length === 0) {
+                container.innerHTML = '<span style="font-size:12px;color:var(--text-muted);">' + t('apikey_no_keys') + '</span>';
+                return;
+            }
+            // Load pools for name resolution
+            let pools = [];
+            try { pools = await cmd('list_pools') || []; } catch(e) {}
+            const poolMap = {};
+            pools.forEach(p => { poolMap[p.id] = p.name; });
+
+            container.innerHTML = keys.map(k => {
+                let allowedPoolsText = t('apikey_all_pools');
+                let pools = [];
+                try { pools = JSON.parse(k.allowed_pools || '[]'); } catch(e) {}
+                if (pools.length > 0) {
+                    const names = pools.map(pid => esc(poolMap[pid] || pid));
+                    allowedPoolsText = names.join(', ');
+                }
+
+                let statusBadge = '';
+                let statusColor = 'var(--success)';
+                if (!k.enabled) {
+                    statusBadge = '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:var(--bg-tertiary);color:var(--text-muted);">' + t('apikey_disabled') + '</span>';
+                    statusColor = 'var(--text-muted)';
+                } else if (k.expires_at) {
+                    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+                    if (now > k.expires_at) {
+                        statusBadge = '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(239,68,68,0.15);color:var(--danger);">' + t('apikey_expired') + '</span>';
+                        statusColor = 'var(--danger)';
+                    } else {
+                        statusBadge = '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(34,197,94,0.15);color:var(--success);">' + t('apikey_active') + '</span>';
+                    }
+                } else {
+                    statusBadge = '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(34,197,94,0.15);color:var(--success);">' + t('apikey_active') + '</span>';
+                }
+
+                let lastUsedText = t('apikey_never_used');
+                if (k.last_used_at) {
+                    lastUsedText = t('apikey_last_used') + ': ' + esc(k.last_used_at);
+                }
+
+                return '<div style="padding:12px 14px;background:var(--bg-primary);border:1px solid var(--border-strong);border-radius:var(--radius-md);">' +
+                    '<div style="display:flex;align-items:flex-start;gap:12px;">' +
+                    '<div style="flex:1;min-width:0;">' +
+                    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">' +
+                    '<span style="font-size:14px;font-weight:600;color:var(--text-primary);">' + esc(k.name) + '</span>' +
+                    statusBadge +
+                    '</div>' +
+                    '<div style="font-size:12px;color:var(--text-muted);font-family:\'SF Mono\',\'Cascadia Code\',monospace;margin-bottom:4px;">' + esc(k.key) + '</div>' +
+                    '<div style="font-size:11px;color:var(--text-muted);">' +
+                    '<span style="margin-right:12px;">' + esc(allowedPoolsText) + '</span>' +
+                    '<span>' + lastUsedText + '</span>' +
+                    (k.expires_at ? '<span style="margin-left:12px;">' + t('apikey_expires_at') + ': ' + esc(k.expires_at) + '</span>' : '') +
+                    '</div>' +
+                    '</div>' +
+                    '<div style="display:flex;gap:4px;flex-shrink:0;">' +
+                    '<button class="btn btn-ghost btn-sm" onclick="editApiKey(\'' + jsEsc(k.id) + '\')" data-i18n="apikey_btn_edit">' + t('apikey_btn_edit') + '</button>' +
+                    '<button class="btn btn-ghost btn-sm" onclick="toggleApiKey(\'' + jsEsc(k.id) + '\', ' + !k.enabled + ')" data-i18n="apikey_btn_toggle">' + t('apikey_btn_toggle') + '</button>' +
+                    '<button class="btn btn-ghost btn-sm" onclick="regenApiKey(\'' + jsEsc(k.id) + '\')" data-i18n="apikey_btn_regen">' + t('apikey_btn_regen') + '</button>' +
+                    '<button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="deleteApiKey(\'' + jsEsc(k.id) + '\')" data-i18n="apikey_btn_delete">' + t('apikey_btn_delete') + '</button>' +
+                    '</div>' +
+                    '</div>' +
+                    '</div>';
+            }).join('');
+        } catch (e) {
+            container.innerHTML = '<span style="font-size:12px;color:var(--danger);">' + t('toast_apikey_load_fail') + esc(String(e)) + '</span>';
+        }
+    }
+
+    async function showApiKeyModal(id) {
+        const modal = document.getElementById('apikey-modal');
+        const title = document.getElementById('apikey-modal-title');
+        const editIdInput = document.getElementById('ak-edit-id');
+        const nameInput = document.getElementById('ak-name');
+        const expiresInput = document.getElementById('ak-expires');
+        const enabledInput = document.getElementById('ak-enabled');
+        const enabledGroup = document.getElementById('ak-enabled-group');
+        const poolsContainer = document.getElementById('ak-pools-list');
+
+        // Reset form
+        editIdInput.value = '';
+        nameInput.value = '';
+        expiresInput.value = '';
+        enabledInput.checked = true;
+
+        // Load pools for selection
+        let pools = [];
+        try { pools = await cmd('list_pools') || []; } catch(e) {}
+        if (pools.length === 0) {
+            poolsContainer.innerHTML = '<span style="font-size:12px;color:var(--text-muted);">暂无模型池</span>';
+        } else {
+            poolsContainer.innerHTML = pools.map(p =>
+                '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;">' +
+                '<input type="checkbox" value="' + jsEsc(p.id) + '" data-pool-check>' +
+                '<span style="font-size:13px;">' + esc(p.name) + '</span>' +
+                '</label>'
+            ).join('');
+        }
+
+        if (id) {
+            // Edit mode
+            title.textContent = t('apikey_modal_edit');
+            try {
+                const keys = await cmd('list_api_keys') || [];
+                const key = keys.find(k => k.id === id);
+                if (!key) { toast('密钥不存在', 'error'); return; }
+                editIdInput.value = key.id;
+                nameInput.value = key.name;
+                enabledInput.checked = key.enabled;
+                if (key.expires_at) {
+                    // Convert "YYYY-MM-DD HH:MM:SS" to "YYYY-MM-DDTHH:MM" for datetime-local input
+                    const dt = key.expires_at.replace(' ', 'T').slice(0, 16);
+                    expiresInput.value = dt;
+                }
+                // Check allowed pools
+                let allowedPools = [];
+                try { allowedPools = JSON.parse(key.allowed_pools || '[]'); } catch(e) {}
+                poolsContainer.querySelectorAll('input[data-pool-check]').forEach(cb => {
+                    if (allowedPools.includes(cb.value)) cb.checked = true;
+                });
+                enabledGroup.style.display = '';
+            } catch (e) {
+                toast(t('toast_apikey_load_fail') + esc(String(e)), 'error');
+                return;
+            }
+        } else {
+            // Create mode
+            title.textContent = t('apikey_modal_create');
+            enabledGroup.style.display = '';
+        }
+
+        modal.classList.add('open');
+    }
+
+    function closeApiKeyModal() {
+        document.getElementById('apikey-modal').classList.remove('open');
+    }
+
+    async function saveApiKey() {
+        const btn = document.getElementById('btn-save-apikey');
+        btn.disabled = true;
+        const id = document.getElementById('ak-edit-id').value;
+        const name = document.getElementById('ak-name').value.trim();
+        if (!name) { toast(t('apikey_name') + ' ' + '不能为空', 'error'); btn.disabled = false; return; }
+
+        // Collect allowed pools
+        const checkedPools = [];
+        document.querySelectorAll('#ak-pools-list input[data-pool-check]:checked').forEach(cb => {
+            checkedPools.push(cb.value);
+        });
+        const allowedPoolsJson = JSON.stringify(checkedPools);
+
+        // Parse expires_at
+        let expiresAt = null;
+        const expiresVal = document.getElementById('ak-expires').value;
+        if (expiresVal) {
+            // Convert datetime-local "YYYY-MM-DDTHH:MM" to "YYYY-MM-DD HH:MM:SS"
+            expiresAt = expiresVal.replace('T', ' ') + ':00';
+        }
+
+        const enabled = document.getElementById('ak-enabled').checked;
+
+        try {
+            if (id) {
+                // Update existing key
+                await cmd('update_api_key', {
+                    id: id,
+                    req: {
+                        name: name,
+                        enabled: enabled,
+                        allowed_pools: allowedPoolsJson,
+                        expires_at: expiresAt,
+                    }
+                });
+                toast(t('toast_apikey_updated'), 'success');
+            } else {
+                // Create new key
+                const result = await cmd('create_api_key', {
+                    req: {
+                        name: name,
+                        allowed_pools: allowedPoolsJson,
+                        expires_at: expiresAt,
+                    }
+                });
+                toast(t('toast_apikey_created'), 'success');
+                // Show the full key to the user
+                if (result && result.key) {
+                    document.getElementById('ak-created-key').textContent = result.key;
+                    document.getElementById('apikey-created-modal').classList.add('open');
+                }
+            }
+            closeApiKeyModal();
+            loadApiKeys();
+        } catch (e) {
+            toast((id ? t('toast_apikey_update_fail') : t('toast_apikey_create_fail')) + esc(String(e)), 'error');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    function closeCreatedModal() {
+        document.getElementById('apikey-created-modal').classList.remove('open');
+    }
+
+    function copyCreatedApiKey() {
+        const key = document.getElementById('ak-created-key').textContent;
+        navigator.clipboard.writeText(key).then(() => {
+            toast(t('toast_copied'), 'success');
+        });
+    }
+
+    async function editApiKey(id) {
+        await showApiKeyModal(id);
+    }
+
+    async function toggleApiKey(id, enabled) {
+        try {
+            await cmd('toggle_api_key', { id: id, enabled: enabled });
+            toast(t('toast_apikey_toggled'), 'success');
+            loadApiKeys();
+        } catch (e) {
+            toast(t('toast_apikey_update_fail') + esc(String(e)), 'error');
+        }
+    }
+
+    async function regenApiKey(id) {
+        if (!confirm(t('apikey_regen_confirm'))) return;
+        try {
+            const newKey = await cmd('regenerate_api_key', { id: id });
+            toast(t('toast_apikey_regen'), 'success');
+            // Show the new key to the user
+            if (newKey) {
+                document.getElementById('ak-created-key').textContent = newKey;
+                document.getElementById('apikey-created-modal').classList.add('open');
+            }
+            loadApiKeys();
+        } catch (e) {
+            toast(t('toast_apikey_update_fail') + esc(String(e)), 'error');
+        }
+    }
+
+    async function deleteApiKey(id) {
+        if (!confirm(t('apikey_delete_confirm'))) return;
+        try {
+            await cmd('delete_api_key', { id: id });
+            toast(t('toast_apikey_deleted'), 'success');
+            loadApiKeys();
+        } catch (e) {
+            toast(t('toast_apikey_update_fail') + esc(String(e)), 'error');
         }
     }
 

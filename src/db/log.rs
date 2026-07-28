@@ -136,7 +136,7 @@ impl Database {
             where_clause
         );
 
-        let conn = self.get_conn()?;
+        let conn = self.get_read_conn()?;
         let mut stmt = conn.prepare(&sql)?;
         params_vec.push(Box::new(filter.limit));
         params_vec.push(Box::new(filter.offset));
@@ -200,7 +200,7 @@ impl Database {
 
     /// Get daily token usage for an upstream over the last N days.
     pub fn get_upstream_token_stats(&self, upstream_id: &str, days: i32) -> Result<Vec<DailyTokenUsage>, AppError> {
-        let conn = self.get_conn()?;
+        let conn = self.get_read_conn()?;
         let mut stmt = conn.prepare(
             "SELECT date(created_at) as day,
                     COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
@@ -228,7 +228,7 @@ impl Database {
 
     /// Get today's token totals for an upstream, optionally filtered by model.
     pub fn get_upstream_today_tokens(&self, upstream_id: &str, model: Option<&str>) -> Result<TokenTotals, AppError> {
-        let conn = self.get_conn()?;
+        let conn = self.get_read_conn()?;
         let (sql, params_vec): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match model {
             Some(m) => (
                 "SELECT COALESCE(SUM(prompt_tokens), 0),
@@ -262,7 +262,7 @@ impl Database {
 
     /// Get all-time token totals for an upstream, optionally filtered by model.
     pub fn get_upstream_total_tokens(&self, upstream_id: &str, model: Option<&str>) -> Result<TokenTotals, AppError> {
-        let conn = self.get_conn()?;
+        let conn = self.get_read_conn()?;
         let (sql, params_vec): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match model {
             Some(m) => (
                 "SELECT COALESCE(SUM(prompt_tokens), 0),
@@ -293,7 +293,7 @@ impl Database {
 
     /// Get per-model token usage for an upstream (today + total + request count).
     pub fn get_upstream_model_token_stats(&self, upstream_id: &str) -> Result<Vec<ModelTokenUsage>, AppError> {
-        let conn = self.get_conn()?;
+        let conn = self.get_read_conn()?;
         let mut stmt = conn.prepare(
             "SELECT COALESCE(NULLIF(model, ''), '未记录') as model,
                     COALESCE(SUM(CASE WHEN date(created_at) = date('now', 'localtime') THEN total_tokens ELSE 0 END), 0) as today_tokens,
@@ -322,7 +322,7 @@ impl Database {
         model: Option<&str>,
         days: i32,
     ) -> Result<Vec<DailyTokenUsage>, AppError> {
-        let conn = self.get_conn()?;
+        let conn = self.get_read_conn()?;
         let offset = format!("-{} days", days);
 
         let (sql, params_vec): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match model {
@@ -386,7 +386,7 @@ impl Database {
         upstream_id: &str,
         model: Option<&str>,
     ) -> Result<Vec<HourlyTokenUsage>, AppError> {
-        let conn = self.get_conn()?;
+        let conn = self.get_read_conn()?;
 
         let (sql, params_vec): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match model {
             Some(m) => (
@@ -444,15 +444,15 @@ impl Database {
         let active_upstream_count = self.count_active_upstreams()?;
         let pool_count = self.count_pools()?;
 
-        let today_request_count: i64 = self.get_conn()?.query_row(
+        let today_request_count: i64 = self.get_read_conn()?.query_row(
             "SELECT COUNT(*) FROM request_logs WHERE date(created_at) = date('now', 'localtime')",
             [], |row| row.get(0),
         )?;
-        let today_success_count: i64 = self.get_conn()?.query_row(
+        let today_success_count: i64 = self.get_read_conn()?.query_row(
             "SELECT COUNT(*) FROM request_logs WHERE date(created_at) = date('now', 'localtime') AND status_code >= 200 AND status_code < 300",
             [], |row| row.get(0),
         )?;
-        let today_error_count: i64 = self.get_conn()?.query_row(
+        let today_error_count: i64 = self.get_read_conn()?.query_row(
             "SELECT COUNT(*) FROM request_logs WHERE date(created_at) = date('now', 'localtime') AND status_code >= 400",
             [], |row| row.get(0),
         )?;
@@ -513,7 +513,7 @@ impl Database {
             where_clause
         );
 
-        let conn = self.get_conn()?;
+        let conn = self.get_read_conn()?;
         let mut stmt = conn.prepare(&sql)?;
         let params: Vec<&dyn rusqlite::types::ToSql> =
             params_vec.iter().map(|p| p.as_ref()).collect();
@@ -640,7 +640,7 @@ impl Database {
             conditions.join(" AND ")
         );
 
-        let conn = self.get_conn()?;
+        let conn = self.get_read_conn()?;
         let mut stmt = conn.prepare(&sql)?;
         params_vec.push(Box::new(limit));
         params_vec.push(Box::new(offset));
@@ -708,7 +708,7 @@ impl Database {
             conditions.join(" AND ")
         );
 
-        let conn = self.get_conn()?;
+        let conn = self.get_read_conn()?;
         let params: Vec<&dyn rusqlite::types::ToSql> =
             params_vec.iter().map(|p| p.as_ref()).collect();
         let count: i64 = conn.query_row(&sql, params.as_slice(), |row| row.get(0))?;
@@ -720,7 +720,7 @@ impl Database {
     /// Returns today's and all-time token totals for each pool.
     /// Pools with no logs are excluded.
     pub fn get_pool_token_overview(&self) -> Result<Vec<TokenOverviewEntry>, AppError> {
-        let conn = self.get_conn()?;
+        let conn = self.get_read_conn()?;
         let mut stmt = conn.prepare(
             "SELECT
                 COALESCE(pool_name, '(unknown)') as name,
@@ -759,7 +759,7 @@ impl Database {
     /// Returns today's and all-time token totals for each upstream.
     /// Upstream names are resolved by the caller.
     pub fn get_upstream_token_overview(&self) -> Result<Vec<TokenOverviewEntry>, AppError> {
-        let conn = self.get_conn()?;
+        let conn = self.get_read_conn()?;
         let mut stmt = conn.prepare(
             "SELECT
                 COALESCE(upstream_id, '(unknown)') as name,

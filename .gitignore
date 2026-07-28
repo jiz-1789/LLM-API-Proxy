@@ -25,6 +25,9 @@ TODO.md
 *.csv
 *.exe
 
+# 测试产生的临时数据库文件
+memdb*
+
 # IDE
 .idea/
 .vscode/

@@ -273,6 +273,35 @@ mod tests {
 - [ ] 前端动态内容已做 XSS 转义
 - [ ] API Key 明文不出现在日志中
 
+### 6.3 新增功能必须补最小验证测试
+
+> **核心约束：所有新增功能必须附带最小验证测试，无测试的 PR 不予合并。**
+
+#### 约束范围
+
+| 新增内容 | 最小测试要求 |
+|----------|-------------|
+| 新增 Tauri 命令 | 至少补充输入校验和错误传播测试 |
+| 新增网关端点 | 至少补充认证和基本路由测试 |
+| 新增数据库操作 | 至少补充 CRUD 回归测试 |
+| 新增配置项 | 至少补充默认值和异常值加载测试 |
+| 新增认证/安全逻辑 | 必须补充边界条件和权限校验测试 |
+
+#### 测试命名规范
+
+- 测试函数以 `test_` 开头，描述被测行为而非实现细节
+- 使用有意义的断言消息，便于定位失败原因
+- 测试代码与源码同文件，放在 `#[cfg(test)] mod tests` 块中
+
+#### PR 审查检查点
+
+审查 PR 时，检查以下内容：
+
+- [ ] 新增功能是否附带对应的测试
+- [ ] 测试是否覆盖了正常路径和错误路径
+- [ ] 测试是否覆盖了边界条件（空值、极值、异常输入）
+- [ ] 测试在 `cargo test` 中全部通过
+
 ---
 
 ## 七、Git 提交规范
@@ -366,9 +395,9 @@ chore: gitignore internal docs and test data
 
 | 文件 | 字段 | 当前值 |
 |------|------|--------|
-| `Cargo.toml`（workspace） | `[workspace.package] version` | `0.1.21` |
-| `src-tauri/Cargo.toml` | `[package] version` | `0.1.21` |
-| `src-tauri/tauri.conf.json` | `"version"` | `0.1.21` |
+| `Cargo.toml`（workspace） | `[workspace.package] version` | `0.2.0` |
+| `src-tauri/Cargo.toml` | `[package] version` | `0.2.0` |
+| `src-tauri/tauri.conf.json` | `"version"` | `0.2.0` |
 
 > **⚠️ 每次推送到 `main` 分支必须递增版本号。** 无论是新功能、Bug 修复还是文档更新，合并到 main 前必须同步更新三处版本号和 `CHANGELOG.md`，确保每个 main 提交都对应一个唯一的发布版本。版本递增规则：Bug 修复 / 文档 → PATCH，新功能 → MINOR。
 
@@ -393,7 +422,7 @@ chore: gitignore internal docs and test data
 
 | 参数 | 说明 | 示例 |
 |------|------|------|
-| `Version` | **必填**，版本号（不带 `v` 前缀） | `0.1.21` |
+| `Version` | **必填**，版本号（不带 `v` 前缀） | `0.2.0` |
 | `-GitHub` | 发布到 GitHub Releases | `-GitHub` |
 | `-Gitee` | 发布到 Gitee Releases | `-Gitee` |
 
@@ -407,13 +436,13 @@ chore: gitignore internal docs and test data
 
 ```powershell
 # 同时发布到 GitHub 和 Gitee（推荐）
-.\publish.ps1 0.1.21 -GitHub -Gitee
+.\publish.ps1 0.2.0 -GitHub -Gitee
 
 # 仅发布到 GitHub
-.\publish.ps1 0.1.21 -GitHub
+.\publish.ps1 0.2.0 -GitHub
 
 # 仅发布到 Gitee
-.\publish.ps1 0.1.21 -Gitee
+.\publish.ps1 0.2.0 -Gitee
 ```
 
 > **⚠️ 强制规定：必须使用 `publish.ps1` 脚本发布，禁止手动调用 API 或网页上传。** 脚本确保发布流程标准化，避免人为错误（如版本号不一致、更新日志遗漏、上传文件错误等）。

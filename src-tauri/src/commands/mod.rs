@@ -17,6 +17,9 @@ pub mod settings;
 pub mod health;
 pub mod update;
 pub mod shortcut;
+pub mod backup;
+pub mod diagnostic;
+pub mod api_key;
 
 // ============================================================================
 // Shared DTOs & Helpers
@@ -60,6 +63,14 @@ fn default_10_u32() -> u32 {
 
 fn default_30_u32() -> u32 {
     30
+}
+
+fn default_7_u32() -> u32 {
+    7
+}
+
+fn default_5_u32() -> u32 {
+    5
 }
 
 /// Generate a unique ID for a new upstream record.

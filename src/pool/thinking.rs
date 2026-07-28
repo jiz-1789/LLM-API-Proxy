@@ -26,8 +26,10 @@ pub fn get_thinking_param(vendor: &str, enabled: bool) -> Option<serde_json::Val
 pub fn merge_thinking_params(body: &mut serde_json::Value, params: &Option<serde_json::Value>) {
     if let Some(thinking_param) = params {
         if let Some(obj) = body.as_object_mut() {
-            for (key, value) in thinking_param.as_object().unwrap() {
-                obj.insert(key.clone(), value.clone());
+            if let Some(thinking_obj) = thinking_param.as_object() {
+                for (key, value) in thinking_obj {
+                    obj.insert(key.clone(), value.clone());
+                }
             }
         }
     }
