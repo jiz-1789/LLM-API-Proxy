@@ -51,6 +51,13 @@ Most aggregation solutions on the market look like this:
 - **Model aliasing** — Client tools always see the pool name; the actual upstream model name is hidden
 - **AES-256-GCM encryption** — API keys encrypted and stored in SQLite, Master Key follows the data directory, USB-plug-and-play
 - **Request logging** — Records status code, latency, token usage, and failed upstream chain for each request, with filtering by status code/time and export
+- **Multi-key access control** — Create multiple Gateway API Keys with configurable pool-level permissions and expiration
+- **Rate limiting** — Per-IP rate limiting (configurable window size and request count), state persisted across restarts
+- **Upstream health tracking** — Auto-records failure count, error reason, recovery time; status tiers (healthy/degraded/down); supports background probing
+- **Database backup & restore** — One-click database backup, restore from backup file (requires restart), supports automatic scheduled backups
+- **Config import/export** — Export all upstreams, pools, and settings as JSON; supports incremental and full import modes
+- **Diagnostic package** — Export a ZIP containing version info, config summary, upstream status, and recent logs; sensitive data automatically masked
+- **Alert monitoring** — Background monitoring of request failure rate; triggers alerts when threshold exceeded; supports silence period to prevent fatigue
 - **Health check** — One-click connectivity test for all upstreams
 - **In-app updates** — Automatically checks for new versions on startup, supports GitHub + Gitee dual data sources, one-click download with automatic replacement and restart
 - **Bilingual UI** — Interface supports Chinese / English switching, system tray menu follows language setting
@@ -79,23 +86,43 @@ Most aggregation solutions on the market look like this:
 ├── package.json
 ├── src/                    # Rust core library (backend logic)
 │   ├── lib.rs              # Module declarations + AppState + backend init
+│   ├── main.rs             # Standalone mode entry (no GUI)
 │   ├── config.rs           # Gateway config & path management
+│   ├── config_io.rs        # Config import/export (JSON format)
 │   ├── crypto.rs           # AES-256-GCM encryption/decryption + Master Key management
-│   ├── db.rs               # SQLite data layer (CRUD + migrations + transactions)
+│   ├── diagnostic.rs       # Diagnostic package (ZIP export + sensitive data masking)
 │   ├── error.rs            # Unified error types
+│   ├── db/                 # SQLite data layer (modular)
+│   │   ├── mod.rs          # Database wrapper + read-write separation + transactions
+│   │   ├── migration.rs     # Schema creation + migrations (idempotent)
+│   │   ├── upstream.rs     # Upstream CRUD + health status updates
+│   │   ├── pool.rs         # Pool CRUD
+│   │   ├── log.rs          # Request logs + stats + percentile calculation
+│   │   ├── settings.rs     # Key-value settings storage
+│   │   ├── api_key.rs      # Multi-key management
+│   │   ├── backup.rs       # Database backup & restore
+│   │   └── rate_limit.rs   # Rate limit state persistence
 │   ├── gateway/            # OpenAI-compatible gateway
 │   │   ├── mod.rs          # /v1/models, /v1/chat/completions routes
-│   │   ├── auth.rs         # API Key authentication (constant-time comparison)
-│   │   └── stream.rs       # SSE streaming (model name replacement + token extraction)
+│   │   ├── auth.rs         # Multi-key auth (constant-time comparison + pool permissions)
+│   │   ├── stream.rs       # SSE streaming (model replacement + usage extraction + error detection)
+│   │   ├── rate_limit.rs   # Rate limiter (DashMap + persistence)
+│   │   ├── error_response.rs # OpenAI-compatible error responses
+│   │   └── health.rs       # Three-tier health check
 │   ├── pool/               # Pool & round-robin logic
 │   │   ├── mod.rs          # Pool data structures
-│   │   ├── round_robin.rs  # Round-robin selector
 │   │   └── thinking.rs     # Thinking mode parameter injection (by provider)
-│   └── proxy/              # Upstream forwarding
-│       ├── mod.rs          # ProxyEngine
-│       ├── client.rs       # UpstreamConfig definition
-│       ├── failover.rs     # HTTP forwarding & failover chain
-│       └── model_filter.rs # Model name replacement
+│   ├── proxy/              # Upstream forwarding
+│   │   ├── mod.rs          # Module declarations
+│   │   ├── failover.rs     # HTTP forwarding & failover chain
+│   │   └── error.rs        # Structured upstream error classification
+│   ├── probe/              # Background upstream probing
+│   │   └── mod.rs          # Periodic probing + health status updates
+│   ├── alert/              # Alert threshold monitoring
+│   │   └── mod.rs          # Failure rate monitoring + silence period
+│   └── tests/              # Integration tests
+│       ├── common/mod.rs   # Test utilities
+│       └── integration/    # Gateway + streaming integration tests
 ├── src-tauri/              # Tauri desktop app shell
 │   ├── tauri.conf.json     # Window / build config
 │   ├── capabilities/       # Tauri permission config
@@ -103,7 +130,18 @@ Most aggregation solutions on the market look like this:
 │   └── src/
 │       ├── lib.rs          # Tauri app entry + system tray + window events
 │       ├── main.rs         # main entry
-│       └── commands.rs     # Tauri commands (GUI ↔ backend bridge)
+│       └── commands/       # Tauri commands (modular)
+│           ├── mod.rs      # Shared DTOs + ID generation
+│           ├── upstream.rs # Upstream management commands
+│           ├── pool.rs     # Pool management commands
+│           ├── log.rs      # Log & stats commands
+│           ├── settings.rs # Settings commands
+│           ├── health.rs   # Health check commands
+│           ├── api_key.rs  # Multi-key management commands
+│           ├── backup.rs   # Backup & restore commands
+│           ├── diagnostic.rs # Diagnostic export commands
+│           ├── update.rs   # In-app update commands
+│           └── shortcut.rs # Shortcut commands
 └── dist/                   # Frontend build output
     └── index.html          # Single-page app (embedded CSS/JS)
 ```
@@ -225,8 +263,17 @@ Content-Type: application/json
 
 - Upstream returns HTTP 5xx or connection timeout → automatically tries the next upstream
 - Upstream returns HTTP 200 but response body contains an `error` field → also triggers failover
+- Upstream auth failure (401/403) → triggers failover (different upstreams have different keys)
+- 4xx client errors (400/404 etc.) → does not trigger failover (request itself is the problem)
 - All upstreams fail → returns `502 Bad Gateway` with error details for each failed upstream
 - No available upstream in pool (all disabled) → returns `503 Service Unavailable`
+
+### Rate Limiting Behavior
+
+- Each IP can send at most a configured number of requests within a configured time window (default 60/min)
+- When exceeded, returns `429 Too Many Requests` with a `Retry-After` header
+- Rate limit state is persisted to the database, survives restarts
+- Supports reverse proxy mode (identifies real client IP via `X-Forwarded-For`)
 
 ## 🔒 Security Design
 
@@ -234,9 +281,13 @@ Content-Type: application/json
 |---------|-------------|
 | Local-only binding | Binds to `127.0.0.1` by default, not exposed to the internet |
 | Encrypted API key storage | AES-256-GCM encryption, Master Key stored in local file, plaintext never on disk |
+| Multi-key access control | Supports multiple Gateway API Keys with configurable pool permissions and expiration |
 | Constant-time comparison | API key validation uses constant-time comparison to prevent timing side-channel attacks |
+| Rate limiting | Per-IP rate limiting (configurable window and request count), supports reverse proxy X-Forwarded-For |
+| Read-write separation | SQLite WAL mode + dedicated read-only connection, SELECTs don't block writes |
 | XSS protection | Dynamic frontend content is HTML-escaped |
 | Command injection protection | External links are validated against a URL protocol whitelist before opening |
+| Response header filtering | Only whitelisted upstream response headers are passed through, preventing internal info leakage |
 | Transaction isolation | Database writes use transactions + Mutex locks to prevent concurrent interference |
 | UUID identifiers | Request logs use UUID v4 for IDs, preventing collisions |
 
