@@ -1338,6 +1338,54 @@ gap: 8px;
                     <div id="failover-pagination" style="display:flex;align-items:center;justify-content:center;gap:12px;padding:12px 0;"></div>
                 </div>
 
+                <!-- Token Usage Overview -->
+                <div id="logs-token-overview-section" style="margin-bottom:20px;">
+                    <div class="section-title" style="font-size:14px;">
+                        <span data-i18n="logs_token_overview_title">Token 用量统计</span>
+                        <button class="btn btn-ghost btn-sm" style="margin-left:8px;" onclick="loadTokenOverview()" data-i18n="logs_refresh">刷新</button>
+                    </div>
+                    <div style="display:flex;gap:20px;flex-wrap:wrap;">
+                        <div style="flex:1;min-width:300px;">
+                            <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;" data-i18n="logs_token_by_pool">按模型池</div>
+                            <div class="table-wrap">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th data-i18n="nav_pools">模型池</th>
+                                            <th data-i18n="logs_token_today">今日 Token</th>
+                                            <th data-i18n="logs_token_total">累计 Token</th>
+                                            <th data-i18n="logs_token_today_req">今日请求</th>
+                                            <th data-i18n="logs_token_total_req">累计请求</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="logs-token-pool-tbody">
+                                        <tr><td colspan="5" class="empty-state" data-i18n="empty_loading">加载中...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div style="flex:1;min-width:300px;">
+                            <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;" data-i18n="logs_token_by_upstream">按上游</div>
+                            <div class="table-wrap">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th data-i18n="logs_upstream">上游</th>
+                                            <th data-i18n="logs_token_today">今日 Token</th>
+                                            <th data-i18n="logs_token_total">累计 Token</th>
+                                            <th data-i18n="logs_token_today_req">今日请求</th>
+                                            <th data-i18n="logs_token_total_req">累计请求</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="logs-token-upstream-tbody">
+                                        <tr><td colspan="5" class="empty-state" data-i18n="empty_loading">加载中...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="table-wrap">
                     <table>
                         <thead>
@@ -1938,6 +1986,13 @@ logs_failover_success_upstream: { zh: '最终上游', en: 'Final Upstream' },
 logs_failover_attempts: { zh: '尝试次数', en: 'Attempts' },
 logs_failover_chain: { zh: '故障链', en: 'Failover Chain' },
 logs_failover_all_failed: { zh: '全部失败', en: 'All Failed' },
+logs_token_overview_title: { zh: 'Token 用量统计', en: 'Token Usage Overview' },
+logs_token_by_pool: { zh: '按模型池', en: 'By Pool' },
+logs_token_by_upstream: { zh: '按上游', en: 'By Upstream' },
+logs_token_today: { zh: '今日 Token', en: 'Today Tokens' },
+logs_token_total: { zh: '累计 Token', en: 'Total Tokens' },
+logs_token_today_req: { zh: '今日请求', en: 'Today Requests' },
+logs_token_total_req: { zh: '累计请求', en: 'Total Requests' },
 
         // ── Settings page ──
         settings_title: { zh: '系统设置', en: 'System Settings' },
@@ -2448,6 +2503,7 @@ populateUpstreamFilter();
 loadLogs(true);
 loadRequestStats();
 loadFailoverEvents(true);
+loadTokenOverview();
 }
 
 // Stop dashboard timer when leaving dashboard
@@ -3488,6 +3544,61 @@ loadLogs(false);
         if (failoverCurrentPage > 0) {
             failoverCurrentPage--;
             loadFailoverEvents(false);
+        }
+    }
+
+    // ================================================================
+    // Token Usage Overview (P2-6)
+    // ================================================================
+    async function loadTokenOverview() {
+        try {
+            const data = await cmd('get_token_overview');
+            const poolTbody = document.getElementById('logs-token-pool-tbody');
+            const upstreamTbody = document.getElementById('logs-token-upstream-tbody');
+
+            if (!data) {
+                if (poolTbody) poolTbody.innerHTML = '<tr><td colspan="5" class="empty-state">' + t('logs_no_data') + '</td></tr>';
+                if (upstreamTbody) upstreamTbody.innerHTML = '<tr><td colspan="5" class="empty-state">' + t('logs_no_data') + '</td></tr>';
+                return;
+            }
+
+            // Render pool-level stats
+            if (poolTbody) {
+                const pools = data.by_pool || [];
+                if (pools.length === 0) {
+                    poolTbody.innerHTML = '<tr><td colspan="5" class="empty-state">' + t('logs_no_data') + '</td></tr>';
+                } else {
+                    poolTbody.innerHTML = pools.map(p => {
+                        return `<tr>
+                            <td>${esc(p.name)}</td>
+                            <td style="font-family:'SF Mono','Cascadia Code',monospace;font-size:12px;">${fmtNum(p.today_total_tokens)}</td>
+                            <td style="font-family:'SF Mono','Cascadia Code',monospace;font-size:12px;font-weight:600;">${fmtNum(p.total_total_tokens)}</td>
+                            <td>${p.today_request_count}</td>
+                            <td>${p.total_request_count}</td>
+                        </tr>`;
+                    }).join('');
+                }
+            }
+
+            // Render upstream-level stats
+            if (upstreamTbody) {
+                const upstreams = data.by_upstream || [];
+                if (upstreams.length === 0) {
+                    upstreamTbody.innerHTML = '<tr><td colspan="5" class="empty-state">' + t('logs_no_data') + '</td></tr>';
+                } else {
+                    upstreamTbody.innerHTML = upstreams.map(u => {
+                        return `<tr>
+                            <td>${esc(u.name)}</td>
+                            <td style="font-family:'SF Mono','Cascadia Code',monospace;font-size:12px;">${fmtNum(u.today_total_tokens)}</td>
+                            <td style="font-family:'SF Mono','Cascadia Code',monospace;font-size:12px;font-weight:600;">${fmtNum(u.total_total_tokens)}</td>
+                            <td>${u.today_request_count}</td>
+                            <td>${u.total_request_count}</td>
+                        </tr>`;
+                    }).join('');
+                }
+            }
+        } catch (e) {
+            /* ignore */
         }
     }
 

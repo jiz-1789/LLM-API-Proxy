@@ -399,3 +399,67 @@ pub fn get_failover_events(
         total,
     })
 }
+
+/// Token overview entry for the frontend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenOverviewVO {
+    pub name: String,
+    pub today_prompt_tokens: i64,
+    pub today_completion_tokens: i64,
+    pub today_total_tokens: i64,
+    pub today_request_count: i64,
+    pub total_prompt_tokens: i64,
+    pub total_completion_tokens: i64,
+    pub total_total_tokens: i64,
+    pub total_request_count: i64,
+}
+
+impl From<llm_api_proxy_lib::db::TokenOverviewEntry> for TokenOverviewVO {
+    fn from(e: llm_api_proxy_lib::db::TokenOverviewEntry) -> Self {
+        Self {
+            name: e.name,
+            today_prompt_tokens: e.today_prompt_tokens,
+            today_completion_tokens: e.today_completion_tokens,
+            today_total_tokens: e.today_total_tokens,
+            today_request_count: e.today_request_count,
+            total_prompt_tokens: e.total_prompt_tokens,
+            total_completion_tokens: e.total_completion_tokens,
+            total_total_tokens: e.total_total_tokens,
+            total_request_count: e.total_request_count,
+        }
+    }
+}
+
+/// Token overview response containing both pool-level and upstream-level stats.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenOverviewResponse {
+    pub by_pool: Vec<TokenOverviewVO>,
+    pub by_upstream: Vec<TokenOverviewVO>,
+}
+
+/// Get token usage overview aggregated by pool and by upstream.
+/// Returns today's and all-time totals for each group.
+#[tauri::command]
+pub fn get_token_overview(
+    state: State<'_, AppState>,
+) -> Result<TokenOverviewResponse, String> {
+    let by_pool = state.db.get_pool_token_overview().map_err(|e| e.to_string())?;
+    let mut by_upstream = state.db.get_upstream_token_overview().map_err(|e| e.to_string())?;
+
+    // Resolve upstream IDs to provider names
+    let upstreams = state.db.get_upstreams().map_err(|e| e.to_string())?;
+    let upstream_map: std::collections::HashMap<String, String> = upstreams
+        .iter()
+        .map(|u| (u.id.clone(), u.provider_name.clone()))
+        .collect();
+    for entry in &mut by_upstream {
+        if let Some(name) = upstream_map.get(&entry.name) {
+            entry.name = name.clone();
+        }
+    }
+
+    Ok(TokenOverviewResponse {
+        by_pool: by_pool.into_iter().map(Into::into).collect(),
+        by_upstream: by_upstream.into_iter().map(Into::into).collect(),
+    })
+}

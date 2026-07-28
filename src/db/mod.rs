@@ -138,6 +138,21 @@ pub struct ModelTokenUsage {
     pub request_count: i64,
 }
 
+/// Aggregated token usage for a single pool or upstream group.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenOverviewEntry {
+    /// Pool name or upstream provider name.
+    pub name: String,
+    pub today_prompt_tokens: i64,
+    pub today_completion_tokens: i64,
+    pub today_total_tokens: i64,
+    pub today_request_count: i64,
+    pub total_prompt_tokens: i64,
+    pub total_completion_tokens: i64,
+    pub total_total_tokens: i64,
+    pub total_request_count: i64,
+}
+
 /// Per-upstream health summary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpstreamStatusSummary {

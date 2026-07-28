@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use tracing::warn;
 
-use super::{Database, DailyTokenUsage, FailoverEvent, FailedUpstreamEntry, HourlyTokenUsage, LogFilter, ModelTokenUsage, RequestLogEntry, RequestStatsEntry, StatsFilter, TokenTotals};
+use super::{Database, DailyTokenUsage, FailoverEvent, FailedUpstreamEntry, HourlyTokenUsage, LogFilter, ModelTokenUsage, RequestLogEntry, RequestStatsEntry, StatsFilter, TokenOverviewEntry, TokenTotals};
 
 impl Database {
     // ========================================================================
@@ -713,6 +713,85 @@ impl Database {
             params_vec.iter().map(|p| p.as_ref()).collect();
         let count: i64 = conn.query_row(&sql, params.as_slice(), |row| row.get(0))?;
         Ok(count)
+    }
+
+    /// Get aggregated token usage grouped by pool name.
+    ///
+    /// Returns today's and all-time token totals for each pool.
+    /// Pools with no logs are excluded.
+    pub fn get_pool_token_overview(&self) -> Result<Vec<TokenOverviewEntry>, AppError> {
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT
+                COALESCE(pool_name, '(unknown)') as name,
+                COALESCE(SUM(CASE WHEN date(created_at) = date('now', 'localtime') THEN prompt_tokens ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN date(created_at) = date('now', 'localtime') THEN completion_tokens ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN date(created_at) = date('now', 'localtime') THEN total_tokens ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN date(created_at) = date('now', 'localtime') THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(prompt_tokens), 0),
+                COALESCE(SUM(completion_tokens), 0),
+                COALESCE(SUM(total_tokens), 0),
+                COUNT(*)
+             FROM request_logs
+             GROUP BY COALESCE(pool_name, '(unknown)')
+             ORDER BY total_total_tokens DESC",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(TokenOverviewEntry {
+                name: row.get(0)?,
+                today_prompt_tokens: row.get(1)?,
+                today_completion_tokens: row.get(2)?,
+                today_total_tokens: row.get(3)?,
+                today_request_count: row.get(4)?,
+                total_prompt_tokens: row.get(5)?,
+                total_completion_tokens: row.get(6)?,
+                total_total_tokens: row.get(7)?,
+                total_request_count: row.get(8)?,
+            })
+        })?;
+
+        Self::collect_rows(rows)
+    }
+
+    /// Get aggregated token usage grouped by upstream.
+    ///
+    /// Returns today's and all-time token totals for each upstream.
+    /// Upstream names are resolved by the caller.
+    pub fn get_upstream_token_overview(&self) -> Result<Vec<TokenOverviewEntry>, AppError> {
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT
+                COALESCE(upstream_id, '(unknown)') as name,
+                COALESCE(SUM(CASE WHEN date(created_at) = date('now', 'localtime') THEN prompt_tokens ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN date(created_at) = date('now', 'localtime') THEN completion_tokens ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN date(created_at) = date('now', 'localtime') THEN total_tokens ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN date(created_at) = date('now', 'localtime') THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(prompt_tokens), 0),
+                COALESCE(SUM(completion_tokens), 0),
+                COALESCE(SUM(total_tokens), 0),
+                COUNT(*)
+             FROM request_logs
+             WHERE upstream_id IS NOT NULL
+             GROUP BY upstream_id
+             ORDER BY total_total_tokens DESC",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(TokenOverviewEntry {
+                name: row.get(0)?,
+                today_prompt_tokens: row.get(1)?,
+                today_completion_tokens: row.get(2)?,
+                today_total_tokens: row.get(3)?,
+                today_request_count: row.get(4)?,
+                total_prompt_tokens: row.get(5)?,
+                total_completion_tokens: row.get(6)?,
+                total_total_tokens: row.get(7)?,
+                total_request_count: row.get(8)?,
+            })
+        })?;
+
+        Self::collect_rows(rows)
     }
 }
 
