@@ -22,6 +22,7 @@ use tracing::{info, warn};
 use crate::config::ProbeSettings;
 use crate::crypto::KeyManager;
 use crate::db::Database;
+use crate::proxy::url_util::build_models_url;
 
 /// Re-export probe configuration from the config module.
 pub use crate::config::ProbeSettings as ProbeConfig;
@@ -33,11 +34,11 @@ pub fn load_probe_config(db: &Database) -> ProbeConfig {
     ProbeSettings::load(db)
 }
 
-/// Test connectivity to an upstream by sending a GET /v1/models request.
+/// Test connectivity to an upstream by sending a GET /models request.
 ///
 /// Returns `Ok(latency_ms)` on success, `Err(error_message)` on failure.
 pub async fn probe_upstream(base_url: &str, api_key: &str) -> Result<u64, String> {
-    let url = format!("{}/v1/models", base_url.trim_end_matches('/'));
+    let url = build_models_url(base_url);
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()

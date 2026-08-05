@@ -1,6 +1,7 @@
 pub mod error;
 pub mod failover;
 pub mod model_filter;
+pub mod url_util;
 
 #[cfg(test)]
 mod tests {

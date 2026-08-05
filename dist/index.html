@@ -2012,7 +2012,7 @@ print(response.choices[0].message.content)</code></pre>
             <div class="form-group">
                 <label class="form-label" data-i18n="modal_baseurl">Base URL *</label>
                 <input class="form-input" id="f-baseurl" data-i18n-ph="modal_baseurl_ph" placeholder="例如：https://api.openai.com" autocomplete="off">
-                <div class="form-hint" data-i18n="modal_baseurl_hint">上游 API 的根地址，不需要加 /v1</div>
+                <div class="form-hint" data-i18n="modal_baseurl_hint">支持多种格式：根地址、带 /v1、完整端点 URL 均可</div>
             </div>
             <div class="form-group">
                 <label class="form-label" data-i18n="modal_apikey">API Key *</label>
@@ -2480,7 +2480,7 @@ settings_import_full: { zh: '全量导入', en: 'Import (Full)' },
         modal_provider_ph: { zh: '例如：OpenAI、DeepSeek、智谱', en: 'e.g. OpenAI, DeepSeek, Zhipu' },
         modal_baseurl: { zh: 'Base URL *', en: 'Base URL *' },
         modal_baseurl_ph: { zh: '例如：https://api.openai.com', en: 'e.g. https://api.openai.com' },
-        modal_baseurl_hint: { zh: '上游 API 的根地址，不需要加 /v1', en: 'Root URL of upstream API, no /v1 suffix' },
+        modal_baseurl_hint: { zh: '支持多种格式：根地址、带 /v1、完整端点 URL 均可', en: 'Supports root URL, /v1 suffix, or full endpoint URL' },
         modal_apikey: { zh: 'API Key *', en: 'API Key *' },
         modal_apikey_ph: { zh: '输入 API Key', en: 'Enter API Key' },
         modal_apikey_hint: { zh: '编辑时留空表示不修改', en: 'Leave empty to keep current key' },

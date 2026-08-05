@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use llm_api_proxy_lib::AppState;
+use llm_api_proxy_lib::proxy::url_util::build_models_url;
 
 // ============================================================================
 // DTO Types
@@ -22,7 +23,7 @@ pub struct HealthCheckResult {
 // ============================================================================
 
 async fn do_health_check(base_url: &str, api_key: &str) -> HealthCheckResult {
-    let url = format!("{}/v1/models", base_url.trim_end_matches('/'));
+    let url = build_models_url(base_url);
     let client = match reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()

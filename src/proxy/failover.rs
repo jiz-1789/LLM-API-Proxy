@@ -3,6 +3,7 @@ use serde_json::Value;
 use tracing::debug;
 
 use crate::proxy::error::{TimeoutPhase, UpstreamError};
+use crate::proxy::url_util::build_chat_completions_url;
 
 /// Forward a request to an upstream provider with round-robin failover.
 pub struct UpstreamClient {
@@ -37,7 +38,7 @@ impl UpstreamClient {
         timeout_secs: u64,
         extra_headers: Option<&reqwest::header::HeaderMap>,
     ) -> Result<Response, UpstreamError> {
-        let url = format!("{}/v1/chat/completions", base_url.trim_end_matches('/'));
+        let url = build_chat_completions_url(base_url);
         debug!("Forwarding request to upstream: {}", url);
 
         let mut req = self
@@ -116,7 +117,7 @@ impl UpstreamClient {
         timeout_secs: u64,
         extra_headers: Option<&reqwest::header::HeaderMap>,
     ) -> Result<reqwest::Response, UpstreamError> {
-        let url = format!("{}/v1/chat/completions", base_url.trim_end_matches('/'));
+        let url = build_chat_completions_url(base_url);
         debug!("Forwarding streaming request to upstream: {}", url);
 
         let mut req = self

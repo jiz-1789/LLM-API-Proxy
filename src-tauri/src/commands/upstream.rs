@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use llm_api_proxy_lib::AppState;
+use llm_api_proxy_lib::proxy::url_util::build_models_url;
 
 use super::generate_id;
 
@@ -210,7 +211,7 @@ pub async fn fetch_upstream_models(
     base_url: String,
     api_key: String,
 ) -> Result<Vec<String>, String> {
-    let url = format!("{}/v1/models", base_url.trim_end_matches('/'));
+    let url = build_models_url(&base_url);
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
@@ -269,7 +270,7 @@ pub async fn fetch_upstream_models_by_id(
         .decrypt_api_key(&upstream.api_key_encrypted)
         .map_err(|e| format!("API Key 解密失败: {}", e))?;
 
-    let url = format!("{}/v1/models", upstream.base_url.trim_end_matches('/'));
+    let url = build_models_url(&upstream.base_url);
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
