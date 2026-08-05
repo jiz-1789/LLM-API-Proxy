@@ -168,39 +168,23 @@ impl Database {
         failure_threshold: i32,
     ) -> Result<(), AppError> {
         if success {
-            // Check if transitioning from down/degraded to healthy
-            let prev_status: Option<String> = self.get_conn()?.query_row(
-                "SELECT status FROM upstreams WHERE id = ?1",
+            // Atomic single-statement UPDATE using CASE WHEN to conditionally
+            // set recovered_at only when transitioning from down/degraded.
+            // This avoids the TOCTOU race of SELECT-then-UPDATE.
+            self.get_conn()?.execute(
+                "UPDATE upstreams SET
+                    status = 'healthy',
+                    failure_count = 0,
+                    last_success_time = datetime('now', 'localtime'),
+                    last_error_reason = NULL,
+                    recovered_at = CASE
+                        WHEN status IN ('down', 'degraded') THEN datetime('now', 'localtime')
+                        ELSE recovered_at
+                    END,
+                    updated_at = datetime('now', 'localtime')
+                 WHERE id = ?1",
                 params![upstream_id],
-                |row| row.get(0),
-            ).ok();
-
-            let should_set_recovered = matches!(prev_status.as_deref(), Some("down") | Some("degraded"));
-
-            if should_set_recovered {
-                self.get_conn()?.execute(
-                    "UPDATE upstreams SET
-                        status = 'healthy',
-                        failure_count = 0,
-                        last_success_time = datetime('now', 'localtime'),
-                        last_error_reason = NULL,
-                        recovered_at = datetime('now', 'localtime'),
-                        updated_at = datetime('now', 'localtime')
-                     WHERE id = ?1",
-                    params![upstream_id],
-                )?;
-            } else {
-                self.get_conn()?.execute(
-                    "UPDATE upstreams SET
-                        status = 'healthy',
-                        failure_count = 0,
-                        last_success_time = datetime('now', 'localtime'),
-                        last_error_reason = NULL,
-                        updated_at = datetime('now', 'localtime')
-                     WHERE id = ?1",
-                    params![upstream_id],
-                )?;
-            }
+            )?;
         } else {
             // Use the write connection (not read_conn) and perform an atomic
             // UPDATE to avoid the TOCTOU race where two threads read the same
@@ -236,7 +220,7 @@ impl Database {
 
     /// Check if an upstream exists by ID.
     pub fn upstream_exists(&self, id: &str) -> Result<bool, AppError> {
-        let count: i64 = self.get_conn()?.query_row(
+        let count: i64 = self.get_read_conn()?.query_row(
             "SELECT COUNT(*) FROM upstreams WHERE id = ?1",
             params![id],
             |row| row.get(0),
@@ -246,7 +230,7 @@ impl Database {
 
     /// Count total upstreams.
     pub fn count_upstreams(&self) -> Result<i64, AppError> {
-        let count: i64 = self.get_conn()?.query_row(
+        let count: i64 = self.get_read_conn()?.query_row(
             "SELECT COUNT(*) FROM upstreams", [], |row| row.get(0)
         )?;
         Ok(count)
@@ -254,7 +238,7 @@ impl Database {
 
     /// Count active (enabled) upstreams.
     pub fn count_active_upstreams(&self) -> Result<i64, AppError> {
-        let count: i64 = self.get_conn()?.query_row(
+        let count: i64 = self.get_read_conn()?.query_row(
             "SELECT COUNT(*) FROM upstreams WHERE enabled = 1", [], |row| row.get(0)
         )?;
         Ok(count)

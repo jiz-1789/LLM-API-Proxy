@@ -7,6 +7,28 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-05
+
+### 新增
+- 智能 URL 规范化——上游 Base URL 支持多种输入格式：根地址、带 `/v1`、完整端点 URL、Google 非标准版本前缀（`/v1beta/openai`）等均可自动识别，不再产生路径重复拼接
+- 测试连接改用真实对话请求——点击"测试连接"时发送 `max_tokens=1` 的极简 chat 请求，验证端到端通路（网络、认证、模型可用性、响应格式），不再仅依赖 `/models` 端点
+- 健康检查和后台探测同步升级——有模型配置时使用真实 chat 请求探测，无模型时自动回退 `/models`
+
+### 修复
+- 修复上游健康状态更新的 TOCTOU 竞态条件——成功路径改用原子 SQL（`CASE WHEN`）消除"先读后写"竞态
+- 修复 3 个数据库读操作误用写连接——`upstream_exists`、`count_upstreams`、`count_active_upstreams` 改用只读连接
+- 配置内容安全策略（CSP）——替代原先的 `null` 策略，防止 XSS 注入
+
+### 优化
+- 清理死代码——移除未使用的 `PoolRouter`、`RoundRobinRouter`、`ProxyEngine` 等模块
+- 新增后台日志清理定时任务，自动清理过期日志
+- 删除误导性的 `RateLimiter::update_config` 空实现
+
+### 测试
+- 新增 5 个集成测试（故障转移、认证失败、轮询分布、健康状态更新、模型名替换）
+- 新增 28 个 URL 规范化单元测试
+- 新增 3 个 `ChatTestResult` 序列化测试
+
 ## [0.2.2] - 2026-07-28
 
 ### 修复

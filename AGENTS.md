@@ -14,15 +14,19 @@ LLM-API-Proxy 是一个本地运行的大模型 API 代理网关，将多家 LLM
 
 ```
 dist/index.html              ← 前端单页应用（内嵌 CSS/JS，Tauri Webview 加载）
-src-tauri/src/commands.rs    ← Tauri 命令层（GUI ↔ 后端桥接）
+src-tauri/src/commands/      ← Tauri 命令层（模块化，GUI ↔ 后端桥接）
 src/lib.rs                   ← 后端初始化 + AppState
-src/gateway/                 ← OpenAI 兼容网关（Axum 路由）
-src/pool/                    ← 号池与轮询逻辑
+src/gateway/                 ← OpenAI 兼容网关（Axum 路由 + 认证 + 限流 + SSE）
+src/pool/                    ← 号池与思考模式注入
 src/proxy/                   ← 上游转发与故障转移
-src/db.rs                    ← SQLite 数据层（CRUD + 迁移 + 事务）
+src/db/                      ← SQLite 数据层（模块化：迁移 + CRUD + 事务 + 读写分离）
 src/crypto.rs                ← AES-256-GCM 加解密
 src/config.rs                ← 配置与路径管理
 src/error.rs                 ← 统一错误类型
+src/probe/                   ← 后台上游探测
+src/alert/                   ← 阈值告警监控
+src/diagnostic.rs            ← 一键诊断包导出
+src/config_io.rs             ← 配置导入导出
 ```
 
 **数据流**：客户端请求 → Axum 网关 → 认证 → 查找号池 → 轮询选择上游 → 注入思考参数 → 转发至上游 → 模型名替换 → 记录日志 → 返回客户端
@@ -48,9 +52,9 @@ src/error.rs                 ← 统一错误类型
 
 ### 2.2 添加新迁移的步骤
 
-1. 在 `src/db.rs` 的 `run_migrations()` 函数中，向 `migrations` 向量末尾追加新版本号
+1. 在 `src/db/migration.rs` 的 `run_migrations()` 方法中，向迁移逻辑末尾追加新版本
 2. 版本号**严格递增 +1**，不可跳号
-3. 当前最新版本为 **v8**（参见 `DEVELOPMENT.md` 迁移历史表）
+3. 当前最新版本为 **v10**（参见 `DEVELOPMENT.md` 迁移历史表）
 4. 同步更新 `DEVELOPMENT.md` 的 Schema 表和迁移历史表
 
 ```rust
@@ -112,7 +116,7 @@ pub struct Upstream {
 }
 ```
 
-### 3.2 Tauri 命令层（`src-tauri/src/commands.rs`）
+### 3.2 Tauri 命令层（`src-tauri/src/commands/`）
 
 - 每个命令标注 `#[tauri::command]`
 - 命令函数返回 `Result<T, String>`（错误转为字符串传给前端）
@@ -532,13 +536,14 @@ chore: gitignore internal docs and test data
 
 ```
 新数据库字段
-  → src/db.rs (migration + map_row + INSERT)
+  → src/db/migration.rs (migration)
+→ src/db/<table>.rs (map_row + INSERT)
   → DEVELOPMENT.md (Schema 表 + 迁移历史)
-  → src-tauri/src/commands.rs (DTO + 命令)
+  → src-tauri/src/commands/<module>.rs (DTO + 命令)
   → dist/index.html (前端表单 + 展示)
 
 新 Tauri 命令
-  → src-tauri/src/commands.rs (命令函数)
+  → src-tauri/src/commands/<module>.rs (命令函数)
   → src-tauri/src/lib.rs (invoke_handler! 注册)
 
 新网关端点

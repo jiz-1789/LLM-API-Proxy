@@ -72,14 +72,16 @@ impl RateLimiter {
         }
     }
 
-    /// 更新配置（运行时热更新，不影响已有计数器）。
-    pub fn update_config(&self, config: RateLimitConfig) {
-        // config 是 Clone 的，但此处需要可变更新
-        // 由于 RateLimiter 被 Clone 共享 Arc<DashMap>，
-        // 我们不能直接替换 config 字段。
-        // 实际使用中每次创建 router 时读取最新配置即可。
-        // 这里保留方法签名以备未来扩展（如 ArcSwap）。
-        let _ = config;
+    /// 更新配置。
+    ///
+    /// **注意**：此方法仅更新当前 `RateLimiter` 克隆实例的配置。
+    /// 由于 `RateLimiter` 通过 `Arc<DashMap>` 共享计数状态，
+    /// 但 `config` 字段是每个实例独立的，已分发给 Axum 路由的实例不会受影响。
+    ///
+    /// 配置变更的正确方式是重启网关服务（`initialize_backend` 会重新加载配置）。
+    /// 未来可通过引入 `ArcSwap<RateLimitConfig>` 实现真正的全局热更新。
+    pub fn update_config(&mut self, config: RateLimitConfig) {
+        self.config = config;
     }
 
     /// 返回配置的只读引用。

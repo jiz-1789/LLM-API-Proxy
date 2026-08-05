@@ -2012,7 +2012,7 @@ print(response.choices[0].message.content)</code></pre>
             <div class="form-group">
                 <label class="form-label" data-i18n="modal_baseurl">Base URL *</label>
                 <input class="form-input" id="f-baseurl" data-i18n-ph="modal_baseurl_ph" placeholder="例如：https://api.openai.com" autocomplete="off">
-                <div class="form-hint" data-i18n="modal_baseurl_hint">上游 API 的根地址，不需要加 /v1</div>
+                <div class="form-hint" data-i18n="modal_baseurl_hint">支持多种格式：根地址、带 /v1、完整端点 URL 均可</div>
             </div>
             <div class="form-group">
                 <label class="form-label" data-i18n="modal_apikey">API Key *</label>
@@ -2480,7 +2480,7 @@ settings_import_full: { zh: '全量导入', en: 'Import (Full)' },
         modal_provider_ph: { zh: '例如：OpenAI、DeepSeek、智谱', en: 'e.g. OpenAI, DeepSeek, Zhipu' },
         modal_baseurl: { zh: 'Base URL *', en: 'Base URL *' },
         modal_baseurl_ph: { zh: '例如：https://api.openai.com', en: 'e.g. https://api.openai.com' },
-        modal_baseurl_hint: { zh: '上游 API 的根地址，不需要加 /v1', en: 'Root URL of upstream API, no /v1 suffix' },
+        modal_baseurl_hint: { zh: '支持多种格式：根地址、带 /v1、完整端点 URL 均可', en: 'Supports root URL, /v1 suffix, or full endpoint URL' },
         modal_apikey: { zh: 'API Key *', en: 'API Key *' },
         modal_apikey_ph: { zh: '输入 API Key', en: 'Enter API Key' },
         modal_apikey_hint: { zh: '编辑时留空表示不修改', en: 'Leave empty to keep current key' },
@@ -2649,6 +2649,7 @@ settings_import_full: { zh: '全量导入', en: 'Import (Full)' },
         test_success_models: { zh: '连接成功，获取到 {n} 个模型', en: 'Connected, {n} models available' },
         test_fail: { zh: '连接失败', en: 'Connection Failed' },
         test_result_ok: { zh: '✓ 连接成功 · {n} 个模型 · {ms}ms', en: '✓ Connected · {n} models · {ms}ms' },
+test_chat_ok: { zh: '✓ 连接成功 · 模型 {model} · {ms}ms', en: '✓ Connected · model {model} · {ms}ms' },
         test_result_fail: { zh: '✗ {reason}', en: '✗ {reason}' },
         pool_validate_no_upstream: { zh: '请至少选择一个上游', en: 'Please select at least one upstream' },
 
@@ -3264,6 +3265,7 @@ if (page === 'settings' && lastUpdateInfo) {
         const base_url = document.getElementById('f-baseurl').value.trim();
         const api_key = document.getElementById('f-apikey').value;
         const edit_id = document.getElementById('edit-id').value;
+        const selected_model = document.getElementById('f-model').value.trim();
         const isMasked = api_key === '••••••••';
 
         if (!base_url) {
@@ -3287,20 +3289,37 @@ if (page === 'settings' && lastUpdateInfo) {
 
         const start = Date.now();
         try {
-            let models;
+            let result;
             if (isMasked && edit_id) {
-                models = await cmd('fetch_upstream_models_by_id', { id: edit_id });
+                // Editing existing upstream with masked key — use stored model
+                result = await cmd('test_upstream_chat_by_id', { id: edit_id });
             } else {
-                models = await cmd('fetch_upstream_models', { baseUrl: base_url, apiKey: api_key });
+                // New upstream or fresh key — need a model to test with
+                let model = selected_model;
+                if (!model) {
+                    // No model selected yet — fetch models first, use first one
+                    const models = await cmd('fetch_upstream_models', { baseUrl: base_url, apiKey: api_key });
+                    if (!models || models.length === 0) {
+                        throw new Error('未获取到可用模型，请先点击「获取模型列表」');
+                    }
+                    model = models[0];
+                }
+                result = await cmd('test_upstream_chat', { baseUrl: base_url, apiKey: api_key, model: model });
             }
-            const elapsed = Date.now() - start;
-            const count = models ? models.length : 0;
-            const msg = t('test_result_ok').replace('{n}', count).replace('{ms}', elapsed);
-            resultEl.style.background = 'var(--success-subtle, rgba(34,197,94,0.1))';
-            resultEl.style.color = 'var(--success, #22c55e)';
-            resultEl.textContent = msg;
+
+            if (result.success) {
+                const msg = t('test_chat_ok').replace('{model}', result.model_used).replace('{ms}', result.latency_ms);
+                resultEl.style.background = 'var(--success-subtle, rgba(34,197,94,0.1))';
+                resultEl.style.color = 'var(--success, #22c55e)';
+                resultEl.textContent = msg;
+            } else {
+                const reason = (result.message || '未知错误').substring(0, 200);
+                const msg = t('test_result_fail').replace('{reason}', reason);
+                resultEl.style.background = 'rgba(239,68,68,0.1)';
+                resultEl.style.color = 'var(--danger)';
+                resultEl.textContent = msg;
+            }
         } catch (e) {
-            const elapsed = Date.now() - start;
             const reason = String(e).substring(0, 200);
             const msg = t('test_result_fail').replace('{reason}', reason);
             resultEl.style.background = 'rgba(239,68,68,0.1)';
@@ -3316,12 +3335,15 @@ if (page === 'settings' && lastUpdateInfo) {
         const originalText = btnEl.textContent;
         btnEl.disabled = true;
         btnEl.innerHTML = '<span class="spinner"></span>';
-        const start = Date.now();
         try {
-            const models = await cmd('fetch_upstream_models_by_id', { id });
-            const elapsed = Date.now() - start;
-            const count = models ? models.length : 0;
-            toast(t('test_result_ok').replace('{n}', count).replace('{ms}', elapsed), 'success');
+            const result = await cmd('test_upstream_chat_by_id', { id });
+            if (result.success) {
+                const msg = t('test_chat_ok').replace('{model}', result.model_used).replace('{ms}', result.latency_ms);
+                toast(msg, 'success');
+            } else {
+                const reason = (result.message || '未知错误').substring(0, 150);
+                toast(t('test_result_fail').replace('{reason}', reason), 'error');
+            }
         } catch (e) {
             const reason = String(e).substring(0, 150);
             toast(t('test_result_fail').replace('{reason}', reason), 'error');

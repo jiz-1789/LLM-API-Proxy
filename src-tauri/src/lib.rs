@@ -36,6 +36,8 @@ pub fn run() {
             commands::upstream::toggle_upstream,
             commands::upstream::fetch_upstream_models,
             commands::upstream::fetch_upstream_models_by_id,
+            commands::upstream::test_upstream_chat,
+            commands::upstream::test_upstream_chat_by_id,
             commands::pool::list_pools,
             commands::pool::get_pool,
             commands::pool::create_pool,
