@@ -176,6 +176,9 @@ pub fn initialize_backend() -> anyhow::Result<AppState> {
     // Start background auto-backup task (if enabled)
     db::backup::start_auto_backup_task(db_arc.clone());
 
+    // Start background log cleanup task (periodic, every 30 minutes)
+    start_log_cleanup_task(db_arc.clone());
+
     Ok(state)
 }
 
@@ -238,4 +241,38 @@ fn load_rate_limit_config(db: &db::Database) -> gateway::rate_limit::RateLimitCo
         window_seconds: settings.window_seconds as u64,
         trust_forwarded_for: settings.trust_forwarded_for,
     }
+}
+
+/// Start a background task that periodically cleans up old request logs.
+///
+/// Runs every 30 minutes. Uses the configured retention policy
+/// (`log_retention_days` and `log_max_entries` from the settings table).
+/// This complements the startup cleanup in `Database::initialize()`,
+/// ensuring long-running instances don't exceed log limits between restarts.
+fn start_log_cleanup_task(db: Arc<db::Database>) {
+    std::thread::spawn(move || {
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                tracing::warn!("Failed to create tokio runtime for log cleanup: {}", e);
+                return;
+            }
+        };
+        rt.block_on(async move {
+            let interval = std::time::Duration::from_secs(1800); // 30 minutes
+            loop {
+                tokio::time::sleep(interval).await;
+                let retention = config::LogRetentionSettings::load(&db);
+                match db.cleanup_old_logs(retention.retention_days, retention.max_entries) {
+                    Ok(deleted) if deleted > 0 => {
+                        tracing::info!("Periodic log cleanup: removed {} old entries", deleted);
+                    }
+                    Ok(_) => {} // nothing to delete
+                    Err(e) => {
+                        tracing::warn!("Periodic log cleanup failed: {}", e);
+                    }
+                }
+            }
+        });
+    });
 }

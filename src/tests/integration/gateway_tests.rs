@@ -297,3 +297,207 @@ async fn test_error_response_format() {
     assert!(body["error"]["code"].is_string());
     assert!(body["error"]["param"].is_null());
 }
+
+// ── Embedded error failover test ─────────────────────────────
+// HTTP 200 but body contains "error" field → should trigger failover
+
+#[tokio::test]
+async fn test_embedded_error_triggers_failover() {
+    let fake_ok_server = MockServer::start().await;
+    let good_server = MockServer::start().await;
+
+    // First upstream returns 200 but with error in body ("fake success")
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "error": {"message": "model overloaded", "type": "server_error"}
+        })))
+        .mount(&fake_ok_server)
+        .await;
+
+    // Second upstream returns a real success
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "chatcmpl-embed",
+            "model": "test-model",
+            "choices": [{"message": {"role": "assistant", "content": "Real success"}, "index": 0}],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8}
+        })))
+        .mount(&good_server)
+        .await;
+
+    let env = TestEnv::new().await;
+    let fake_id = env.create_upstream("FakeOk", &fake_ok_server.uri());
+    let good_id = env.create_upstream("RealGood", &good_server.uri());
+    env.create_pool("embed-failover-model", "Embed Failover Pool", &[fake_id, good_id]);
+
+    let resp = env.send_chat_request("embed-failover-model", false).await;
+
+    assert_eq!(resp.status(), 200);
+    let body = read_json(resp).await;
+    assert_eq!(body["choices"][0]["message"]["content"], "Real success");
+}
+
+// ── Auth failure failover test ───────────────────────────────
+// 401 from first upstream should trigger failover (different upstreams have different keys)
+
+#[tokio::test]
+async fn test_auth_failure_triggers_failover() {
+    let auth_fail_server = MockServer::start().await;
+    let good_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(401).set_body_string("unauthorized"))
+        .mount(&auth_fail_server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "chatcmpl-auth-failover",
+            "model": "test-model",
+            "choices": [{"message": {"role": "assistant", "content": "Auth failover success"}, "index": 0}],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8}
+        })))
+        .mount(&good_server)
+        .await;
+
+    let env = TestEnv::new().await;
+    let auth_fail_id = env.create_upstream("AuthFail", &auth_fail_server.uri());
+    let good_id = env.create_upstream("AuthGood", &good_server.uri());
+    env.create_pool("auth-failover-model", "Auth Failover Pool", &[auth_fail_id, good_id]);
+
+    let resp = env.send_chat_request("auth-failover-model", false).await;
+
+    assert_eq!(resp.status(), 200);
+    let body = read_json(resp).await;
+    assert_eq!(body["choices"][0]["message"]["content"], "Auth failover success");
+}
+
+// ── Round-robin distribution test ────────────────────────────
+
+#[tokio::test]
+async fn test_round_robin_distributes_requests() {
+    let server_a = MockServer::start().await;
+    let server_b = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "a",
+            "model": "test-model",
+            "choices": [{"message": {"content": "from-a"}, "index": 0}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+        })))
+        .mount(&server_a)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "b",
+            "model": "test-model",
+            "choices": [{"message": {"content": "from-b"}, "index": 0}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+        })))
+        .mount(&server_b)
+        .await;
+
+    let env = TestEnv::new().await;
+    let id_a = env.create_upstream("ProviderA", &server_a.uri());
+    let id_b = env.create_upstream("ProviderB", &server_b.uri());
+    env.create_pool("rr-model", "RR Pool", &[id_a, id_b]);
+
+    // Send 4 requests — should alternate between A and B
+    let mut responses = Vec::new();
+    for _ in 0..4 {
+        let resp = env.send_chat_request("rr-model", false).await;
+        let body = read_json(resp).await;
+        responses.push(body["choices"][0]["message"]["content"].as_str().unwrap().to_string());
+    }
+
+    // With round_robin strategy, requests should be distributed across both upstreams
+    let count_a = responses.iter().filter(|r| r == &"from-a").count();
+    let count_b = responses.iter().filter(|r| r == &"from-b").count();
+    assert_eq!(count_a + count_b, 4, "All requests should succeed");
+    assert!(count_a > 0 && count_b > 0, "Both upstreams should receive traffic (got A={}, B={})", count_a, count_b);
+}
+
+// ── Health status update test ────────────────────────────────
+
+#[tokio::test]
+async fn test_health_status_updates_on_success_and_failure() {
+    let good_server = MockServer::start().await;
+    let bad_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "health-ok",
+            "model": "test-model",
+            "choices": [{"message": {"content": "ok"}, "index": 0}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+        })))
+        .mount(&good_server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(500).set_body_string("error"))
+        .mount(&bad_server)
+        .await;
+
+    let env = TestEnv::new().await;
+    let good_id = env.create_upstream("HealthGood", &good_server.uri());
+    let bad_id = env.create_upstream("HealthBad", &bad_server.uri());
+    env.create_pool("health-model", "Health Pool", &[bad_id.clone(), good_id.clone()]);
+
+    // Send a request — bad upstream fails, good upstream succeeds (failover)
+    let resp = env.send_chat_request("health-model", false).await;
+    assert_eq!(resp.status(), 200);
+
+    // Verify health status was updated
+    let statuses = env.db.get_upstream_status_summary().unwrap();
+    let bad_status = statuses.iter().find(|s| s.id == bad_id).unwrap();
+    let good_status = statuses.iter().find(|s| s.id == good_id).unwrap();
+
+    assert_eq!(bad_status.status, "degraded", "Failed upstream should be degraded");
+    assert!(bad_status.failure_count > 0, "Failed upstream should have failure_count > 0");
+    assert!(bad_status.last_failure_time.is_some(), "Failed upstream should have last_failure_time");
+
+    assert_eq!(good_status.status, "healthy", "Successful upstream should be healthy");
+    assert_eq!(good_status.failure_count, 0, "Successful upstream should have failure_count = 0");
+    assert!(good_status.last_success_time.is_some(), "Successful upstream should have last_success_time");
+}
+
+// ── Model replacement in non-streaming response test ─────────
+
+#[tokio::test]
+async fn test_model_replaced_in_response() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "chatcmpl-replace",
+            "object": "chat.completion",
+            "model": "actual-upstream-model",
+            "choices": [{"message": {"role": "assistant", "content": "test"}, "index": 0}],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let env = TestEnv::new().await;
+    let upstream_id = env.create_upstream("ReplaceProvider", &mock_server.uri());
+    env.create_pool("replace-model", "Display Name Pool", &[upstream_id]);
+
+    let resp = env.send_chat_request("replace-model", false).await;
+    assert_eq!(resp.status(), 200);
+
+    let body = read_json(resp).await;
+    assert_eq!(body["model"], "Display Name Pool", "Model should be replaced with pool display name");
+    assert_ne!(body["model"], "actual-upstream-model", "Original model name should not appear");
+}
