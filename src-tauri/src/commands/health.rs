@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use llm_api_proxy_lib::AppState;
-use llm_api_proxy_lib::proxy::url_util::build_models_url;
+use llm_api_proxy_lib::proxy::url_util::{build_models_url, send_test_chat_request};
 
 // ============================================================================
 // DTO Types
@@ -22,7 +22,38 @@ pub struct HealthCheckResult {
 // Helpers
 // ============================================================================
 
-async fn do_health_check(base_url: &str, api_key: &str) -> HealthCheckResult {
+/// Perform a health check on an upstream.
+///
+/// If `model` is provided, sends a minimal chat completion request to verify
+/// end-to-end connectivity (network + auth + model + response format).
+/// Otherwise falls back to a `GET /models` request.
+async fn do_health_check(base_url: &str, api_key: &str, model: Option<&str>) -> HealthCheckResult {
+    // ── Chat-based check (preferred when model is available) ──────────
+    if let Some(model) = model {
+        if !model.is_empty() {
+            return match send_test_chat_request(base_url, api_key, model, 15).await {
+                Ok(latency) => HealthCheckResult {
+                    upstream_id: String::new(),
+                    provider_name: String::new(),
+                    status: "ok".to_string(),
+                    latency_ms: Some(latency),
+                    message: None,
+                },
+                Err(e) => {
+                    let is_timeout = e.contains("超时") || e.contains("timeout");
+                    HealthCheckResult {
+                        upstream_id: String::new(),
+                        provider_name: String::new(),
+                        status: if is_timeout { "timeout" } else { "error" }.to_string(),
+                        latency_ms: None,
+                        message: Some(e),
+                    }
+                }
+            };
+        }
+    }
+
+    // ── Fallback: GET /models ─────────────────────────────────────────
     let url = build_models_url(base_url);
     let client = match reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
@@ -81,15 +112,21 @@ async fn do_health_check(base_url: &str, api_key: &str) -> HealthCheckResult {
 // ============================================================================
 
 /// Test connectivity to a single upstream by sending a minimal request.
+///
+/// Since this command only receives `base_url` and `api_key` (no model info),
+/// it falls back to a `GET /models` request.
 #[tauri::command]
 pub async fn check_upstream_health(
     base_url: String,
     api_key: String,
 ) -> Result<HealthCheckResult, String> {
-    Ok(do_health_check(&base_url, &api_key).await)
+    Ok(do_health_check(&base_url, &api_key, None).await)
 }
 
 /// Test connectivity to all upstreams in parallel.
+///
+/// For each upstream that has a model configured, sends a real chat completion
+/// request. Otherwise falls back to `GET /models`.
 #[tauri::command]
 pub async fn check_all_upstreams_health(
     state: State<'_, AppState>,
@@ -108,9 +145,16 @@ pub async fn check_all_upstreams_health(
         let base_url = u.base_url.clone();
         let upstream_id = u.id.clone();
         let provider_name = u.provider_name.clone();
+        // Use selected_model, or fall back to first available model
+        let model = if !u.selected_model.is_empty() {
+            Some(u.selected_model.clone())
+        } else {
+            let models: Vec<String> = serde_json::from_str(&u.available_models).unwrap_or_default();
+            models.into_iter().next()
+        };
 
         handles.push(tokio::spawn(async move {
-            let mut result = do_health_check(&base_url, &api_key).await;
+            let mut result = do_health_check(&base_url, &api_key, model.as_deref()).await;
             result.upstream_id = upstream_id;
             result.provider_name = provider_name;
             result

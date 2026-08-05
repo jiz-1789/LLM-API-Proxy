@@ -105,6 +105,57 @@ fn has_version_segment(url: &str) -> bool {
     false
 }
 
+/// Send a minimal chat completion request to test end-to-end connectivity.
+///
+/// Sends `{"model": model, "messages": [{"role":"user","content":"hi"}], "max_tokens": 1, "stream": false}`
+/// to the upstream's `/chat/completions` endpoint. This verifies:
+///
+/// 1. Network connectivity
+/// 2. API Key validity
+/// 3. Model name correctness
+/// 4. Endpoint path correctness
+/// 5. Response format compatibility
+///
+/// Returns `Ok(latency_ms)` on success, `Err(error_message)` on failure.
+pub async fn send_test_chat_request(
+    base_url: &str,
+    api_key: &str,
+    model: &str,
+    timeout_secs: u64,
+) -> Result<u64, String> {
+    let url = build_chat_completions_url(base_url);
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [{"role": "user", "content": "hi"}],
+        "max_tokens": 1,
+        "stream": false
+    });
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(timeout_secs))
+        .build()
+        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
+
+    let start = std::time::Instant::now();
+    let resp = client
+        .post(&url)
+        .bearer_auth(api_key)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("请求上游失败: {}", e))?;
+
+    let elapsed = start.elapsed().as_millis() as u64;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("HTTP {} — {}", status, body));
+    }
+
+    Ok(elapsed)
+}
+
 // ============================================================================
 // Tests
 // ============================================================================

@@ -22,7 +22,7 @@ use tracing::{info, warn};
 use crate::config::ProbeSettings;
 use crate::crypto::KeyManager;
 use crate::db::Database;
-use crate::proxy::url_util::build_models_url;
+use crate::proxy::url_util::{build_models_url, send_test_chat_request};
 
 /// Re-export probe configuration from the config module.
 pub use crate::config::ProbeSettings as ProbeConfig;
@@ -34,10 +34,25 @@ pub fn load_probe_config(db: &Database) -> ProbeConfig {
     ProbeSettings::load(db)
 }
 
-/// Test connectivity to an upstream by sending a GET /models request.
+/// Test connectivity to an upstream.
+///
+/// If `model` is provided, sends a minimal chat completion request to verify
+/// end-to-end connectivity. Otherwise falls back to a `GET /models` request.
 ///
 /// Returns `Ok(latency_ms)` on success, `Err(error_message)` on failure.
-pub async fn probe_upstream(base_url: &str, api_key: &str) -> Result<u64, String> {
+pub async fn probe_upstream(
+    base_url: &str,
+    api_key: &str,
+    model: Option<&str>,
+) -> Result<u64, String> {
+    // ── Chat-based probe (preferred when model is available) ──────────
+    if let Some(model) = model
+        && !model.is_empty()
+    {
+        return send_test_chat_request(base_url, api_key, model, 15).await;
+    }
+
+    // ── Fallback: GET /models ─────────────────────────────────────────
     let url = build_models_url(base_url);
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
@@ -104,9 +119,16 @@ pub async fn probe_all_upstreams(
         let upstream_id = upstream.id.clone();
         let provider_name = upstream.provider_name.clone();
         let base_url = upstream.base_url.clone();
+        // Use selected_model, or fall back to first available model
+        let model = if !upstream.selected_model.is_empty() {
+            Some(upstream.selected_model.clone())
+        } else {
+            let models: Vec<String> = serde_json::from_str(&upstream.available_models).unwrap_or_default();
+            models.into_iter().next()
+        };
 
         handles.push(tokio::spawn(async move {
-            let result = probe_upstream(&base_url, &api_key).await;
+            let result = probe_upstream(&base_url, &api_key, model.as_deref()).await;
             (upstream_id, provider_name, result)
         }));
     }

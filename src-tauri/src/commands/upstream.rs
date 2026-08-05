@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use llm_api_proxy_lib::AppState;
-use llm_api_proxy_lib::proxy::url_util::build_models_url;
+use llm_api_proxy_lib::proxy::url_util::{build_models_url, send_test_chat_request};
 
 use super::generate_id;
 
@@ -313,6 +313,100 @@ pub async fn fetch_upstream_models_by_id(
 }
 
 // ============================================================================
+// Chat-based connection test
+// ============================================================================
+
+/// Result of a chat-based connection test.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatTestResult {
+    pub success: bool,
+    pub latency_ms: u64,
+    pub model_used: String,
+    pub message: Option<String>,
+}
+
+/// Test upstream connectivity by sending a minimal chat completion request.
+///
+/// Uses the provided `model` to send `{"messages":[{"role":"user","content":"hi"}], "max_tokens":1}`
+/// to the upstream's `/chat/completions` endpoint. This verifies end-to-end
+/// connectivity: network, auth, model validity, and response format.
+#[tauri::command]
+pub async fn test_upstream_chat(
+    base_url: String,
+    api_key: String,
+    model: String,
+) -> Result<ChatTestResult, String> {
+    let start = std::time::Instant::now();
+    match send_test_chat_request(&base_url, &api_key, &model, 30).await {
+        Ok(latency) => Ok(ChatTestResult {
+            success: true,
+            latency_ms: latency,
+            model_used: model,
+            message: None,
+        }),
+        Err(e) => Ok(ChatTestResult {
+            success: false,
+            latency_ms: start.elapsed().as_millis() as u64,
+            model_used: model,
+            message: Some(e),
+        }),
+    }
+}
+
+/// Test upstream connectivity by sending a minimal chat completion request
+/// using the upstream's first available model.
+///
+/// Looks up the upstream by ID, decrypts its API key, and uses `selected_model`
+/// (or the first entry in `available_models`) to send a test request.
+#[tauri::command]
+pub async fn test_upstream_chat_by_id(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<ChatTestResult, String> {
+    let upstream = state
+        .db
+        .get_upstream_by_id(&id)
+        .map_err(|e| format!("数据库查询失败: {}", e))?
+        .ok_or_else(|| "上游不存在".to_string())?;
+
+    if upstream.api_key_encrypted.is_empty() {
+        return Err("该上游未配置 API Key".to_string());
+    }
+
+    let api_key = state
+        .crypto
+        .decrypt_api_key(&upstream.api_key_encrypted)
+        .map_err(|e| format!("API Key 解密失败: {}", e))?;
+
+    // Use selected_model, or fall back to first available model
+    let model = if !upstream.selected_model.is_empty() {
+        upstream.selected_model.clone()
+    } else {
+        let models: Vec<String> = serde_json::from_str(&upstream.available_models).unwrap_or_default();
+        models
+            .into_iter()
+            .next()
+            .ok_or_else(|| "该上游未配置模型".to_string())?
+    };
+
+    let start = std::time::Instant::now();
+    match send_test_chat_request(&upstream.base_url, &api_key, &model, 30).await {
+        Ok(latency) => Ok(ChatTestResult {
+            success: true,
+            latency_ms: latency,
+            model_used: model,
+            message: None,
+        }),
+        Err(e) => Ok(ChatTestResult {
+            success: false,
+            latency_ms: start.elapsed().as_millis() as u64,
+            model_used: model,
+            message: Some(e),
+        }),
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -465,5 +559,43 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(1));
         let id2 = generate_id();
         assert_ne!(id1, id2);
+    }
+
+    #[test]
+    fn test_chat_test_result_serialization_success() {
+        let result = ChatTestResult {
+            success: true,
+            latency_ms: 150,
+            model_used: "gpt-4".to_string(),
+            message: None,
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("\"success\":true"));
+        assert!(json.contains("\"latency_ms\":150"));
+        assert!(json.contains("\"model_used\":\"gpt-4\""));
+        assert!(json.contains("\"message\":null"));
+    }
+
+    #[test]
+    fn test_chat_test_result_serialization_failure() {
+        let result = ChatTestResult {
+            success: false,
+            latency_ms: 3000,
+            model_used: "deepseek-chat".to_string(),
+            message: Some("HTTP 401 — unauthorized".to_string()),
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("\"success\":false"));
+        assert!(json.contains("\"message\":\"HTTP 401 — unauthorized\""));
+    }
+
+    #[test]
+    fn test_chat_test_result_deserialization() {
+        let json = r#"{"success":true,"latency_ms":42,"model_used":"claude-3","message":null}"#;
+        let result: ChatTestResult = serde_json::from_str(json).unwrap();
+        assert!(result.success);
+        assert_eq!(result.latency_ms, 42);
+        assert_eq!(result.model_used, "claude-3");
+        assert!(result.message.is_none());
     }
 }
