@@ -7,6 +7,11 @@
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-05
+
+### 修复
+- 紧急修复 v0.3.0 中 CSP 策略导致界面和功能完全不可用的问题——CSP 从 `null` 改为具体策略后阻断了 Tauri IPC 通信，所有后端命令调用失败，现已回滚为 `null`
+
 ## [0.3.0] - 2026-08-05
 
 ### 新增
@@ -17,7 +22,7 @@
 ### 修复
 - 修复上游健康状态更新的 TOCTOU 竞态条件——成功路径改用原子 SQL（`CASE WHEN`）消除"先读后写"竞态
 - 修复 3 个数据库读操作误用写连接——`upstream_exists`、`count_upstreams`、`count_active_upstreams` 改用只读连接
-- 配置内容安全策略（CSP）——替代原先的 `null` 策略，防止 XSS 注入
+- ~~配置内容安全策略（CSP）——替代原先的 `null` 策略，防止 XSS 注入~~（v0.3.1 已回滚，CSP 导致 Tauri IPC 通信中断）
 
 ### 优化
 - 清理死代码——移除未使用的 `PoolRouter`、`RoundRobinRouter`、`ProxyEngine` 等模块
@@ -265,7 +270,14 @@
 - **数据便携**：所有数据存储在程序同目录 `data/` 文件夹，U 盘携带即走
 - **开源治理**：AGPL-3.0 双轨许可、CLA 贡献者协议、CONTRIBUTING.md 贡献指南
 
-[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.1.20...HEAD
+[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.3.1
+[0.3.0]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.3.0
+[0.2.2]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.2.2
+[0.2.1]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.2.1
+[0.2.0]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.2.0
+[0.1.22]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.22
+[0.1.21]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.21
 [0.1.20]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.20
 [0.1.19]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.19
 [0.1.18]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.1.18
