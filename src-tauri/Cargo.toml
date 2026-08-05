@@ -1,6 +1,6 @@
 [package]
 name = "llm-api-proxy-app"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 rust-version = "1.77.2"
 description = "Multi-provider LLM API proxy gateway with native GUI"
