@@ -2016,7 +2016,12 @@ print(response.choices[0].message.content)</code></pre>
             </div>
             <div class="form-group">
                 <label class="form-label" data-i18n="modal_apikey">API Key *</label>
-                <input class="form-input" id="f-apikey" type="password" data-i18n-ph="modal_apikey_ph" placeholder="输入 API Key" autocomplete="new-password">
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <input class="form-input" id="f-apikey" type="password" data-i18n-ph="modal_apikey_ph" placeholder="输入 API Key" autocomplete="new-password" style="flex:1;">
+                    <button id="btn-toggle-apikey" class="btn btn-ghost btn-sm" type="button" onclick="toggleApiKeyVisibility('f-apikey', this)" title="显示/隐藏" style="min-width:36px;padding:8px;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                    </button>
+                </div>
                 <div class="form-hint" data-i18n="modal_apikey_encrypted">API Key 将以 AES-256-GCM 加密存储</div>
                 <div id="conn-test-result" style="display:none;margin-top:6px;padding:8px 12px;border-radius:var(--radius-sm);font-size:12px;line-height:1.5;"></div>
                 <button class="btn btn-ghost btn-sm" id="btn-test-conn" onclick="testConnection()" style="margin-top:6px;" data-i18n="btn_test_conn">测试连接</button>
@@ -3079,6 +3084,7 @@ if (page === 'settings' && lastUpdateInfo) {
         try {
             const list = await cmd('list_upstreams');
             upstreamsCache = list || [];
+            revealedKeyCache = {};
             renderUpstreamTable();
         } catch (e) {
             toast(t('toast_load_upstreams_fail') + e, 'error');
@@ -3122,7 +3128,12 @@ if (page === 'settings' && lastUpdateInfo) {
                 <td style="color:var(--text-primary);font-weight:500;">${esc(u.provider_name)}</td>
                 <td style="font-family:'SF Mono','Cascadia Code',monospace;font-size:12px;">${esc(u.base_url)}</td>
                 <td><span class="badge badge-blue">${esc(u.selected_model || '-')}</span></td>
-                <td style="font-family:'SF Mono','Cascadia Code',monospace;font-size:12px;color:var(--text-muted);">${esc(u.api_key_masked)}</td>
+                <td style="font-family:'SF Mono','Cascadia Code',monospace;font-size:12px;color:var(--text-muted);">
+                    <span id="upstream-key-${u.id}">${esc(u.api_key_masked)}</span>
+                    ${u.api_key_masked ? `<button class="btn btn-ghost btn-sm" style="margin-left:4px;padding:2px 6px;min-width:auto;" onclick="event.stopPropagation();revealApiKey('${jsEsc(u.id)}', this)" title="显示/隐藏 API Key">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                    </button>` : ''}
+                </td>
                 <td>${statusBadge(u.status)}${errBadge}${trendDots}</td>
                 <td>
                     <label class="toggle">
@@ -3212,12 +3223,72 @@ if (page === 'settings' && lastUpdateInfo) {
     // ================================================================
     // Create / Edit Modal
     // ================================================================
+    // Reset the API key toggle button icon to the "show" (eye) state
+    function resetApiKeyToggleIcon() {
+        const btn = document.getElementById('btn-toggle-apikey');
+        if (btn) {
+            btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+        }
+    }
+
+    // Toggle API Key input visibility between password and text
+    // In edit mode, fetches the actual key when revealing if the field shows masked placeholder
+    async function toggleApiKeyVisibility(inputId, btn) {
+        const input = document.getElementById(inputId);
+        if (!input) return;
+        if (input.type === 'password') {
+            // If showing masked placeholder in edit mode, fetch actual key
+            if (input.value === '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022') {
+                const editId = document.getElementById('edit-id');
+                if (editId && editId.value) {
+                    try {
+                        const key = await cmd('reveal_api_key', { id: editId.value });
+                        input.value = key;
+                    } catch (e) { /* If reveal fails, just toggle visibility */ }
+                }
+            }
+            input.type = 'text';
+            btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
+        } else {
+            input.type = 'password';
+            btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+        }
+    }
+
+    // Reveal/hide upstream API Key in the table
+    let revealedKeyCache = {};
+    async function revealApiKey(upstreamId, btn) {
+        const span = document.getElementById('upstream-key-' + upstreamId);
+        if (!span) return;
+        // If currently showing masked, reveal; if showing plain, mask again
+        if (span.textContent === '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022') {
+            try {
+                let key = revealedKeyCache[upstreamId];
+                if (!key) {
+                    key = await cmd('reveal_api_key', { id: upstreamId });
+                    revealedKeyCache[upstreamId] = key;
+                }
+                span.textContent = key;
+                span.style.color = 'var(--text-primary)';
+                btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
+            } catch (e) {
+                toast(t('toast_load_upstream_detail_fail') + e, 'error');
+            }
+        } else {
+            span.textContent = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
+            span.style.color = 'var(--text-muted)';
+            btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+        }
+    }
+
     function openCreateModal() {
         document.getElementById('modal-title').textContent = t('modal_add_upstream');
         document.getElementById('edit-id').value = '';
         document.getElementById('f-provider').value = '';
         document.getElementById('f-baseurl').value = '';
         document.getElementById('f-apikey').value = '';
+        document.getElementById('f-apikey').type = 'password';
+        resetApiKeyToggleIcon();
         document.getElementById('f-apikey').placeholder = t('modal_apikey_ph');
         document.getElementById('f-model').value = '';
         document.getElementById('f-enabled').checked = true;
@@ -3235,6 +3306,8 @@ if (page === 'settings' && lastUpdateInfo) {
             document.getElementById('f-provider').value = u.provider_name;
             document.getElementById('f-baseurl').value = u.base_url;
             document.getElementById('f-apikey').value = u.api_key_masked;
+            document.getElementById('f-apikey').type = 'password';
+            resetApiKeyToggleIcon();
             document.getElementById('f-apikey').placeholder = t('modal_apikey_edit_ph');
             document.getElementById('f-model').value = u.selected_model;
             document.getElementById('f-enabled').checked = u.enabled;
@@ -3992,6 +4065,11 @@ if (page === 'settings' && lastUpdateInfo) {
                     if (badge) badge.textContent = idx + 1;
                     el.dataset.sort = idx;
                 });
+            });
+            item.addEventListener('dragenter', function(e) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                this.style.borderColor = 'var(--accent)';
             });
             item.addEventListener('dragover', function(e) {
                 e.preventDefault();

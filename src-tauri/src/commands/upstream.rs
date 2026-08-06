@@ -192,6 +192,26 @@ pub fn delete_upstream(id: String, state: State<'_, AppState>) -> Result<(), Str
     state.db.delete_upstream(&id).map_err(|e| e.to_string())
 }
 
+/// Reveal the decrypted API key for an upstream (for eye toggle in UI).
+/// Returns the plaintext API key.
+#[tauri::command]
+pub fn reveal_api_key(id: String, state: State<'_, AppState>) -> Result<String, String> {
+    let upstream = state
+        .db
+        .get_upstream_by_id(&id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("上游 {} 不存在", id))?;
+
+    if upstream.api_key_encrypted.is_empty() {
+        return Err("该上游未配置 API Key".to_string());
+    }
+
+    state
+        .crypto
+        .decrypt_api_key(&upstream.api_key_encrypted)
+        .map_err(|e| format!("API Key 解密失败: {}", e))
+}
+
 /// Toggle an upstream's enabled state.
 #[tauri::command]
 pub fn toggle_upstream(

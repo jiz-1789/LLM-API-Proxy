@@ -323,8 +323,27 @@ async fn handle_chat_completions(
         let counter = counters.entry(pool.id.clone()).or_insert(0);
         let idx = *counter % n;
         *counter = (*counter + 1) % n;
+        info!(
+            trace_id = %trace_id,
+            pool = %pool.name,
+            pool_id = %pool.id,
+            strategy = %pool.round_robin_strategy,
+            failover_enabled = pool.failover_enabled,
+            upstream_count = n,
+            counter_before = idx,
+            counter_after = *counter,
+            start_idx = idx,
+            "Round-robin: selected starting upstream index"
+        );
         idx
     } else {
+        info!(
+            trace_id = %trace_id,
+            pool = %pool.name,
+            strategy = %pool.round_robin_strategy,
+            upstream_count = n,
+            "Non-round-robin strategy: always starting from index 0"
+        );
         0 // sequential: always start from first upstream
     };
 
@@ -340,6 +359,17 @@ async fn handle_chat_completions(
     for attempt in 0..max_attempts {
         let idx = (start_idx + attempt) % n;
         let pu = &pool_upstreams[idx];
+
+        info!(
+            trace_id = %trace_id,
+            pool = %pool.name,
+            attempt = attempt,
+            max_attempts = max_attempts,
+            idx = idx,
+            start_idx = start_idx,
+            upstream_id = %pu.upstream_id,
+            "Failover loop: attempting upstream"
+        );
 
         // Look up full upstream record to get base_url and encrypted api_key
         let upstream = match state.db.get_upstream_by_id(&pu.upstream_id) {

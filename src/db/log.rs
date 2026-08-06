@@ -33,8 +33,8 @@ impl Database {
     ) -> Result<(), AppError> {
         self.get_conn()?.execute(
             "INSERT INTO request_logs (id, request_id, pool_name, upstream_id, model, failed_upstreams,
-             method, endpoint, status_code, response_time_ms, is_streaming, prompt_tokens, completion_tokens, total_tokens)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+             method, endpoint, status_code, response_time_ms, is_streaming, prompt_tokens, completion_tokens, total_tokens, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, datetime('now', 'localtime'))",
             params![
                 id, request_id, pool_name, upstream_id, model, failed_upstreams,
                 method, endpoint, status_code, response_time_ms, is_streaming as i32,
@@ -161,7 +161,7 @@ impl Database {
 
         // 1. Delete logs older than max_age_days
         let deleted_by_age = conn.execute(
-            "DELETE FROM request_logs WHERE created_at < datetime('now', ?1)",
+            "DELETE FROM request_logs WHERE created_at < datetime('now', 'localtime', ?1)",
             params![format!("-{} days", max_age_days)],
         )? as i64;
         total_deleted += deleted_by_age;
@@ -209,7 +209,7 @@ impl Database {
                     COUNT(*) as request_count
              FROM request_logs
              WHERE upstream_id = ?1
-               AND created_at >= datetime('now', ?2)
+               AND created_at >= datetime('now', 'localtime', ?2)
              GROUP BY date(created_at)
              ORDER BY day ASC",
         )?;
@@ -335,7 +335,7 @@ impl Database {
                  FROM request_logs
                  WHERE upstream_id = ?1
                    AND model = ?2
-                   AND created_at >= datetime('now', ?3)
+                   AND created_at >= datetime('now', 'localtime', ?3)
                  GROUP BY date(created_at)
                  ORDER BY day ASC"
                     .to_string(),
@@ -353,7 +353,7 @@ impl Database {
                         COUNT(*) as request_count
                  FROM request_logs
                  WHERE upstream_id = ?1
-                   AND created_at >= datetime('now', ?2)
+                   AND created_at >= datetime('now', 'localtime', ?2)
                  GROUP BY date(created_at)
                  ORDER BY day ASC"
                     .to_string(),
@@ -390,7 +390,7 @@ impl Database {
 
         let (sql, params_vec): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match model {
             Some(m) => (
-                "SELECT strftime('%H', created_at, 'localtime') as hour,
+                "SELECT strftime('%H', created_at) as hour,
                         COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
                         COALESCE(SUM(completion_tokens), 0) as completion_tokens,
                         COALESCE(SUM(total_tokens), 0) as total_tokens,
@@ -399,7 +399,7 @@ impl Database {
                  WHERE upstream_id = ?1
                    AND model = ?2
                    AND date(created_at) = date('now', 'localtime')
-                 GROUP BY strftime('%H', created_at, 'localtime')
+                 GROUP BY strftime('%H', created_at)
                  ORDER BY hour ASC"
                     .to_string(),
                 vec![
@@ -408,7 +408,7 @@ impl Database {
                 ],
             ),
             None => (
-                "SELECT strftime('%H', created_at, 'localtime') as hour,
+                "SELECT strftime('%H', created_at) as hour,
                         COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
                         COALESCE(SUM(completion_tokens), 0) as completion_tokens,
                         COALESCE(SUM(total_tokens), 0) as total_tokens,
@@ -416,7 +416,7 @@ impl Database {
                  FROM request_logs
                  WHERE upstream_id = ?1
                    AND date(created_at) = date('now', 'localtime')
-                 GROUP BY strftime('%H', created_at, 'localtime')
+                 GROUP BY strftime('%H', created_at)
                  ORDER BY hour ASC"
                     .to_string(),
                 vec![Box::new(upstream_id.to_string())],

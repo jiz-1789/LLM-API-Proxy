@@ -33,6 +33,7 @@ pub fn run() {
             commands::upstream::create_upstream,
             commands::upstream::update_upstream,
             commands::upstream::delete_upstream,
+            commands::upstream::reveal_api_key,
             commands::upstream::toggle_upstream,
             commands::upstream::fetch_upstream_models,
             commands::upstream::fetch_upstream_models_by_id,

@@ -45,3 +45,6 @@ Thumbs.db
 
 # 发布脚本（本地使用，不提交）
 publish.ps1
+
+# 参考项目（不提交）
+cc-switch-main/
