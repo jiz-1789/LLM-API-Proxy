@@ -229,6 +229,16 @@ pub fn read_clipboard() -> Result<String, String> {
     Ok(text)
 }
 
+/// Write text to the system clipboard.
+#[tauri::command]
+pub fn write_clipboard(text: String) -> Result<(), String> {
+    let mut clipboard = arboard::Clipboard::new()
+        .map_err(|e| format!("Failed to access clipboard: {}", e))?;
+    clipboard.set_text(&text)
+        .map_err(|e| format!("Failed to write clipboard: {}", e))?;
+    Ok(())
+}
+
 /// Show a native file save dialog and write the given content to the chosen file.
 #[tauri::command]
 pub async fn save_file_dialog(

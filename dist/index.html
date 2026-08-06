@@ -1456,11 +1456,12 @@ gap: 8px;
                                 <th data-i18n="upstreams_model">模型</th>
                                 <th data-i18n="logs_code">状态码</th>
                                 <th data-i18n="logs_latency">耗时</th>
+                                <th data-i18n="logs_token_usage">Token</th>
                                 <th data-i18n="logs_fail_detail">失败详情</th>
                             </tr>
                         </thead>
                         <tbody id="logs-tbody">
-                            <tr><td colspan="7" class="empty-state" data-i18n="empty_loading">加载中...</td></tr>
+                            <tr><td colspan="8" class="empty-state" data-i18n="empty_loading">加载中...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -2303,6 +2304,7 @@ print(response.choices[0].message.content)</code></pre>
         logs_latency: { zh: '耗时', en: 'Latency' },
         logs_stream: { zh: '流式', en: 'Stream' },
         logs_fail_detail: { zh: '失败详情', en: 'Failure Details' },
+    logs_token_usage: { zh: 'Token', en: 'Token' },
         logs_no_data: { zh: '暂无请求记录', en: 'No request logs' },
         logs_prev: { zh: '上一页', en: 'Previous' },
         logs_next: { zh: '下一页', en: 'Next' },
@@ -3067,12 +3069,7 @@ if (page === 'settings' && lastUpdateInfo) {
     // Copy QQ number
     // ================================================================
     async function copyQQ() {
-        try {
-            await navigator.clipboard.writeText('3267245598');
-            toast(t('toast_copied_qq'), 'success');
-        } catch (e) {
-            toast(t('toast_copy_qq_fail'), 'error');
-        }
+        doCopy('3267245598', t('toast_copied_qq'));
     }
 
     // ================================================================
@@ -3128,9 +3125,9 @@ if (page === 'settings' && lastUpdateInfo) {
                 <td style="color:var(--text-primary);font-weight:500;">${esc(u.provider_name)}</td>
                 <td style="font-family:'SF Mono','Cascadia Code',monospace;font-size:12px;">${esc(u.base_url)}</td>
                 <td><span class="badge badge-blue">${esc(u.selected_model || '-')}</span></td>
-                <td style="font-family:'SF Mono','Cascadia Code',monospace;font-size:12px;color:var(--text-muted);">
-                    <span id="upstream-key-${u.id}">${esc(u.api_key_masked)}</span>
-                    ${u.api_key_masked ? `<button class="btn btn-ghost btn-sm" style="margin-left:4px;padding:2px 6px;min-width:auto;" onclick="event.stopPropagation();revealApiKey('${jsEsc(u.id)}', this)" title="显示/隐藏 API Key">
+                <td style="font-family:'SF Mono','Cascadia Code',monospace;font-size:12px;color:var(--text-muted);max-width:200px;">
+                    <span id="upstream-key-${u.id}" style="display:inline-block;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;">${esc(u.api_key_masked)}</span>
+                    ${u.api_key_masked ? `<button class="btn btn-ghost btn-sm" style="margin-left:4px;padding:2px 6px;min-width:auto;vertical-align:middle;" onclick="event.stopPropagation();revealApiKey('${jsEsc(u.id)}', this)" title="显示/隐藏 API Key">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
                     </button>` : ''}
                 </td>
@@ -3269,6 +3266,7 @@ if (page === 'settings' && lastUpdateInfo) {
                     revealedKeyCache[upstreamId] = key;
                 }
                 span.textContent = key;
+                span.title = key;
                 span.style.color = 'var(--text-primary)';
                 btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
             } catch (e) {
@@ -3276,6 +3274,7 @@ if (page === 'settings' && lastUpdateInfo) {
             }
         } else {
             span.textContent = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
+            span.title = '';
             span.style.color = 'var(--text-muted)';
             btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
         }
@@ -4209,7 +4208,7 @@ else if (statusFilter === '5') args.statusPrefix = 5;
 const logs = await cmd('get_request_logs', args) || [];
 const tbody = document.getElementById('logs-tbody');
 if (logs.length === 0 && logCurrentPage === 0) {
-tbody.innerHTML = '<tr><td colspan="7" class="empty-state">' + t('logs_no_data') + '</td></tr>';
+tbody.innerHTML = '<tr><td colspan="8" class="empty-state">' + t('logs_no_data') + '</td></tr>';
 updateLogPagination(0, pageLimit, false);
 return;
 }
@@ -4229,6 +4228,7 @@ failDetail = fails.map(f => `${esc(f.provider||'')}(${esc(f.model||'')}): ${esc(
 }
 } catch(_) {}
 }
+const tokenDisplay = l.total_tokens > 0 ? fmtNum(l.total_tokens) : '-';
 return `<tr>
 <td style="font-size:12px;">${esc(l.created_at)}</td>
 <td>${esc(l.pool_name || '-')}</td>
@@ -4236,6 +4236,7 @@ return `<tr>
 <td style="font-family:'SF Mono','Cascadia Code',monospace;font-size:11px;">${esc(l.model || '-')}</td>
 <td>${codeBadge}</td>
 <td>${l.response_time_ms}ms</td>
+<td style="font-family:'SF Mono','Cascadia Code',monospace;font-size:11px;color:var(--text-secondary);">${tokenDisplay}</td>
 <td style="font-size:11px;color:var(--text-muted);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(failDetail)}">${failDetail}</td>
 </tr>`;
 }).join('');
@@ -4631,17 +4632,24 @@ loadLogs(false);
         doCopy(el.value);
     }
 
-    function doCopy(text) {
-        navigator.clipboard.writeText(text).then(() => {
-            toast(t('toast_copied'), 'success');
+    function doCopy(text, successMsg) {
+        const msg = successMsg || t('toast_copied');
+        cmd('write_clipboard', { text }).then(() => {
+            toast(msg, 'success');
         }).catch(() => {
-            const ta = document.createElement('textarea');
-            ta.value = text;
-            document.body.appendChild(ta);
-            ta.select();
-            document.execCommand('copy');
-            document.body.removeChild(ta);
-            toast(t('toast_copied'), 'success');
+            navigator.clipboard.writeText(text).then(() => {
+                toast(msg, 'success');
+            }).catch(() => {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                toast(msg, 'success');
+            });
         });
     }
 
@@ -5130,9 +5138,7 @@ function generateApiKey() {
 
     function copyCreatedApiKey() {
         const key = document.getElementById('ak-created-key').textContent;
-        navigator.clipboard.writeText(key).then(() => {
-            toast(t('toast_copied'), 'success');
-        });
+        doCopy(key);
     }
 
     async function editApiKey(id) {
@@ -5652,8 +5658,8 @@ function generateApiKey() {
                 { label: t('ctx_token'), action: () => openTokenModal(id, u.provider_name) },
                 { label: u.enabled ? t('ctx_disable') : t('ctx_enable'), action: () => toggleUpstream(id, !u.enabled) },
                 { separator: true },
-                { label: t('ctx_copy_info'), action: () => { navigator.clipboard.writeText(u.provider_name); toast(t('toast_copied'), 'success'); } },
-                { label: t('ctx_copy_url'), action: () => { navigator.clipboard.writeText(u.base_url); toast(t('toast_copied'), 'success'); } },
+                { label: t('ctx_copy_info'), action: () => { doCopy(u.provider_name); } },
+                { label: t('ctx_copy_url'), action: () => { doCopy(u.base_url); } },
                 { separator: true },
                 { label: t('ctx_delete'), danger: true, action: async () => { try { await cmd('delete_upstream', { id }); toast(t('toast_upstream_deleted'), 'success'); await loadUpstreams(); refreshDashboard(); } catch (e) { toast(t('toast_delete_fail') + e, 'error'); } } },
             ]);
@@ -5670,8 +5676,8 @@ function generateApiKey() {
             showContextMenu(e.clientX, e.clientY, [
                 { label: t('ctx_edit'), action: () => openEditPoolModal(id) },
                 { separator: true },
-                { label: t('ctx_copy_model'), action: () => { navigator.clipboard.writeText(p.name); toast(t('toast_copied'), 'success'); } },
-                { label: t('ctx_copy_display'), action: () => { navigator.clipboard.writeText(p.display_name); toast(t('toast_copied'), 'success'); } },
+                { label: t('ctx_copy_model'), action: () => { doCopy(p.name); } },
+                { label: t('ctx_copy_display'), action: () => { doCopy(p.display_name); } },
                 { separator: true },
                 { label: t('ctx_delete'), danger: true, action: async () => { try { await cmd('delete_pool', { id }); toast(t('toast_pool_deleted'), 'success'); await loadPools(); refreshDashboard(); } catch (e) { toast(t('toast_delete_fail') + e, 'error'); } } },
             ]);
@@ -5775,12 +5781,7 @@ async function carouselClick(i) {
     const slide = carouselSlides[i];
     if (!slide) return;
     if (slide.copyText) {
-        try {
-            await navigator.clipboard.writeText(slide.copyText);
-            toast(slide.copyToast || t('toast_copied'), 'success');
-        } catch (e) {
-            toast(t('toast_copy_fail') + ': ' + slide.copyText, 'error');
-        }
+        doCopy(slide.copyText, slide.copyToast || t('toast_copied'));
     } else if (slide.url) {
         try {
             await cmd('open_external_url', { url: slide.url });
