@@ -1,6 +1,6 @@
 {
   "productName": "LLM-API-Proxy",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "identifier": "com.llm-proxy.app",
   "build": {
     "frontendDist": "../dist",
@@ -17,7 +17,8 @@
         "resizable": true,
         "fullscreen": false,
         "center": true,
-        "decorations": false
+        "decorations": false,
+        "dragDropEnabled": false
       }
     ],
     "security": {

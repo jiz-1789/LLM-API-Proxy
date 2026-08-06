@@ -66,6 +66,7 @@ pub fn run() {
             commands::settings::set_theme,
             commands::settings::open_external_url,
             commands::settings::read_clipboard,
+            commands::settings::write_clipboard,
             commands::settings::save_file_dialog,
             commands::settings::get_config_changes,
             commands::backup::backup_database,
