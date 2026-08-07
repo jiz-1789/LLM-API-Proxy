@@ -3,6 +3,7 @@
 
 pub mod backup;
 pub mod claude;
+pub mod codex;
 pub mod detector;
 pub mod writer;
 
@@ -82,6 +83,8 @@ impl ToolSwitchManager {
         let mut writers: HashMap<String, Box<dyn ToolConfigWriter>> = HashMap::new();
         let claude = claude::ClaudeCodeWriter;
         writers.insert(claude.app_id().to_string(), Box::new(claude));
+        let codex = codex::CodexWriter;
+        writers.insert(codex.app_id().to_string(), Box::new(codex));
         Self { db, writers }
     }
 
