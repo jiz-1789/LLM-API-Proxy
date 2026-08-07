@@ -1,6 +1,7 @@
 pub mod anthropic;
 pub mod capabilities;
 pub mod gemini;
+pub mod openai_responses;
 pub mod stream;
 
 pub use stream::NativeStreamConverter;
@@ -16,7 +17,7 @@ pub const FORMAT_GEMINI_NATIVE: &str = "gemini_native";
 /// Returns true if the given api_format requires any request conversion
 /// (i.e. is not the internal OpenAI Chat canonical format).
 pub fn needs_request_conversion(api_format: &str) -> bool {
-    !matches!(api_format, FORMAT_OPENAI_CHAT | "")
+    matches!(api_format, FORMAT_ANTHROPIC | FORMAT_GEMINI_NATIVE)
 }
 
 /// Returns true if the given api_format requires response conversion.
@@ -35,7 +36,7 @@ pub fn convert_request_to_upstream(
     match api_format {
         FORMAT_ANTHROPIC => anthropic::chat_to_anthropic(body),
         FORMAT_GEMINI_NATIVE => gemini::chat_to_gemini(body),
-        FORMAT_OPENAI_RESPONSES | FORMAT_OPENAI_CHAT | "" => Ok(body.clone()),
+        FORMAT_OPENAI_CHAT | FORMAT_OPENAI_RESPONSES | "" => Ok(body.clone()),
         other => Err(format!("unsupported api_format: {}", other)),
     }
 }
@@ -53,6 +54,18 @@ pub fn convert_response_to_client(
         FORMAT_GEMINI_NATIVE => gemini::gemini_to_chat(body, model_display),
         _ => body.clone(),
     }
+}
+
+/// Normalize a client-facing OpenAI Responses request body into the internal
+/// OpenAI Chat format (used by the `/v1/responses` endpoint).
+pub fn normalize_responses_input(body: &Value) -> Result<Value, String> {
+    openai_responses::responses_to_chat(body)
+}
+
+/// Convert an internal OpenAI Chat response body into a client-facing
+/// Responses API response body (used by the `/v1/responses` endpoint).
+pub fn normalize_responses_output(body: &Value, model_display: &str) -> Value {
+    openai_responses::chat_to_responses(body, model_display)
 }
 
 #[cfg(test)]

@@ -202,4 +202,24 @@ impl TestEnv {
 
         self.router.clone().oneshot(request).await.unwrap()
     }
+
+    /// Send an OpenAI Responses API request to `/v1/responses`.
+    pub async fn send_responses_request(&self, model: &str) -> axum::response::Response {
+        use tower::ServiceExt;
+        let body = serde_json::json!({
+            "model": model,
+            "input": "hello from responses",
+            "instructions": "Be brief"
+        });
+
+        let request = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/responses")
+            .header("Authorization", format!("Bearer {}", TEST_API_KEY))
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+            .unwrap();
+
+        self.router.clone().oneshot(request).await.unwrap()
+    }
 }

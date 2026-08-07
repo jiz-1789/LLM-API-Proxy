@@ -68,6 +68,41 @@ async fn test_invalid_api_key_returns_401() {
     assert!(body["error"]["message"].as_str().unwrap().contains("authorization"));
 }
 
+// ── OpenAI Responses API endpoint ─────────────────────────────
+
+#[tokio::test]
+async fn test_responses_endpoint_normalizes_and_converts_output() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "chatcmpl-123",
+            "object": "chat.completion",
+            "model": "test-model",
+            "choices": [{"message": {"role": "assistant", "content": "Hello from responses!"}, "index": 0}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let env = TestEnv::new().await;
+    let upstream_id = env.create_upstream("TestProvider", &mock_server.uri());
+    env.create_pool("test-model", "Test Pool", &[upstream_id]);
+
+    let resp = env.send_responses_request("test-model").await;
+
+    assert_eq!(resp.status(), 200);
+    let body = read_json(resp).await;
+    // Responses API output shape
+    assert_eq!(body["object"], "response");
+    assert_eq!(body["status"], "completed");
+    assert_eq!(body["output"][0]["type"], "message");
+    assert_eq!(body["output"][0]["content"][0]["text"], "Hello from responses!");
+    assert_eq!(body["usage"]["input_tokens"], 10);
+    assert_eq!(body["usage"]["output_tokens"], 5);
+}
+
 // ── Request validation tests ─────────────────────────────────
 
 #[tokio::test]

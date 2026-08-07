@@ -120,6 +120,7 @@ pub fn create_router(
         // OpenAI-compatible endpoints
         .route("/v1/models", get(handle_models))
         .route("/v1/chat/completions", post(handle_chat_completions))
+        .route("/v1/responses", post(handle_responses))
         // Health check for monitoring
         .route("/api/health", get(handle_health))
         .layer(middleware::from_fn_with_state(
@@ -224,10 +225,38 @@ fn extract_usage(resp: &serde_json::Value) -> (i64, i64, i64) {
 /// 5. Trace ID: A UUID-based `trace_id` is generated per request, sent to
 ///    upstream as `X-Request-Id` header, and returned to the client in the
 ///    response header for end-to-end tracing.
+///
+/// POST /v1/chat/completions — OpenAI Chat Completions endpoint.
 async fn handle_chat_completions(
     State(state): State<GatewayState>,
     headers: HeaderMap,
     Json(body): Json<Value>,
+) -> impl IntoResponse {
+    process_completion(state, headers, body, ResponseFormat::Chat).await
+}
+
+/// POST /v1/responses — OpenAI Responses API endpoint.
+async fn handle_responses(
+    State(state): State<GatewayState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> impl IntoResponse {
+    process_completion(state, headers, body, ResponseFormat::Responses).await
+}
+
+/// Which response schema the client expects.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ResponseFormat {
+    Chat,
+    Responses,
+}
+
+/// Shared core handler for chat-style completion requests.
+async fn process_completion(
+    state: GatewayState,
+    headers: HeaderMap,
+    mut body: Value,
+    response_format: ResponseFormat,
 ) -> impl IntoResponse {
     let start_time = Instant::now();
 
@@ -247,6 +276,19 @@ async fn handle_chat_completions(
             return with_request_id(error_response::authentication_error(msg), &trace_id);
         }
     };
+
+    // Normalize client-facing Responses format to the internal Chat format.
+    if response_format == ResponseFormat::Responses {
+        match convert::normalize_responses_input(&body) {
+            Ok(chat_body) => body = chat_body,
+            Err(e) => {
+                return with_request_id(
+                    error_response::invalid_request(&format!("invalid responses request: {}", e), "invalid_request"),
+                    &trace_id,
+                );
+            }
+        }
+    }
 
     let model = match body.get("model").and_then(|m| m.as_str()) {
         Some(m) => m.to_string(),
@@ -584,6 +626,7 @@ async fn handle_chat_completions(
                         let mut stream_error: Option<String> = None;
                         let use_native_converter = convert::needs_request_conversion(&upstream_format);
                         let mut native_converter = convert::NativeStreamConverter::new(&upstream_format);
+                        let responses_stream = response_format == ResponseFormat::Responses;
                         let idle_timeout = std::time::Duration::from_secs(DEFAULT_STREAM_IDLE_TIMEOUT_SECS);
 
                         loop {
@@ -613,6 +656,22 @@ async fn handle_chat_completions(
                                         let trimmed = json_str.trim();
                                         if trimmed == "[DONE]" {
                                             outputs.push("data: [DONE]\n\n".to_string());
+                                        } else if responses_stream {
+                                            // Convert OpenAI Chat chunk -> Responses events
+                                            let (resp_lines, usage, error_msg) =
+                                                convert::openai_responses::chat_sse_chunk_to_responses(
+                                                    trimmed,
+                                                    &display_name,
+                                                );
+                                            if let Some(u) = usage {
+                                                last_usage = Some(u);
+                                            }
+                                            if stream_error.is_none()
+                                                && let Some(msg) = error_msg
+                                            {
+                                                stream_error = Some(msg);
+                                            }
+                                            outputs.extend(resp_lines);
                                         } else {
                                             // Single-pass: parse JSON once, replace model,
                                             // extract usage, and detect errors
@@ -799,6 +858,12 @@ async fn handle_chat_completions(
                             "model".to_string(),
                             Value::String(pool.display_name.clone()),
                         );
+                    }
+
+                    // Convert the OpenAI Chat response to Responses API format
+                    // when the client called `/v1/responses`.
+                    if response_format == ResponseFormat::Responses {
+                        resp_body = convert::normalize_responses_output(&resp_body, &pool.display_name);
                     }
 
                     // Check if the response body contains an error field.
