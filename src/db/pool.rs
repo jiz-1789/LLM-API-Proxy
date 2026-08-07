@@ -186,6 +186,39 @@ impl Database {
         Ok(())
     }
 
+    /// Update a pool-upstream association: model and/or per-upstream thinking
+    /// level override. An empty override means "follow the pool level".
+    pub fn update_pool_upstream(
+        &self,
+        pool_id: &str,
+        upstream_id: &str,
+        model: Option<&str>,
+        thinking_level_override: Option<&str>,
+    ) -> Result<(), AppError> {
+        let conn = self.get_conn()?;
+        let has_model = model.is_some();
+        let has_override = thinking_level_override.is_some();
+        if has_model && has_override {
+            conn.execute(
+                "UPDATE pool_upstreams SET model=?3, thinking_level_override=?4
+                 WHERE pool_id=?1 AND upstream_id=?2",
+                params![pool_id, upstream_id, model.unwrap_or(""), thinking_level_override.unwrap_or("")],
+            )?;
+        } else if has_model {
+            conn.execute(
+                "UPDATE pool_upstreams SET model=?3 WHERE pool_id=?1 AND upstream_id=?2",
+                params![pool_id, upstream_id, model.unwrap_or("")],
+            )?;
+        } else if has_override {
+            conn.execute(
+                "UPDATE pool_upstreams SET thinking_level_override=?3
+                 WHERE pool_id=?1 AND upstream_id=?2",
+                params![pool_id, upstream_id, thinking_level_override.unwrap_or("")],
+            )?;
+        }
+        Ok(())
+    }
+
     /// Get all upstreams for a pool, ordered by sort_order.
     pub fn get_pool_upstreams(&self, pool_id: &str) -> Result<Vec<PoolUpstreamInfo>, AppError> {
         let conn = self.get_conn()?;
@@ -319,5 +352,43 @@ mod tests {
         let caps = ModelCapabilities::from_json_str(&pool.capabilities).unwrap();
         assert!(caps.input_modalities.contains(&"audio".to_string()));
         assert!(!caps.input_modalities.contains(&"image".to_string()));
+    }
+
+    #[test]
+    fn test_update_pool_upstream_model_and_override() {
+        let db = Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+        let crypto = crate::crypto::KeyManager::initialize(&std::env::temp_dir()).unwrap();
+        let enc = crypto.encrypt_api_key("sk-test").unwrap();
+
+        db.create_upstream("up_a", "OpenAI", "https://a.com", &enc, "gpt-4o", "[]", true, "", "", "openai_chat")
+            .unwrap();
+        db.create_pool("pool_1", "p1", "P1", 5, false, "off", "", "")
+            .unwrap();
+        db.add_upstream_to_pool("pool_1", "up_a", 0, "gpt-4o")
+            .unwrap();
+
+        // Default: override empty (follows pool level).
+        let ups = db.get_pool_upstreams("pool_1").unwrap();
+        assert_eq!(ups[0].thinking_level_override, "");
+
+        // Set only override.
+        db.update_pool_upstream("pool_1", "up_a", None, Some("high"))
+            .unwrap();
+        let ups = db.get_pool_upstreams("pool_1").unwrap();
+        assert_eq!(ups[0].thinking_level_override, "high");
+
+        // Set both model + override.
+        db.update_pool_upstream("pool_1", "up_a", Some("gpt-4o-mini"), Some("max"))
+            .unwrap();
+        let ups = db.get_pool_upstreams("pool_1").unwrap();
+        assert_eq!(ups[0].model, "gpt-4o-mini");
+        assert_eq!(ups[0].thinking_level_override, "max");
+
+        // Clear override back to follow-pool.
+        db.update_pool_upstream("pool_1", "up_a", None, Some(""))
+            .unwrap();
+        let ups = db.get_pool_upstreams("pool_1").unwrap();
+        assert_eq!(ups[0].thinking_level_override, "");
     }
 }

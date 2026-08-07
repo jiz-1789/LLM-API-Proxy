@@ -2846,6 +2846,9 @@ settings_import_full: { zh: '全量导入', en: 'Import (Full)' },
         thinking_level_max: { zh: '最大', en: 'Max' },
         thinking_level_custom: { zh: '自定义', en: 'Custom' },
         thinking_level_column: { zh: '思考强度', en: 'Thinking Level' },
+        thinking_override_label: { zh: '思考覆盖', en: 'Thinking Override' },
+        thinking_override_follow: { zh: '跟随池级', en: 'Follow Pool' },
+        toast_override_saved: { zh: '已更新该上游的思考强度覆盖', en: 'Per-upstream thinking override updated' },
         thinking_custom_params: { zh: '自定义参数 (JSON)', en: 'Custom Params (JSON)' },
         thinking_custom_params_hint: { zh: '直接注入到请求体中的 JSON 参数', en: 'JSON injected verbatim into the request body' },
         toast_pool_custom_params_invalid: { zh: '自定义参数不是合法 JSON', en: 'Custom params are not valid JSON' },
@@ -4763,12 +4766,20 @@ if (page === 'settings' && lastUpdateInfo) {
                 const u = upstreamMap[pu.upstream_id];
                 const healthBadge = u ? statusBadge(u.status) : '<span class="badge badge-blue">-</span>';
                 const providerName = u ? esc(u.provider_name) : esc(pu.upstream_id);
+                const overrideVal = (pu.thinking_level_override || '');
+                const overrideOptions = ['', 'off', 'low', 'medium', 'high', 'max', 'custom']
+                    .map(v => '<option value="' + v + '"' + (overrideVal === v ? ' selected' : '') + '>' +
+                        (v === '' ? t('thinking_override_follow') : t('thinking_level_' + v)) + '</option>')
+                    .join('');
                 return `
                     <div class="pool-detail-item" draggable="true" data-upstream-id="${esc(pu.upstream_id)}" data-sort="${idx}" style="display:flex;align-items:center;gap:12px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:8px;background:var(--bg-primary);cursor:grab;transition:border-color 0.15s;">
                         <span style="color:var(--text-muted);font-size:18px;cursor:grab;">⣿</span>
                         <span class="badge badge-blue" style="min-width:28px;text-align:center;">${idx + 1}</span>
                         <span style="flex:1;font-weight:500;color:var(--text-primary);">${providerName}</span>
                         <span style="font-size:12px;color:var(--text-secondary);font-family:'SF Mono','Cascadia Code',monospace;">${esc(pu.model || '-')}</span>
+                        <select class="form-select" style="width:110px;font-size:11px;padding:3px 6px;height:auto;cursor:pointer;" title="${t('thinking_override_label')}" onchange="setThinkingOverride('${jsEsc(poolId)}', '${jsEsc(pu.upstream_id)}', this.value)">
+                            ${overrideOptions}
+                        </select>
                         <span>${healthBadge}</span>
                     </div>`;
             }).join('');
@@ -4784,6 +4795,17 @@ if (page === 'settings' && lastUpdateInfo) {
         document.getElementById('pool-detail-modal').classList.remove('open');
         poolDetailPoolId = null;
         poolDetailUpstreamsCache = [];
+    }
+
+    // Update a single upstream's thinking level override within a pool.
+    async function setThinkingOverride(poolId, upstreamId, level) {
+        try {
+            await cmd('update_pool_upstream', { poolId, upstreamId, thinkingLevelOverride: level });
+            toast(t('toast_override_saved'), 'success');
+        } catch (e) {
+            toast(t('toast_save_fail') + e, 'error');
+            openPoolDetailModal(poolId);
+        }
     }
 
     function bindDragAndDrop() {

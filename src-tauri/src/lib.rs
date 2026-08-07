@@ -48,6 +48,7 @@ pub fn run() {
             commands::pool::remove_upstream_from_pool,
             commands::pool::get_pool_upstreams,
             commands::pool::reorder_pool_upstreams,
+            commands::pool::update_pool_upstream,
             commands::log::get_stats,
             commands::log::get_gateway_info,
             commands::log::get_request_logs,

@@ -249,6 +249,27 @@ pub fn reorder_pool_upstreams(
         .map_err(|e| e.to_string())
 }
 
+/// Update a pool-upstream association: model and/or per-upstream thinking
+/// level override (empty override = follow the pool level).
+#[tauri::command]
+pub fn update_pool_upstream(
+    pool_id: String,
+    upstream_id: String,
+    model: Option<String>,
+    thinking_level_override: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state
+        .db
+        .update_pool_upstream(
+            &pool_id,
+            &upstream_id,
+            model.as_deref(),
+            thinking_level_override.as_deref(),
+        )
+        .map_err(|e| e.to_string())
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
