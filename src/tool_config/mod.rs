@@ -3,8 +3,14 @@
 
 pub mod backup;
 pub mod claude;
+pub mod claude_desktop;
 pub mod codex;
 pub mod detector;
+pub mod gemini;
+pub mod grok;
+pub mod hermes;
+pub mod openclaw;
+pub mod opencode;
 pub mod writer;
 
 pub use backup::BackupEntry;
@@ -83,8 +89,20 @@ impl ToolSwitchManager {
         let mut writers: HashMap<String, Box<dyn ToolConfigWriter>> = HashMap::new();
         let claude = claude::ClaudeCodeWriter;
         writers.insert(claude.app_id().to_string(), Box::new(claude));
+        let claude_desktop = claude_desktop::ClaudeDesktopWriter;
+        writers.insert(claude_desktop.app_id().to_string(), Box::new(claude_desktop));
         let codex = codex::CodexWriter;
         writers.insert(codex.app_id().to_string(), Box::new(codex));
+        let gemini = gemini::GeminiWriter;
+        writers.insert(gemini.app_id().to_string(), Box::new(gemini));
+        let grok = grok::GrokWriter;
+        writers.insert(grok.app_id().to_string(), Box::new(grok));
+        let opencode = opencode::OpenCodeWriter;
+        writers.insert(opencode.app_id().to_string(), Box::new(opencode));
+        let openclaw = openclaw::OpenClawWriter;
+        writers.insert(openclaw.app_id().to_string(), Box::new(openclaw));
+        let hermes = hermes::HermesWriter;
+        writers.insert(hermes.app_id().to_string(), Box::new(hermes));
         Self { db, writers }
     }
 
@@ -628,5 +646,33 @@ mod tests {
 
         let result = manager.enable_tool("not-installed", "pool_x", None, "P").unwrap();
         assert!(matches!(result, EnableResult::NotInstalled { .. }));
+    }
+
+    #[test]
+    fn test_manager_registers_all_8_tools() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        db.initialize().unwrap();
+        let manager = ToolSwitchManager::new(db.clone());
+        let detections = manager.detect_all_tools();
+        let ids: Vec<String> = detections.iter().map(|d| d.app_id.clone()).collect();
+        let expected = [
+            "claude",
+            "claude-desktop",
+            "codex",
+            "gemini",
+            "grokbuild",
+            "opencode",
+            "openclaw",
+            "hermes",
+        ];
+        for id in expected {
+            assert!(
+                ids.iter().any(|i| i == id),
+                "tool {} not registered; got {:?}",
+                id,
+                ids
+            );
+        }
+        assert_eq!(detections.len(), 8);
     }
 }

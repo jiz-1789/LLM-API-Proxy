@@ -30,8 +30,11 @@ impl ToolConfigWriter for ClaudeCodeWriter {
     }
 
     fn is_installed(&self) -> bool {
-        detector::which_in_path("claude").is_some() || detector::which_in_path("claude.cmd").is_some()
-            || detector::home_path(SETTINGS_REL).map(|p| p.exists()).unwrap_or(false)
+        detector::claude_settings_path()
+            .map(|p| p.exists())
+            .unwrap_or(false)
+            || detector::which_in_path("claude").is_some()
+            || detector::which_in_path("claude.cmd").is_some()
     }
 
     fn config_paths(&self) -> Vec<PathBuf> {
