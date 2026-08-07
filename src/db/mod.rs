@@ -14,6 +14,7 @@ mod settings;
 mod rate_limit;
 pub mod backup;
 mod api_key;
+mod tool_config;
 
 pub use migration::*;
 pub use upstream::*;
@@ -21,6 +22,7 @@ pub use pool::*;
 pub use log::*;
 pub use settings::*;
 pub use api_key::*;
+pub use tool_config::*;
 pub use crate::gateway::convert::capabilities::ModelCapabilities;
 
 // ============================================================================

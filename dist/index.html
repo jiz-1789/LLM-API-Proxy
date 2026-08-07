@@ -669,6 +669,28 @@ gap: 8px;
         }
         .capability-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
 
+        /* === Tool config page === */
+        .page-hint { font-size: 12px; color: var(--text-muted); margin-bottom: 16px; }
+        .tool-config-list { display: flex; flex-direction: column; gap: 12px; }
+        .tool-config-card {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 16px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            background: var(--bg-primary);
+            transition: border-color 0.15s;
+        }
+        .tool-config-card:hover { border-color: var(--border-hover); }
+        .tool-config-name { font-weight: 600; color: var(--text-primary); }
+        .tool-config-meta { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+        .tool-config-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+        .tool-config-badge-installed { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: rgba(34,197,94,0.12); color: rgb(34,197,94); }
+        .tool-config-badge-missing { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: rgba(120,120,128,0.15); color: var(--text-secondary); }
+        .tool-config-badge-on { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: rgba(34,197,94,0.12); color: rgb(34,197,94); }
+        .tool-config-badge-off { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--bg-hover); color: var(--text-muted); }
+
         /* === Toggle switch === */
         .toggle { position: relative; width: 44px; height: 26px; display: inline-block; flex-shrink: 0; }
         .toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
@@ -1298,6 +1320,7 @@ gap: 8px;
             <div class="nav-item active" data-page="dashboard" data-i18n="nav_dashboard">仪表盘</div>
             <div class="nav-item" data-page="upstreams" data-i18n="nav_upstreams">上游服务</div>
             <div class="nav-item" data-page="pools" data-i18n="nav_pools">模型池</div>
+            <div class="nav-item" data-page="tool-config" data-i18n="nav_tool_config">工具配置</div>
             <div class="nav-item" data-page="logs" data-i18n="nav_logs">请求日志</div>
             <div class="nav-item" data-page="settings" data-i18n="nav_settings">设置</div>
             <div class="nav-item" data-page="health" data-i18n="nav_health">健康检查</div>
@@ -1426,6 +1449,18 @@ gap: 8px;
                             <tr><td colspan="7" class="empty-state" data-i18n="empty_loading">加载中...</td></tr>
                         </tbody>
                     </table>
+                </div>
+            </div>
+
+            <!-- ==================== Tool Config ==================== -->
+            <div class="page" id="page-tool-config">
+                <div class="section-title">
+                    <span data-i18n="tool_config_title">工具配置</span>
+                    <button class="btn btn-ghost btn-sm" onclick="loadToolConfig(true)" data-i18n="tool_config_redetect">重新检测</button>
+                </div>
+                <p class="page-hint" data-i18n="tool_config_desc">将代理地址一键注入到已安装的 AI 编码工具中</p>
+                <div id="tool-config-list" class="tool-config-list">
+                    <div class="empty-state" data-i18n="dash_loading">加载中...</div>
                 </div>
             </div>
 
@@ -2198,9 +2233,33 @@ print(response.choices[0].message.content)</code></pre>
         </div>
     </div>
 
+    <!-- ==================== Tool Pool Picker Modal ==================== -->
+    <div class="modal-overlay" id="tool-pool-picker">
+        <div class="modal" style="width:440px;">
+            <div class="modal-title" id="tool-pool-picker-title" data-i18n="tool_config_default_pool">默认模型池</div>
+            <input type="hidden" id="tool-pool-edit-mode" value="enable">
+            <div class="form-group">
+                <label class="form-label" data-i18n="tool_config_default_pool">默认模型池</label>
+                <select class="form-input" id="tool-pool-select"></select>
+            </div>
+            <div class="form-group">
+                <label class="form-label" data-i18n="tool_config_api_key">API Key</label>
+                <select class="form-input" id="tool-api-key-select"></select>
+                <div class="form-hint" data-i18n="tool_config_api_key_hint">留空使用默认 Gateway API Key</div>
+            </div>
+            <div class="form-group">
+                <label class="form-label" data-i18n="tool_config_provider_name">供应商标签名</label>
+                <input class="form-input" id="tool-provider-name" value="LLM-API-Proxy" data-i18n-ph="tool_config_provider_name_ph">
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-ghost" onclick="closeToolPoolPicker()" data-i18n="modal_cancel">取消</button>
+                <button class="btn btn-primary" id="tool-pool-save" onclick="confirmToolPoolSelection()" data-i18n="modal_save">保存</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ==================== Delete Confirm Modal ==================== -->
-    <div class="modal-overlay" id="delete-modal">
-        <div class="modal" style="width:380px;">
+    <div class="modal-overlay" id="delete-modal">        <div class="modal" style="width:380px;">
             <div class="modal-title" data-i18n="delete_confirm_title">确认删除</div>
             <p id="delete-modal-body" style="color:var(--text-secondary);font-size:13px;margin-bottom:18px;line-height:1.6;">
             </p>
@@ -2721,6 +2780,30 @@ settings_import_full: { zh: '全量导入', en: 'Import (Full)' },
         api_format_openai_responses: { zh: 'OpenAI Responses', en: 'OpenAI Responses' },
         api_format_anthropic: { zh: 'Anthropic Messages', en: 'Anthropic Messages' },
         api_format_gemini_native: { zh: 'Gemini Native', en: 'Gemini Native' },
+        nav_tool_config: { zh: '工具配置', en: 'Tool Config' },
+        tool_config_title: { zh: '工具配置', en: 'Tool Configuration' },
+        tool_config_desc: { zh: '将代理地址一键注入到已安装的 AI 编码工具中', en: 'Inject the proxy address into installed AI coding tools' },
+        tool_config_redetect: { zh: '重新检测', en: 'Re-detect' },
+        tool_config_installed: { zh: '已安装', en: 'Installed' },
+        tool_config_not_installed: { zh: '未安装', en: 'Not Installed' },
+        tool_config_switch_on: { zh: '已开启', en: 'ON' },
+        tool_config_switch_off: { zh: '已关闭', en: 'OFF' },
+        tool_config_default_pool: { zh: '默认模型池', en: 'Default Pool' },
+        tool_config_api_key: { zh: 'API Key', en: 'API Key' },
+        tool_config_api_key_hint: { zh: '留空使用默认 Gateway API Key', en: 'Leave empty to use the default Gateway API Key' },
+        tool_config_provider_name: { zh: '供应商标签名', en: 'Provider Label' },
+        tool_config_provider_name_ph: { zh: '写入配置中的供应商名称', en: 'Provider name written into config' },
+        tool_config_warning_not_installed: { zh: '未检测到 {tool}，请先下载安装', en: '{tool} not detected, please download and install first' },
+        tool_config_download: { zh: '下载 →', en: 'Download →' },
+        tool_config_confirm_enable: { zh: '写入配置', en: 'Write Config' },
+        tool_config_confirm_disable: { zh: '关闭', en: 'Disable' },
+        tool_config_disable_warning: { zh: '关闭后将恢复 {tool} 的原始配置文件。确定继续？', en: 'This will restore {tool}\'s original config file. Continue?' },
+        tool_config_rewrite: { zh: '重新写入', en: 'Rewrite' },
+        tool_config_default_key: { zh: '(默认 Gateway Key)', en: '(Default Gateway Key)' },
+        toast_tool_config_refreshed: { zh: '工具配置已刷新', en: 'Tool config refreshed' },
+        toast_tool_config_written: { zh: '配置已写入', en: 'Config written' },
+        toast_tool_config_restored: { zh: '已恢复原始配置', en: 'Original config restored' },
+        toast_select_pool: { zh: '请先选择模型池', en: 'Please select a pool first' },
         modal_pool_thinking_hint: { zh: '为支持的上游自动注入推理参数', en: 'Auto-inject reasoning params for supported upstreams' },
         modal_pool_failover: { zh: '故障转移', en: 'Failover' },
         modal_pool_failover_hint: { zh: '上游失败时自动尝试下一个', en: 'Try next upstream on failure' },
@@ -3244,6 +3327,7 @@ dashboardTimer = setInterval(refreshDashboard, 30000);
 }
 if (page === 'upstreams') loadUpstreams();
 if (page === 'pools') loadPools();
+if (page === 'tool-config') loadToolConfig();
 if (page === 'logs') { populatePoolFilter(); populateUpstreamFilter(); loadLogs(true); }
 if (page === 'settings') loadSettings();
 // Auto-render stored update info if available (from silent startup check)
@@ -4224,6 +4308,134 @@ if (page === 'settings' && lastUpdateInfo) {
             document.getElementById('cap-context').value = 131072;
         }
         toast(t('cap_inferred'), 'success');
+    }
+
+    // ================================================================
+    // Tool Config (P4)
+    // ================================================================
+
+    async function loadToolConfig(showToast) {
+        const listEl = document.getElementById('tool-config-list');
+        if (!listEl) return;
+        try {
+            const [detections, switches, pools] = await Promise.all([
+                cmd('detect_all_tools') || [],
+                cmd('get_tool_switches') || [],
+                cmd('list_pools') || []
+            ]);
+            listEl.innerHTML = detections.map(d => {
+                const sw = (switches || []).find(s => s.app_id === d.app_id) || {};
+                const isOn = !!sw.switch_enabled;
+                const installedBadge = d.installed
+                    ? '<span class="tool-config-badge-installed">' + t('tool_config_installed') + '</span>'
+                    : '<span class="tool-config-badge-missing">' + t('tool_config_not_installed') + '</span>';
+                const switchBadge = isOn
+                    ? '<span class="tool-config-badge-on">' + t('tool_config_switch_on') + '</span>'
+                    : '<span class="tool-config-badge-off">' + t('tool_config_switch_off') + '</span>';
+
+                let meta = '';
+                if (d.installed && d.config_paths && d.config_paths.length) {
+                    meta = '<div class="tool-config-meta">' + d.config_paths.join('<br>') + '</div>';
+                }
+                if (isOn) {
+                    meta += '<div class="tool-config-meta">' + t('tool_config_default_pool') + ': ' + esc(sw.pool_name || '-') + '</div>';
+                }
+
+                let actions = '';
+                if (!d.installed) {
+                    actions = '<a class="btn btn-ghost btn-sm" href="' + esc(d.download_url) + '" target="_blank" rel="noopener">' + t('tool_config_download') + '</a>';
+                } else if (isOn) {
+                    actions = '<button class="btn btn-ghost btn-sm" onclick="openToolPoolPicker(\'' + jsEsc(d.app_id) + '\')">' + t('tool_config_default_pool') + '</button>';
+                    actions += '<button class="btn btn-ghost btn-sm" onclick="confirmDisableTool(\'' + jsEsc(d.app_id) + '\', \'' + jsEsc(d.display_name) + '\')">' + t('tool_config_confirm_disable') + '</button>';
+                } else {
+                    actions = '<button class="btn btn-primary btn-sm" onclick="openToolPoolPicker(\'' + jsEsc(d.app_id) + '\')">' + t('tool_config_confirm_enable') + '</button>';
+                }
+
+                return `
+                    <div class="tool-config-card">
+                        <div style="flex:1;">
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                <span class="tool-config-name">${esc(d.display_name)}</span>
+                                ${installedBadge} ${switchBadge}
+                            </div>
+                            ${meta}
+                        </div>
+                        <div class="tool-config-actions">${actions}</div>
+                    </div>`;
+            }).join('');
+            if (showToast) toast(t('toast_tool_config_refreshed'), 'success');
+        } catch (e) {
+            listEl.innerHTML = '<div class="empty-state" style="color:var(--danger);">' + esc(String(e)) + '</div>';
+        }
+    }
+
+    // Cache of pools for the pool picker.
+    let toolPoolPickerTarget = null;
+    let toolPoolPickerCandidates = [];
+
+    async function openToolPoolPicker(appId) {
+        toolPoolPickerTarget = appId;
+        const pools = await (cmd('list_pools') || []);
+        toolPoolPickerCandidates = pools;
+        const picker = document.getElementById('tool-pool-picker');
+        const sel = document.getElementById('tool-pool-select');
+        const isEnable = !((await (cmd('get_tool_switches') || [])).find(s => s.app_id === appId) || {}).switch_enabled;
+        document.getElementById('tool-pool-picker-title').textContent = isEnable
+            ? t('tool_config_confirm_enable')
+            : t('tool_config_default_pool');
+        sel.innerHTML = pools.map(p => '<option value="' + jsEsc(p.id) + '">' + esc(p.display_name) + ' (' + esc(p.name) + ')</option>').join('') || '<option value="">-</option>';
+        document.getElementById('tool-pool-save').textContent = isEnable ? t('modal_save') : t('tool_config_rewrite');
+        document.getElementById('tool-pool-edit-mode').value = isEnable ? 'enable' : 'update';
+        await loadToolApiKeys();
+        picker.classList.add('open');
+    }
+
+    async function confirmToolPoolSelection() {
+        const sel = document.getElementById('tool-pool-select');
+        const mode = document.getElementById('tool-pool-edit-mode').value;
+        const apiKeySel = document.getElementById('tool-api-key-select');
+        const apiKeyId = apiKeySel && apiKeySel.value ? apiKeySel.value : null;
+        const providerName = document.getElementById('tool-provider-name').value.trim() || 'LLM-API-Proxy';
+        const poolId = sel.value;
+        if (!poolId) { toast(t('toast_select_pool'), 'error'); return; }
+        try {
+            if (mode === 'enable') {
+                await cmd('enable_tool_switch', { appId: toolPoolPickerTarget, poolId, apiKeyId, providerName });
+            } else {
+                await cmd('update_tool_config', { appId: toolPoolPickerTarget, poolId, apiKeyId, providerName });
+            }
+            closeToolPoolPicker();
+            toast(t('toast_tool_config_written'), 'success');
+            loadToolConfig();
+        } catch (e) {
+            toast(t('toast_save_fail') + e, 'error');
+        }
+    }
+
+    async function loadToolApiKeys() {
+        const apiKeySel = document.getElementById('tool-api-key-select');
+        if (!apiKeySel) return;
+        try {
+            const keys = await (cmd('list_api_keys') || []);
+            apiKeySel.innerHTML = '<option value="">' + t('tool_config_default_key') + '</option>' +
+                keys.map(k => '<option value="' + jsEsc(k.id) + '">' + esc(k.name || k.id) + '</option>').join('');
+        } catch (e) { /* ignore */ }
+    }
+
+    function closeToolPoolPicker() {
+        document.getElementById('tool-pool-picker').classList.remove('open');
+    }
+
+    async function confirmDisableTool(appId, displayName) {
+        const ok = confirm(t('tool_config_disable_warning').replace('{tool}', displayName));
+        if (!ok) return;
+        try {
+            await cmd('disable_tool_switch', { appId });
+            toast(t('toast_tool_config_restored'), 'success');
+            loadToolConfig();
+        } catch (e) {
+            toast(t('toast_save_fail') + e, 'error');
+        }
     }
 
     async function openEditPoolModal(id) {

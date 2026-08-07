@@ -92,6 +92,12 @@ pub fn run() {
             commands::shortcut::check_first_run,
             commands::shortcut::check_desktop_shortcut,
             commands::shortcut::create_desktop_shortcut,
+            commands::tool_config::detect_all_tools,
+            commands::tool_config::get_tool_switches,
+            commands::tool_config::enable_tool_switch,
+            commands::tool_config::disable_tool_switch,
+            commands::tool_config::update_tool_config,
+            commands::tool_config::suggest_pool,
         ])
         .setup(|app| {
             // Read language setting for bilingual tray menu
@@ -153,6 +159,11 @@ pub fn run() {
             // Start background alert monitoring task
             llm_api_proxy_lib::alert::start_alert_task(state.db.clone());
 
+            // Restore tool configs on startup (switch=ON tools).
+            if let Err(e) = state.tool_switch_manager.restore_on_startup() {
+                tracing::error!(error = %e, "启动时恢复工具配置失败");
+            }
+
             Ok(())
         })
         // Respect user's minimize-to-tray preference on window close
@@ -190,6 +201,10 @@ pub fn run() {
             if let tauri::RunEvent::Exit = event {
                 let state = app_handle.state::<llm_api_proxy_lib::AppState>();
                 state.shutdown();
+                // Restore tool configs on exit (方案 B: 退出时必须恢复).
+                if let Err(e) = state.tool_switch_manager.restore_on_exit() {
+                    tracing::error!(error = %e, "退出时恢复工具配置失败");
+                }
             }
         });
 }

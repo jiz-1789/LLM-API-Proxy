@@ -20,6 +20,7 @@ pub mod shortcut;
 pub mod backup;
 pub mod diagnostic;
 pub mod api_key;
+pub mod tool_config;
 
 // ============================================================================
 // Shared DTOs & Helpers

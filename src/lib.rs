@@ -11,6 +11,7 @@ pub mod gateway;
 pub mod pool;
 pub mod probe;
 pub mod proxy;
+pub mod tool_config;
 
 #[cfg(test)]
 mod tests;
@@ -24,6 +25,8 @@ pub struct AppState {
     pub settings: Arc<config::GatewaySettings>,
     pub db: Arc<db::Database>,
     pub crypto: Arc<crypto::KeyManager>,
+    /// Tool switch manager for injecting proxy config into AI coding tools.
+    pub tool_switch_manager: Arc<tool_config::ToolSwitchManager>,
     /// Signal to trigger graceful shutdown of the gateway server.
     shutdown: Arc<tokio::sync::Notify>,
     /// Cached minimize-to-tray preference (avoids DB reads in window event handlers).
@@ -38,10 +41,12 @@ impl AppState {
         shutdown: Arc<tokio::sync::Notify>,
         minimize_to_tray: bool,
     ) -> Self {
+        let db_for_tools = db.clone();
         Self {
             settings: Arc::new(settings),
             db,
             crypto,
+            tool_switch_manager: Arc::new(tool_config::ToolSwitchManager::new(db_for_tools)),
             shutdown,
             minimize_to_tray: Arc::new(AtomicBool::new(minimize_to_tray)),
         }

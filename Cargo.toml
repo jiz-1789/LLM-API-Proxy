@@ -54,6 +54,9 @@ anyhow = "1"
 # Time
 chrono = { version = "0.4", features = ["serde"] }
 
+# Home directory detection (tool config paths)
+dirs = "6"
+
 # Archive (diagnostic package)
 zip = "2"
 
