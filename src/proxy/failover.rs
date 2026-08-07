@@ -5,6 +5,17 @@ use tracing::debug;
 use crate::proxy::error::{TimeoutPhase, UpstreamError};
 use crate::proxy::url_util::build_chat_completions_url;
 
+/// Connect timeout for establishing a TCP connection to the upstream.
+///
+/// This is the ONLY timeout applied to upstream requests: it guards against
+/// unreachable/hanging upstreams during connection setup. No request-level
+/// total timeout is imposed, so upstream models that think for a long time
+/// before returning (e.g. DeepSeek R1, Claude thinking) are never cut off.
+///
+/// Set to 60 seconds to tolerate network jitter and slow handshakes without
+/// false "unreachable" judgements during fluctuation.
+const CONNECT_TIMEOUT_SECS: u64 = 60;
+
 /// Forward a request to an upstream provider with round-robin failover.
 pub struct UpstreamClient {
     http_client: Client,
@@ -13,7 +24,7 @@ pub struct UpstreamClient {
 impl UpstreamClient {
     pub fn new() -> Self {
         let http_client = Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(15))
+            .connect_timeout(std::time::Duration::from_secs(CONNECT_TIMEOUT_SECS))
             .build()
             .unwrap_or_else(|e| {
                 tracing::error!("Failed to build HTTP client with custom settings, falling back to default: {}", e);
@@ -23,6 +34,10 @@ impl UpstreamClient {
     }
 
     /// Forward a single request to the given upstream (non-streaming).
+    ///
+    /// No request-level timeout is applied: the request waits indefinitely for
+    /// the upstream to respond, so long-thinking models are never interrupted.
+    /// Only the TCP connect timeout guards against unreachable upstreams.
     ///
     /// `extra_headers` allows the caller to inject headers like `X-Request-Id`
     /// into the upstream request for end-to-end tracing.
@@ -35,7 +50,6 @@ impl UpstreamClient {
         api_key: &str,
         _model: &str,
         body: &Value,
-        timeout_secs: u64,
         extra_headers: Option<&reqwest::header::HeaderMap>,
     ) -> Result<Response, UpstreamError> {
         let url = build_chat_completions_url(base_url);
@@ -46,7 +60,6 @@ impl UpstreamClient {
             .post(&url)
             .header("Authorization", format!("Bearer {}", api_key))
             .header("Content-Type", "application/json")
-            .timeout(std::time::Duration::from_secs(timeout_secs))
             .json(body);
 
         if let Some(headers) = extra_headers {
@@ -56,8 +69,8 @@ impl UpstreamClient {
         let response = req.send().await.map_err(|e| {
             if e.is_timeout() {
                 UpstreamError::Timeout {
-                    phase: TimeoutPhase::ResponseHeaders,
-                    timeout_secs,
+                    phase: TimeoutPhase::Connect,
+                    timeout_secs: CONNECT_TIMEOUT_SECS,
                 }
             } else if e.is_connect() {
                 UpstreamError::ConnectionFailed {
@@ -82,9 +95,11 @@ impl UpstreamClient {
 
         if !status.is_success() {
             let body_str = String::from_utf8_lossy(&body_bytes);
-            return Err(UpstreamError::from_http_status(
+            let raw_body = serde_json::from_slice::<Value>(&body_bytes).ok();
+            return Err(UpstreamError::from_http_status_with_body(
                 status.as_u16(),
                 &body_str,
+                raw_body,
             ));
         }
 
@@ -102,9 +117,11 @@ impl UpstreamClient {
     /// Forward a streaming request and return the raw HTTP response.
     /// The caller is responsible for consuming the response body as a byte stream.
     ///
-    /// `timeout_secs` is applied to the initial connection + response headers;
-    /// the body stream itself is not bounded here (the caller should apply
-    /// idle timeout when reading chunks).
+    /// No request-level timeout is applied when waiting for response headers,
+    /// so upstream models that think for a long time before emitting the first
+    /// SSE chunk are never cut off. Only the TCP connect timeout guards
+    /// against unreachable upstreams; the caller should apply an idle timeout
+    /// when reading chunks to guard against a hung stream.
     ///
     /// `extra_headers` allows the caller to inject headers like `X-Request-Id`
     /// into the upstream request for end-to-end tracing.
@@ -114,7 +131,6 @@ impl UpstreamClient {
         api_key: &str,
         _model: &str,
         body: &Value,
-        timeout_secs: u64,
         extra_headers: Option<&reqwest::header::HeaderMap>,
     ) -> Result<reqwest::Response, UpstreamError> {
         let url = build_chat_completions_url(base_url);
@@ -131,16 +147,7 @@ impl UpstreamClient {
             req = req.headers(headers.clone());
         }
 
-        let response = tokio::time::timeout(
-            std::time::Duration::from_secs(timeout_secs),
-            req.send(),
-        )
-        .await
-        .map_err(|_| UpstreamError::Timeout {
-            phase: TimeoutPhase::ResponseHeaders,
-            timeout_secs,
-        })?
-        .map_err(|e| {
+        let response = req.send().await.map_err(|e| {
             if e.is_connect() {
                 UpstreamError::ConnectionFailed {
                     detail: e.to_string(),
@@ -156,9 +163,11 @@ impl UpstreamClient {
         if !status.is_success() {
             let body_bytes = response.bytes().await.unwrap_or_default();
             let body_str = String::from_utf8_lossy(&body_bytes);
-            return Err(UpstreamError::from_http_status(
+            let raw_body = serde_json::from_slice::<Value>(&body_bytes).ok();
+            return Err(UpstreamError::from_http_status_with_body(
                 status.as_u16(),
                 &body_str,
+                raw_body,
             ));
         }
 

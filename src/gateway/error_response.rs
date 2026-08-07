@@ -147,6 +147,50 @@ pub fn no_available_upstream(reason: &str) -> Response {
     )
 }
 
+/// 透传上游原始 4xx 错误响应给客户端。
+///
+/// 4xx 是客户端请求本身的问题（参数错误、认证失败、限流等），
+/// 换一个上游也会得到同样结果，因此原样返回上游的状态码和错误体，
+/// 让调用方拿到真实错误码（如 429 退避、400 修正请求参数）。
+pub fn passthrough_upstream_error(
+    status: u16,
+    body: &Value,
+    extra_headers: Option<HeaderMap>,
+) -> Response {
+    let status_code = StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY);
+    let body_bytes = if body.is_string() {
+        body.as_str().unwrap_or_default().as_bytes().to_vec()
+    } else {
+        serde_json::to_vec(body).unwrap_or_else(|_| b"{}".to_vec())
+    };
+
+    let mut builder = Response::builder()
+        .status(status_code)
+        .header("Content-Type", "application/json");
+
+    if let Some(headers) = extra_headers {
+        for (key, value) in headers.iter() {
+            if let Ok(v) = value.to_str()
+                && let Ok(hv) = HeaderValue::from_str(v)
+            {
+                builder = builder.header(key, hv);
+            }
+        }
+    }
+
+    builder
+        .body(axum::body::Body::from(body_bytes))
+        .unwrap_or_else(|_| {
+            error_response(
+                StatusCode::BAD_GATEWAY,
+                "failed to build passthrough response",
+                "api_error",
+                "passthrough_failed",
+                None,
+            )
+        })
+}
+
 /// 500 内部服务器错误响应。
 pub fn internal_error(message: &str) -> Response {
     error_response(
