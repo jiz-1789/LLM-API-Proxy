@@ -46,12 +46,12 @@ fn default_3() -> u32 {
     3
 }
 
-fn default_5_i32() -> i32 {
-    5
+fn default_30_i32() -> i32 {
+    30
 }
 
-fn default_200_i64() -> i64 {
-    200
+fn default_20000_i64() -> i64 {
+    20000
 }
 
 fn default_50_f64() -> f64 {

@@ -1741,11 +1741,11 @@ gap: 8px;
                         <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="settings_log_retention_desc">控制请求日志的保留时间和最大条数，超出后自动清理旧日志。</p>
                         <div class="settings-row">
                             <label data-i18n="settings_log_retention_days">保留天数</label>
-                            <input class="form-input" id="set-log-retention-days" type="number" min="1" max="365" value="5" style="max-width:120px;">
+                            <input class="form-input" id="set-log-retention-days" type="number" min="1" max="365" value="30" style="max-width:120px;">
                         </div>
                         <div class="settings-row">
                             <label data-i18n="settings_log_max_entries">最大条数</label>
-                            <input class="form-input" id="set-log-max-entries" type="number" min="10" max="100000" value="200" style="max-width:120px;">
+                            <input class="form-input" id="set-log-max-entries" type="number" min="10" max="100000" value="20000" style="max-width:120px;">
                         </div>
                     </div>
                     <div class="settings-section">
@@ -5278,8 +5278,8 @@ function generateApiKey() {
             document.getElementById('set-probe-threshold').value = s.probe_failure_threshold || 3;
 
             // Log retention settings
-            document.getElementById('set-log-retention-days').value = s.log_retention_days || 5;
-            document.getElementById('set-log-max-entries').value = s.log_max_entries || 200;
+            document.getElementById('set-log-retention-days').value = s.log_retention_days || 30;
+            document.getElementById('set-log-max-entries').value = s.log_max_entries || 20000;
 
             // Alert settings
             document.getElementById('set-alert-enabled').checked = s.alert_enabled || false;
@@ -5371,8 +5371,8 @@ function generateApiKey() {
                 probe_enabled: document.getElementById('set-probe-enabled').checked,
                 probe_interval_seconds: parseInt(document.getElementById('set-probe-interval').value) || 300,
                 probe_failure_threshold: parseInt(document.getElementById('set-probe-threshold').value) || 3,
-                log_retention_days: parseInt(document.getElementById('set-log-retention-days').value) || 5,
-                log_max_entries: parseInt(document.getElementById('set-log-max-entries').value) || 200,
+                log_retention_days: parseInt(document.getElementById('set-log-retention-days').value) || 30,
+                log_max_entries: parseInt(document.getElementById('set-log-max-entries').value) || 20000,
                 alert_enabled: document.getElementById('set-alert-enabled').checked,
                 alert_failure_rate_threshold: parseFloat(document.getElementById('set-alert-failure-rate').value) || 50,
                 alert_min_request_count: parseInt(document.getElementById('set-alert-min-requests').value) || 10,

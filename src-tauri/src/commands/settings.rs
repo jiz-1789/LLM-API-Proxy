@@ -36,9 +36,9 @@ pub struct SettingsVO {
     #[serde(default = "super::default_3")]
     pub probe_failure_threshold: u32,
     // Log retention settings
-    #[serde(default = "super::default_5_i32")]
+    #[serde(default = "super::default_30_i32")]
     pub log_retention_days: i32,
-    #[serde(default = "super::default_200_i64")]
+    #[serde(default = "super::default_20000_i64")]
     pub log_max_entries: i64,
     // Alert settings
     #[serde(default)]
@@ -325,8 +325,8 @@ mod tests {
         assert!(!vo.probe_enabled); // default: false
         assert_eq!(vo.probe_interval_seconds, 300); // default: 300
         assert_eq!(vo.probe_failure_threshold, 3); // default: 3
-        assert_eq!(vo.log_retention_days, 5); // default: 5
-        assert_eq!(vo.log_max_entries, 200); // default: 200
+        assert_eq!(vo.log_retention_days, 30); // default: 30
+        assert_eq!(vo.log_max_entries, 20000); // default: 20000
         assert!(!vo.alert_enabled); // default: false
         assert_eq!(vo.alert_failure_rate_threshold, 50.0); // default: 50.0
         assert_eq!(vo.alert_min_request_count, 10); // default: 10
