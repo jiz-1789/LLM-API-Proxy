@@ -6,6 +6,7 @@ pub mod claude;
 pub mod claude_desktop;
 pub mod codex;
 pub mod detector;
+pub mod env_check;
 pub mod gemini;
 pub mod grok;
 pub mod hermes;
@@ -192,6 +193,13 @@ impl ToolSwitchManager {
         // Backup original config.
         let original = writer.read_original_config()?;
 
+        // Write secondary on-disk backups (crash-recovery insurance).
+        for (path, content) in &original {
+            if let Err(e) = backup::write_secondary_backup(path, content.as_deref()) {
+                tracing::warn!(path = %path.display(), error = %e, "写入二级备份失败");
+            }
+        }
+
         writer.merge_and_write_config(
             &original,
             &base_url,
@@ -250,6 +258,11 @@ impl ToolSwitchManager {
             serde_json::from_str(&config.original_config).unwrap_or_default();
         writer.restore_original_config(&original)?;
 
+        // Clean up secondary on-disk backups.
+        for (path, _) in &original {
+            backup::remove_secondary_backup(path);
+        }
+
         self.db.delete_tool_config(app_id)?;
         info!(tool = app_id, "Tool config disabled, original restored");
         Ok(())
@@ -279,10 +292,36 @@ impl ToolSwitchManager {
                     serde_json::from_str(&config.original_config).unwrap_or_default();
                 if let Err(e) = writer.restore_original_config(&original) {
                     warn!(tool = %config.tool_app_id, error = %e, "退出时恢复工具配置失败");
+                } else {
+                    // Clean restore → remove secondary backups so the next
+                    // startup doesn't treat this as a crash.
+                    for (path, _) in &original {
+                        backup::remove_secondary_backup(path);
+                    }
                 }
             }
         }
         Ok(())
+    }
+
+    /// Detect abnormal termination from the previous run and recover.
+    ///
+    /// If a `.llm-proxy-backup` file is found next to any managed config file,
+    /// the app was killed before the exit hook could restore the original.
+    /// Restore it now, then re-inject all switch=ON tools.
+    pub fn recover_from_crash(&self) -> Result<(), AppError> {
+        for writer in self.writers.values() {
+            for path in writer.config_paths() {
+                if backup::restore_from_secondary_backup(&path)? {
+                    warn!(
+                        tool = %writer.app_id(),
+                        path = %path.display(),
+                        "检测到异常退出备份，正在恢复原始配置"
+                    );
+                }
+            }
+        }
+        self.restore_on_startup()
     }
 
     /// Rewrite config for a persisted ON record (startup / manual rewrite).
@@ -674,5 +713,71 @@ mod tests {
             );
         }
         assert_eq!(detections.len(), 8);
+    }
+
+    #[test]
+    fn test_secondary_backup_crash_recovery_restores_original() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("tool-config.json");
+        // User's original config exists.
+        std::fs::write(&target, r#"{"user":true}"#).unwrap();
+
+        // Enable writes secondary backup + injected config.
+        let (db, manager, target) = setup_manager_with_temp_tool(&dir);
+        manager.enable_tool("test-tool", "pool_v", None, "LLM-API-Proxy").unwrap();
+        let backup_path = backup::secondary_backup_path(&target);
+        assert!(backup_path.exists());
+        assert_eq!(std::fs::read_to_string(&backup_path).unwrap(), r#"{"user":true}"#);
+
+        // Simulate abnormal exit: backup file still present, config injected.
+        // A fresh manager (as on startup) recovers the original.
+        let mut manager2 = ToolSwitchManager::new(db.clone());
+        manager2.register(Box::new(TempWriter::new(&dir)));
+        manager2.recover_from_crash().unwrap();
+        // Original restored then re-injected because switch is ON.
+        let written = std::fs::read_to_string(&target).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&written).unwrap();
+        assert_eq!(v["model"], "vision-pool");
+        // Secondary backup consumed.
+        assert!(!backup_path.exists());
+    }
+
+    #[test]
+    fn test_secondary_backup_absent_marker_deletes_injected_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let (db, manager, target) = setup_manager_with_temp_tool(&dir);
+        // Original config did NOT exist.
+        manager.enable_tool("test-tool", "pool_v", None, "LLM-API-Proxy").unwrap();
+        assert!(target.exists());
+        let backup_path = backup::secondary_backup_path(&target);
+        assert_eq!(
+            std::fs::read_to_string(&backup_path).unwrap(),
+            backup::ABSENT_MARKER
+        );
+
+        // Crash recovery with switch OFF should leave the file deleted.
+        // Set switch OFF first by deleting the record (simulate disabled tool).
+        db.delete_tool_config("test-tool").unwrap();
+        let mut manager2 = ToolSwitchManager::new(db.clone());
+        manager2.register(Box::new(TempWriter::new(&dir)));
+        manager2.recover_from_crash().unwrap();
+        // No record → restore_on_startup does nothing → file removed by recovery.
+        assert!(!target.exists());
+        assert!(!backup_path.exists());
+    }
+
+    #[test]
+    fn test_restore_on_exit_cleans_secondary_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("tool-config.json"), r#"{"user":true}"#).unwrap();
+        let (_db, manager, target) = setup_manager_with_temp_tool(&dir);
+        manager.enable_tool("test-tool", "pool_v", None, "LLM-API-Proxy").unwrap();
+        let backup_path = backup::secondary_backup_path(&target);
+        assert!(backup_path.exists());
+
+        // Normal exit restores original AND removes the secondary backup.
+        manager.restore_on_exit().unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), r#"{"user":true}"#);
+        assert!(!backup_path.exists());
     }
 }

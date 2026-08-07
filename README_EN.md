@@ -43,11 +43,14 @@ Most aggregation solutions on the market look like this:
 ## ✨ Core Features
 
 - **Unified entry point** — Exposes a single OpenAI-compatible URL and API key, compatible with ChatGPT, Claude Desktop, LibreChat, FastGPT, and other mainstream clients
+- **One-click tool injection** — Supports 8 AI coding tools including Claude Code, Codex CLI, Gemini CLI, etc. Injects proxy address into config files with one click
+- **Multi-level thinking intensity** — Six levels (off/low/medium/high/max/custom), auto-mapped to provider-specific parameters
+- **Multi-format API conversion** — Supports OpenAI Chat, Anthropic Messages, Gemini Native, and OpenAI Responses formats with automatic bidirectional conversion
+- **Model capability tagging** — Auto-detects and labels model capabilities (text/image/audio input, function calling, context window, etc.)
 - **Pool aggregation** — Combine multiple providers' same/similar models into a custom pool, presented as a single "model" externally
 - **Round-robin** — Each request is distributed to a different upstream in rotation for load balancing
 - **Failover** — When an upstream fails, automatically skips it and tries the next, supporting HTTP errors, timeouts, and response-body `error` field detection
 - **SSE streaming passthrough** — Full passthrough of upstream SSE event streams, supporting streaming chat and token usage tracking
-- **Thinking mode** — Automatically injects `reasoning` / `reasoning_effort` / `thinking` parameters based on upstream provider type
 - **Model aliasing** — Client tools always see the pool name; the actual upstream model name is hidden
 - **AES-256-GCM encryption** — API keys encrypted and stored in SQLite, Master Key follows the data directory, USB-plug-and-play
 - **Request logging** — Records status code, latency, token usage, and failed upstream chain for each request, with filtering by status code/time and export
@@ -101,17 +104,39 @@ Most aggregation solutions on the market look like this:
 │   │   ├── settings.rs     # Key-value settings storage
 │   │   ├── api_key.rs      # Multi-key management
 │   │   ├── backup.rs       # Database backup & restore
-│   │   └── rate_limit.rs   # Rate limit state persistence
+│   │   ├── rate_limit.rs   # Rate limit state persistence
+│   │   ├── token_usage.rs  # Standalone token usage stats
+│   │   └── tool_config.rs  # Tool config switch data layer
 │   ├── gateway/            # OpenAI-compatible gateway
 │   │   ├── mod.rs          # /v1/models, /v1/chat/completions routes
 │   │   ├── auth.rs         # Multi-key auth (constant-time comparison + pool permissions)
 │   │   ├── stream.rs       # SSE streaming (model replacement + usage extraction + error detection)
 │   │   ├── rate_limit.rs   # Rate limiter (DashMap + persistence)
 │   │   ├── error_response.rs # OpenAI-compatible error responses
-│   │   └── health.rs       # Three-tier health check
+│   │   ├── health.rs       # Three-tier health check
+│   │   └── convert/        # Multi-format API conversion
+│   │       ├── mod.rs      # Conversion module entry + format detection
+│   │       ├── anthropic.rs # Anthropic Messages ↔ Chat
+│   │       ├── gemini.rs   # Gemini Native ↔ Chat
+│   │       ├── openai_responses.rs # OpenAI Responses ↔ Chat
+│   │       └── capabilities.rs # Model capability inference
 │   ├── pool/               # Pool & round-robin logic
 │   │   ├── mod.rs          # Pool data structures
-│   │   └── thinking.rs     # Thinking mode parameter injection (by provider)
+│   │   └── thinking.rs     # Multi-level thinking parameter injection (by provider)
+│   ├── tool_config/        # Tool config injection module
+│   │   ├── mod.rs          # Module entry + switch manager
+│   │   ├── detector.rs     # Tool installation detection
+│   │   ├── backup.rs       # Config backup & restore
+│   │   ├── writer.rs       # Atomic write engine
+│   │   ├── env_check.rs    # Env var conflict detection & cleanup
+│   │   ├── claude.rs       # Claude Code writer
+│   │   ├── claude_desktop.rs # Claude Desktop writer
+│   │   ├── codex.rs        # Codex CLI writer
+│   │   ├── gemini.rs       # Gemini CLI writer
+│   │   ├── grok.rs         # Grok CLI writer
+│   │   ├── opencode.rs     # OpenCode writer
+│   │   ├── openclaw.rs     # OpenClaw writer
+│   │   └── hermes.rs       # Hermes writer
 │   ├── proxy/              # Upstream forwarding
 │   │   ├── mod.rs          # Module declarations
 │   │   ├── failover.rs     # HTTP forwarding & failover chain
@@ -141,7 +166,8 @@ Most aggregation solutions on the market look like this:
 │           ├── backup.rs   # Backup & restore commands
 │           ├── diagnostic.rs # Diagnostic export commands
 │           ├── update.rs   # In-app update commands
-│           └── shortcut.rs # Shortcut commands
+│           ├── shortcut.rs # Shortcut commands
+│           └── tool_config.rs # Tool config commands
 └── dist/                   # Frontend build output
     └── index.html          # Single-page app (embedded CSS/JS)
 ```
@@ -190,13 +216,15 @@ Go to the "Upstream Management" page and click "Add":
 
 The API key is encrypted with AES-256-GCM before being stored in the database — plaintext never touches disk.
 
+> Optional: Set the upstream's native API format (OpenAI / Anthropic / Gemini) — the gateway handles format conversion automatically. Capability tags are auto-inferred from the model name when left empty.
+
 ### 3. Create a Pool
 
 Go to the "Pool Management" page and create a pool:
 
 1. Enter a pool name (e.g., `grok-4.5` — this is the model name your client tools will see)
 2. Associate one or more upstream subscriptions
-3. Optional: enable thinking mode, set max concurrency, configure failover
+3. Optional: Set thinking intensity (off/low/medium/high/max/custom), max concurrency, failover
 
 ### 4. Connect Client Tools
 
@@ -210,11 +238,21 @@ Model:    grok-4.5
 
 That's it. Requests are automatically distributed across upstreams in the pool, with automatic failover when a provider is down.
 
-### 5. Minimize to Tray
+### 5. Configure Tools (Optional)
+
+Go to the "Tool Config" page to inject the proxy address into installed AI coding tools:
+
+1. The page auto-detects installed tools (Claude Code, Codex CLI, etc. — 8 tools supported)
+2. Toggle a tool's switch, select a default pool and API Key in the dialog
+3. Confirm to write the config file — the tool can now use the proxy directly
+
+> Original configs are automatically backed up; toggling off or exiting the app restores the original.
+
+### 6. Minimize to Tray
 
 Closing the window minimizes the app to the system tray — the proxy service continues running in the background. Double-click the tray icon or right-click "Open Main Window" to restore.
 
-### 6. Version Updates
+### 7. Version Updates
 
 The app automatically checks for the latest release on GitHub / Gitee at startup. When a new version is found:
 
@@ -243,6 +281,9 @@ If this project has been helpful to you, please consider giving it a Star ⭐. Y
 |----------|--------|-------------|
 | `/v1/models` | GET | Returns all pool names as the available model list |
 | `/v1/chat/completions` | POST | Forwards request to pool upstreams, supports streaming/non-streaming |
+| `/v1/messages` | POST | Anthropic Messages format endpoint, compatible with Claude native clients |
+| `/v1beta/models/{model}:generateContent` | POST | Gemini Native format endpoint, compatible with Gemini native clients |
+| `/v1/responses` | POST | OpenAI Responses format endpoint, compatible with Codex CLI and similar tools |
 | `/api/health` | GET | Health check |
 
 **Request example:**

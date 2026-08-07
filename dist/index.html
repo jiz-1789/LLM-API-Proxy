@@ -691,6 +691,22 @@ gap: 8px;
         .tool-config-badge-on { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: rgba(34,197,94,0.12); color: rgb(34,197,94); }
         .tool-config-badge-off { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--bg-hover); color: var(--text-muted); }
 
+        /* Env conflict warning banner */
+        .tool-warning {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 10px 14px;
+            border-radius: var(--radius-sm);
+            background: rgba(234, 179, 8, 0.08);
+            border: 1px solid rgba(234, 179, 8, 0.25);
+            color: rgb(161, 98, 7);
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        body[data-theme="dark"] .tool-warning { color: rgb(234, 179, 8); }
+
         /* === Toggle switch === */
         .toggle { position: relative; width: 44px; height: 26px; display: inline-block; flex-shrink: 0; }
         .toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
@@ -1459,6 +1475,7 @@ gap: 8px;
                     <button class="btn btn-ghost btn-sm" onclick="loadToolConfig(true)" data-i18n="tool_config_redetect">重新检测</button>
                 </div>
                 <p class="page-hint" data-i18n="tool_config_desc">将代理地址一键注入到已安装的 AI 编码工具中</p>
+                <div id="env-conflict-banner" class="tool-warning" style="display:none;margin-bottom:12px;"></div>
                 <div id="tool-config-list" class="tool-config-list">
                     <div class="empty-state" data-i18n="dash_loading">加载中...</div>
                 </div>
@@ -1848,7 +1865,7 @@ gap: 8px;
 
                 <div class="help-section">
                     <h3><span class="help-icon">1</span><span data-i18n="help_quick_start">快速开始</span></h3>
-                    <p data-i18n="help_quick_start_desc">从零到跑通只需五步：</p>
+                    <p data-i18n="help_quick_start_desc">从零到跑通只需六步：</p>
                     <div class="help-flow">
                         <div class="help-step">
                             <span class="step-num">1</span>
@@ -1879,6 +1896,12 @@ gap: 8px;
                             <div class="step-title" data-i18n="help_step_connect">接入客户端</div>
                             <div class="step-desc" data-i18n="help_step_connect_desc">将地址和密钥填入任意 OpenAI 兼容客户端即可</div>
                         </div>
+                        <div class="help-arrow">→</div>
+                        <div class="help-step">
+                            <span class="step-num">6</span>
+                            <div class="step-title" data-i18n="help_step_tool_config">配置工具（可选）</div>
+                            <div class="step-desc" data-i18n="help_step_tool_config_desc">在「工具配置」页一键将代理地址注入已安装的 AI 编码工具，无需手动填写地址和密钥</div>
+                        </div>
                     </div>
                 </div>
 
@@ -1898,11 +1921,14 @@ gap: 8px;
                     <h3><span class="help-icon">🔌</span><span data-i18n="help_upstreams">上游服务</span></h3>
                     <p data-i18n="help_upstreams_desc">上游服务指你实际订阅的 AI 服务商（如 OpenAI、Anthropic、DeepSeek 等）。每个上游包含：</p>
                     <ul>
-                        <li data-i18n-html="help_upstreams_item_1"><strong>供应商名称</strong>：用于识别服务商，也决定思考模式注入的参数类型</li>
+                        <li data-i18n-html="help_upstreams_item_1"><strong>供应商名称</strong>：用于识别服务商，也决定 **API 格式适配**和思考参数注入类型</li>
                         <li data-i18n-html="help_upstreams_item_2"><strong>Base URL</strong>：服务商的 API 地址，如 <code>https://api.openai.com</code></li>
                         <li data-i18n-html="help_upstreams_item_3"><strong>API Key</strong>：你在服务商处获取的密钥，加密存储</li>
                         <li data-i18n-html="help_upstreams_item_4"><strong>模型</strong>：该上游使用的模型名，如 <code>gpt-4o</code></li>
                         <li data-i18n-html="help_upstreams_item_5"><strong>可用模型</strong>：点击「获取模型列表」按钮自动从服务商拉取支持的模型列表</li>
+                        <li data-i18n-html="help_upstreams_item_6"><strong>API 格式</strong>：选择上游的原生 API 格式（OpenAI Chat / Anthropic Messages / Gemini），网关自动做格式转换</li>
+                        <li data-i18n-html="help_upstreams_item_7"><strong>模型能力</strong>：标识该模型支持的输入/输出模态（文本、图片、音频）、是否支持函数调用、上下文窗口大小等。留空时系统根据模型名自动推断</li>
+                        <li data-i18n-html="help_upstreams_item_8">点击「自动推断」按钮可根据模型名自动填充能力标记</li>
                     </ul>
                     <p data-i18n-html="help_upstreams_ops"><strong>操作方式：</strong></p>
                     <ul>
@@ -1925,7 +1951,10 @@ gap: 8px;
                         <li data-i18n-html="help_pools_item_3"><strong>关联上游</strong>：勾选要加入该池的上游，并为每个上游选择对应模型</li>
                         <li data-i18n-html="help_pools_item_4"><strong>多模型选择</strong>：按住 Ctrl（或 Shift）可为一个上游选择多个模型，网关会在这些模型之间轮询负载均衡</li>
                         <li data-i18n-html="help_pools_item_5"><strong>最大并发</strong>：该池允许的最大并发请求数</li>
-                        <li data-i18n-html="help_pools_item_6"><strong>思考模式</strong>：开启后自动为支持的上游注入推理参数（如 OpenAI 的 <code>reasoning_effort</code>、Claude 的 <code>thinking</code>）</li>
+                        <li data-i18n-html="help_pools_item_6"><strong>思考强度</strong>：支持关闭/低/中/高/最大/自定义六级，自动为不同厂商的上游注入对应的推理参数（如 OpenAI 的 <code>reasoning_effort</code>、Claude 的 <code>thinking</code>）</li>
+                        <li data-i18n-html="help_pools_item_7"><strong>逐上游思考覆盖</strong>：在号池详情中可为每个上游单独设置思考强度，覆盖池级配置</li>
+                        <li data-i18n-html="help_pools_item_8"><strong>模型能力标签</strong>：展示池内所有上游能力的并集，包括文本/图片/音频输入、函数调用、上下文窗口等</li>
+                        <li data-i18n-html="help_pools_item_9"><strong>自定义思考参数</strong>：选择「自定义」时可直接输入 JSON 参数，注入到请求体中</li>
                     </ul>
                     <p data-i18n-html="help_pools_lb"><strong>负载均衡机制（两层轮询）：</strong></p>
                     <ul>
@@ -1939,6 +1968,29 @@ gap: 8px;
                         <li data-i18n-html="help_pools_detail_3"><strong>拖拽排序</strong>：在详情弹窗中拖拽行可调整上游顺序，保存后立即生效</li>
                     </ul>
                     <div class="help-tip" data-i18n="help_pools_tip">请求转发逻辑：轮询选择上游 → 跳过已禁用的上游 → 失败时若开启故障转移则自动尝试下一个上游 → 全部失败则返回错误。右键删除模型池直接执行，无需二次确认。日志自动保留策略可在设置中配置。</div>
+                </div>
+
+                <div class="help-section">
+                    <h3><span class="help-icon">🔧</span><span data-i18n="help_tool_config">工具配置</span></h3>
+                    <p data-i18n="help_tool_config_desc">
+                        工具配置页支持将代理地址一键注入到已安装的 AI 编码工具中，无需手动编辑配置文件。
+                    </p>
+                    <p data-i18n-html="help_tool_config_supported_title"><strong>支持的工具：</strong></p>
+                    <p data-i18n="help_tool_config_supported_desc">支持 Claude Code、Claude Desktop、Codex CLI、Gemini CLI、Grok CLI、OpenCode、OpenClaw、Hermes 共 8 种工具</p>
+                    <p data-i18n-html="help_tool_config_detect_title"><strong>自动检测：</strong></p>
+                    <p data-i18n="help_tool_config_detect_desc">页面会自动检测系统已安装的工具，未安装的工具显示下载链接</p>
+                    <p data-i18n-html="help_tool_config_switch_title"><strong>开关机制：</strong></p>
+                    <p data-i18n="help_tool_config_switch_desc">每个工具独立开关：开启时自动写入配置并备份原始文件，关闭时自动恢复原始配置。软件退出时自动还原配置，下次启动时重新注入</p>
+                    <p data-i18n-html="help_tool_config_modal_title"><strong>配置弹窗：</strong></p>
+                    <p data-i18n="help_tool_config_modal_desc">开启开关时弹出配置弹窗，选择默认模型池、API Key 和供应商标签名</p>
+                    <p data-i18n-html="help_tool_config_strategies_title"><strong>模型写入策略：</strong></p>
+                    <ul>
+                        <li data-i18n="help_tool_config_strategy_full"><strong>全量写入</strong>：将所有模型池写入配置文件，适用于支持多模型声明的工具</li>
+                        <li data-i18n="help_tool_config_strategy_auto"><strong>默认+自动发现</strong>：写入默认池，工具运行时通过 /v1/models 自动发现其他池</li>
+                    </ul>
+                    <p data-i18n-html="help_tool_config_backup_title"><strong>备份与恢复：</strong></p>
+                    <p data-i18n="help_tool_config_backup_desc">写入前自动备份原始配置文件，关闭开关或软件退出时自动恢复</p>
+                    <div class="help-tip" data-i18n="help_tool_config_tip">提示：开关状态会持久化保存，软件重启后自动恢复上次的状态并重新写入配置。若检测到系统环境变量（ANTHROPIC_*、OPENAI_* 等）与注入配置冲突，页面会提示并可一键清理。</div>
                 </div>
 
                 <div class="help-section">
@@ -2086,6 +2138,27 @@ gap: 8px;
                 </div>
 
                 <div class="help-section">
+                    <h3><span class="help-icon">🔄</span><span data-i18n="help_api_convert">多格式 API 转换</span></h3>
+                    <p data-i18n="help_api_convert_desc">
+                        网关支持多种原生 API 格式的端点，自动将请求转换为上游所需的格式，响应也自动转回客户端期望的格式。
+                    </p>
+                    <p data-i18n-html="help_api_convert_endpoints_title"><strong>支持的端点：</strong></p>
+                    <ul>
+                        <li data-i18n="help_api_convert_endpoint_1">OpenAI Chat：POST /v1/chat/completions（默认，兼容所有 OpenAI 客户端）</li>
+                        <li data-i18n="help_api_convert_endpoint_2">Anthropic Messages：POST /v1/messages（兼容 Claude 原生客户端）</li>
+                        <li data-i18n="help_api_convert_endpoint_3">Gemini Native：POST /v1beta/models/{model}:generateContent（兼容 Gemini 原生客户端）</li>
+                        <li data-i18n="help_api_convert_endpoint_4">OpenAI Responses：POST /v1/responses（兼容 Codex CLI 等工具）</li>
+                    </ul>
+                    <p data-i18n-html="help_api_convert_detect_title"><strong>格式检测：</strong></p>
+                    <p data-i18n="help_api_convert_detect_desc">网关根据请求路径自动识别格式，无需额外配置</p>
+                    <p data-i18n-html="help_api_convert_upstream_title"><strong>上游格式适配：</strong></p>
+                    <p data-i18n="help_api_convert_upstream_desc">在上游编辑中可设置该上游的原生 API 格式，网关会自动将客户端请求转换为上游格式，响应再转回客户端格式</p>
+                    <p data-i18n-html="help_api_convert_stream_title"><strong>流式转换：</strong></p>
+                    <p data-i18n="help_api_convert_stream_desc">SSE 流式响应也支持格式转换，实时将上游的流式格式转换为客户端期望的流式格式</p>
+                    <div class="help-tip" data-i18n="help_api_convert_tip">提示：即使上游是 Anthropic 原生格式，使用 OpenAI 兼容客户端接入也能正常工作，网关会自动做双向转换。</div>
+                </div>
+
+                <div class="help-section">
                     <h3><span class="help-icon">🔐</span><span data-i18n="help_security">安全与加密</span></h3>
                     <ul>
                         <li data-i18n-html="help_security_1"><strong>API Key 加密</strong>：所有上游 API Key 使用 AES-256-GCM 加密存储，明文绝不出现在数据库或日志中</li>
@@ -2131,7 +2204,25 @@ print(response.choices[0].message.content)</code></pre>
     "model": "gpt-4o",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'</code></pre>
+                    <p data-i18n="help_client_anthropic_desc" style="margin-top:12px;">使用 Anthropic Messages API 格式：</p>
+                    <pre style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;font-size:12px;font-family:'SF Mono','Cascadia Code',monospace;overflow-x:auto;color:var(--text-primary);"><code>curl http://127.0.0.1:47339/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: sk-gw-your-key-here" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 1024,
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'</code></pre>
+                    <p data-i18n="help_client_gemini_desc" style="margin-top:12px;">使用 Gemini Native API 格式：</p>
+                    <pre style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;font-size:12px;font-family:'SF Mono','Cascadia Code',monospace;overflow-x:auto;color:var(--text-primary);"><code>curl http://127.0.0.1:47339/v1beta/models/gemini-2.0-flash:generateContent \
+  -H "Content-Type: application/json" \
+  -H "x-goog-api-key: sk-gw-your-key-here" \
+  -d '{
+    "contents": [{"parts": [{"text": "Hello!"}]}]
+  }'</code></pre>
                     <div class="help-tip" data-i18n="help_client_example_tip">任意兼容 OpenAI API 的客户端（如 ChatBox、NextChat、Cursor 等）均可直接使用上述地址和密钥接入。</div>
+                    <div class="help-tip" data-i18n="help_client_tool_tip">💡 如果使用 Claude Code、Codex CLI 等工具，可直接在「工具配置」页面一键注入，无需手动填写地址和密钥。</div>
                 </div>
             </div>
 
@@ -2804,6 +2895,12 @@ settings_import_full: { zh: '全量导入', en: 'Import (Full)' },
         tool_config_disable_warning: { zh: '关闭后将恢复 {tool} 的原始配置文件。确定继续？', en: 'This will restore {tool}\'s original config file. Continue?' },
         tool_config_rewrite: { zh: '重新写入', en: 'Rewrite' },
         tool_config_default_key: { zh: '(默认 Gateway Key)', en: '(Default Gateway Key)' },
+        env_conflict_warn: { zh: '检测到 {count} 个系统环境变量会覆盖注入的代理配置，可能导致配置不生效', en: '{count} system environment variable(s) will override the injected proxy config' },
+        env_conflict_cleanup: { zh: '一键清理', en: 'Clean Up' },
+        env_conflict_cleanup_done: { zh: '已清理冲突环境变量，备份已保存', en: 'Conflicting env vars cleaned, backup saved' },
+        env_conflict_cleanup_fail: { zh: '清理环境变量失败', en: 'Failed to clean up env vars' },
+        env_conflict_none: { zh: '未检测到环境变量冲突', en: 'No env var conflicts detected' },
+        env_conflict_checking: { zh: '检查环境变量冲突…', en: 'Checking env var conflicts…' },
         toast_tool_config_refreshed: { zh: '工具配置已刷新', en: 'Tool config refreshed' },
         toast_tool_config_written: { zh: '配置已写入', en: 'Config written' },
         toast_tool_config_restored: { zh: '已恢复原始配置', en: 'Original config restored' },
@@ -2843,7 +2940,7 @@ settings_import_full: { zh: '全量导入', en: 'Import (Full)' },
         help_title: { zh: '使用教程', en: 'User Guide' },
         help_intro: { zh: 'LLM-API-Proxy 是一个本地运行的 LLM API 网关，将多个上游 AI 服务商聚合为统一的 OpenAI 兼容接口。以下按功能模块逐一介绍使用方法。', en: 'LLM-API-Proxy is a local LLM API gateway that aggregates multiple upstream AI providers into a unified OpenAI-compatible interface. Below is a guide for each module.' },
         help_quick_start: { zh: '快速开始', en: 'Quick Start' },
-        help_quick_start_desc: { zh: '从零到跑通只需五步：', en: 'Five steps to get started:' },
+        help_quick_start_desc: { zh: '从零到跑通只需六步：', en: 'Six steps to get started:' },
         help_step_add_upstream: { zh: '添加上游', en: 'Add Upstream' },
         help_step_add_upstream_desc: { zh: '在「上游服务」页填入服务商的 Base URL、API Key 和模型名', en: 'Enter provider Base URL, API Key, and model name in Upstreams page' },
         help_step_create_pool: { zh: '创建模型池', en: 'Create Pool' },
@@ -2854,6 +2951,8 @@ settings_import_full: { zh: '全量导入', en: 'Import (Full)' },
         help_step_connect_desc: { zh: '将地址和密钥填入任意 OpenAI 兼容客户端即可', en: 'Paste into any OpenAI-compatible client' },
         help_step_manage_keys: { zh: '管理密钥', en: 'Manage Keys' },
         help_step_manage_keys_desc: { zh: '按需创建多个 API 密钥，分配池访问权限', en: 'Create multiple API keys with pool-level permissions' },
+        help_step_tool_config: { zh: '配置工具（可选）', en: 'Configure Tools (Optional)' },
+        help_step_tool_config_desc: { zh: '在「工具配置」页一键将代理地址注入已安装的 AI 编码工具，无需手动填写地址和密钥', en: 'Inject proxy address into installed AI coding tools with one click on the Tool Config page — no manual address/key entry needed' },
         help_dashboard: { zh: '仪表盘', en: 'Dashboard' },
         help_upstreams: { zh: '上游服务', en: 'Upstreams' },
         help_pools: { zh: '模型池', en: 'Model Pools' },
@@ -3037,11 +3136,14 @@ test_chat_ok: { zh: '✓ 连接成功 · 模型 {model} · {ms}ms', en: '✓ Con
         help_dashboard_desc_5: { zh: '<strong>最近活动</strong>：实时显示最近的网关请求日志', en: '<strong>Recent Activity</strong>: Real-time display of recent gateway request logs' },
         help_dashboard_tip: { zh: '仪表盘每 30 秒自动刷新一次统计数据，离开页面时自动停止刷新以节省资源。', en: 'The dashboard auto-refreshes every 30 seconds. Refreshing stops when you leave the page to save resources.' },
         help_upstreams_desc: { zh: '上游服务指你实际订阅的 AI 服务商（如 OpenAI、Anthropic、DeepSeek 等）。每个上游包含：', en: 'Upstreams are the AI providers you subscribe to (e.g. OpenAI, Anthropic, DeepSeek). Each upstream includes:' },
-        help_upstreams_item_1: { zh: '<strong>供应商名称</strong>：用于识别服务商，也决定思考模式注入的参数类型', en: '<strong>Provider Name</strong>: Identifies the provider and determines thinking mode injection' },
+        help_upstreams_item_1: { zh: '<strong>供应商名称</strong>：用于识别服务商，也决定 <strong>API 格式适配</strong>和思考参数注入类型', en: '<strong>Provider Name</strong>: Identifies the provider and determines API format adaptation and thinking parameter injection' },
         help_upstreams_item_2: { zh: '<strong>Base URL</strong>：服务商的 API 地址，如 <code>https://api.openai.com</code>', en: '<strong>Base URL</strong>: Provider API address, e.g. <code>https://api.openai.com</code>' },
         help_upstreams_item_3: { zh: '<strong>API Key</strong>：你在服务商处获取的密钥，加密存储', en: '<strong>API Key</strong>: Your provider key, stored encrypted' },
         help_upstreams_item_4: { zh: '<strong>模型</strong>：该上游使用的模型名，如 <code>gpt-4o</code>', en: '<strong>Model</strong>: Model name for this upstream, e.g. <code>gpt-4o</code>' },
         help_upstreams_item_5: { zh: '<strong>可用模型</strong>：点击「获取模型列表」按钮自动从服务商拉取支持的模型列表', en: '<strong>Available Models</strong>: Click "Fetch Models" to auto-fetch supported models from the provider' },
+        help_upstreams_item_6: { zh: '<strong>API 格式</strong>：选择上游的原生 API 格式（OpenAI Chat / Anthropic Messages / Gemini），网关自动做格式转换', en: '<strong>API Format</strong>: Select the upstream native API format (OpenAI Chat / Anthropic Messages / Gemini); the gateway auto-converts' },
+        help_upstreams_item_7: { zh: '<strong>模型能力</strong>：标识该模型支持的输入/输出模态（文本、图片、音频）、是否支持函数调用、上下文窗口大小等。留空时系统根据模型名自动推断', en: '<strong>Model Capabilities</strong>: Marks input/output modalities (text, image, audio), function calling support, context window, etc. Auto-inferred from model name when empty' },
+        help_upstreams_item_8: { zh: '点击「自动推断」按钮可根据模型名自动填充能力标记', en: 'Click "Auto-Infer" to auto-fill capabilities from the model name' },
         help_upstreams_ops: { zh: '<strong>操作方式：</strong>', en: '<strong>Operations:</strong>' },
         help_upstreams_op_1: { zh: '点击「+ 新增上游」添加新服务商', en: 'Click "+ Add Upstream" to add a new provider' },
         help_upstreams_op_2: { zh: '右键点击表格行可弹出菜单：编辑、Token 消耗、启用/禁用、复制信息、删除（右键删除直接执行，无需二次确认）', en: 'Right-click a table row for context menu: Edit, Token Usage, Enable/Disable, Copy Info, Delete (right-click delete executes immediately without confirmation)' },
@@ -3056,7 +3158,10 @@ test_chat_ok: { zh: '✓ 连接成功 · 模型 {model} · {ms}ms', en: '✓ Con
         help_pools_item_3: { zh: '<strong>关联上游</strong>：勾选要加入该池的上游，并为每个上游选择对应模型', en: '<strong>Associated Upstreams</strong>: Select upstreams and their models for this pool' },
         help_pools_item_4: { zh: '<strong>多模型选择</strong>：按住 Ctrl（或 Shift）可为一个上游选择多个模型，网关会在这些模型之间轮询负载均衡', en: '<strong>Multi-Model Selection</strong>: Hold Ctrl (or Shift) to select multiple models for an upstream. The gateway will round-robin between them' },
         help_pools_item_5: { zh: '<strong>最大并发</strong>：该池允许的最大并发请求数', en: '<strong>Max Concurrency</strong>: Maximum concurrent requests for this pool' },
-        help_pools_item_6: { zh: '<strong>思考模式</strong>：开启后自动为支持的上游注入推理参数（如 OpenAI 的 <code>reasoning_effort</code>、Claude 的 <code>thinking</code>）', en: '<strong>Thinking Mode</strong>: Auto-injects reasoning params for supported upstreams (e.g. OpenAI <code>reasoning_effort</code>, Claude <code>thinking</code>)' },
+        help_pools_item_6: { zh: '<strong>思考强度</strong>：支持关闭/低/中/高/最大/自定义六级，自动为不同厂商的上游注入对应的推理参数（如 OpenAI 的 <code>reasoning_effort</code>、Claude 的 <code>thinking</code>）', en: '<strong>Thinking Intensity</strong>: Six levels (off/low/medium/high/max/custom), auto-maps provider-specific reasoning params (e.g. OpenAI <code>reasoning_effort</code>, Claude <code>thinking</code>)' },
+        help_pools_item_7: { zh: '<strong>逐上游思考覆盖</strong>：在号池详情中可为每个上游单独设置思考强度，覆盖池级配置', en: '<strong>Per-Upstream Thinking Override</strong>: Set a per-upstream thinking intensity in the pool detail view, overriding the pool-level setting' },
+        help_pools_item_8: { zh: '<strong>模型能力标签</strong>：展示池内所有上游能力的并集，包括文本/图片/音频输入、函数调用、上下文窗口等', en: '<strong>Model Capability Tags</strong>: Shows the union of all upstream capabilities in the pool — text/image/audio input, function calling, context window, etc.' },
+        help_pools_item_9: { zh: '<strong>自定义思考参数</strong>：选择「自定义」时可直接输入 JSON 参数，注入到请求体中', en: '<strong>Custom Thinking Params</strong>: When "Custom" is selected, enter raw JSON params injected into the request body' },
         help_pools_lb: { zh: '<strong>负载均衡机制（两层轮询）：</strong>', en: '<strong>Load Balancing (Two-Layer Round-Robin):</strong>' },
         help_pools_lb_1: { zh: '<strong>第一层 — 上游轮询</strong>：每次请求在上游列表中轮换起始位置，使请求均匀分布到不同上游', en: '<strong>Layer 1 — Upstream Round-Robin</strong>: Rotates the starting position in the upstream list for each request, distributing load evenly' },
         help_pools_lb_2: { zh: '<strong>第二层 — 模型轮询</strong>：若某上游关联了多个模型，每次请求到该上游时在模型间轮换', en: '<strong>Layer 2 — Model Round-Robin</strong>: If an upstream has multiple models, rotates between them on each request' },
@@ -3065,6 +3170,24 @@ test_chat_ok: { zh: '✓ 连接成功 · 模型 {model} · {ms}ms', en: '✓ Con
         help_pools_detail_2: { zh: '详情页可视化展示池内上游的排序、模型、健康状态', en: 'The detail view shows upstream order, models, and health status visually' },
         help_pools_detail_3: { zh: '<strong>拖拽排序</strong>：在详情弹窗中拖拽行可调整上游顺序，保存后立即生效', en: '<strong>Drag to Reorder</strong>: Drag rows in the detail modal to reorder upstreams. Saved immediately' },
         help_pools_tip: { zh: '请求转发逻辑：轮询选择上游 → 跳过已禁用的上游 → 失败时若开启故障转移则自动尝试下一个上游 → 全部失败则返回错误。右键删除模型池直接执行，无需二次确认。日志自动保留策略可在设置中配置。', en: 'Request flow: Round-robin select upstream → Skip disabled → If failover is on, try next upstream on failure → Return error if all fail. Right-click delete executes immediately. Log retention is configurable in Settings.' },
+
+        // ── Help: Tool config section ──
+        help_tool_config: { zh: '工具配置', en: 'Tool Config' },
+        help_tool_config_desc: { zh: '工具配置页支持将代理地址一键注入到已安装的 AI 编码工具中，无需手动编辑配置文件。', en: 'The Tool Config page injects the proxy address into installed AI coding tools with one click — no manual config editing needed.' },
+        help_tool_config_supported_title: { zh: '<strong>支持的工具：</strong>', en: '<strong>Supported Tools:</strong>' },
+        help_tool_config_supported_desc: { zh: '支持 Claude Code、Claude Desktop、Codex CLI、Gemini CLI、Grok CLI、OpenCode、OpenClaw、Hermes 共 8 种工具', en: 'Supports 8 tools: Claude Code, Claude Desktop, Codex CLI, Gemini CLI, Grok CLI, OpenCode, OpenClaw, Hermes' },
+        help_tool_config_detect_title: { zh: '<strong>自动检测：</strong>', en: '<strong>Auto-Detection:</strong>' },
+        help_tool_config_detect_desc: { zh: '页面会自动检测系统已安装的工具，未安装的工具显示下载链接', en: 'The page auto-detects installed tools; uninstalled tools show a download link' },
+        help_tool_config_switch_title: { zh: '<strong>开关机制：</strong>', en: '<strong>Switch Mechanism:</strong>' },
+        help_tool_config_switch_desc: { zh: '每个工具独立开关：开启时自动写入配置并备份原始文件，关闭时自动恢复原始配置。软件退出时自动还原配置，下次启动时重新注入', en: 'Each tool has an independent switch: enabling writes config and backs up the original; disabling restores it. On app exit configs are restored and re-injected at next startup' },
+        help_tool_config_modal_title: { zh: '<strong>配置弹窗：</strong>', en: '<strong>Config Dialog:</strong>' },
+        help_tool_config_modal_desc: { zh: '开启开关时弹出配置弹窗，选择默认模型池、API Key 和供应商标签名', en: 'A dialog appears when enabling, letting you choose the default pool, API Key, and provider label' },
+        help_tool_config_strategies_title: { zh: '<strong>模型写入策略：</strong>', en: '<strong>Model Write Strategies:</strong>' },
+        help_tool_config_strategy_full: { zh: '<strong>全量写入</strong>：将所有模型池写入配置文件，适用于支持多模型声明的工具', en: '<strong>Full Write</strong>: Writes all pools into the config file, for tools that support multiple model declarations' },
+        help_tool_config_strategy_auto: { zh: '<strong>默认+自动发现</strong>：写入默认池，工具运行时通过 /v1/models 自动发现其他池', en: '<strong>Default + Auto-Discovery</strong>: Writes the default pool; the tool discovers other pools via /v1/models at runtime' },
+        help_tool_config_backup_title: { zh: '<strong>备份与恢复：</strong>', en: '<strong>Backup & Restore:</strong>' },
+        help_tool_config_backup_desc: { zh: '写入前自动备份原始配置文件，关闭开关或软件退出时自动恢复', en: 'Original config is backed up before writing and restored on switch-off or app exit' },
+        help_tool_config_tip: { zh: '提示：开关状态会持久化保存，软件重启后自动恢复上次的状态并重新写入配置。若检测到系统环境变量（ANTHROPIC_*、OPENAI_* 等）与注入配置冲突，页面会提示并可一键清理。', en: 'Tip: Switch states persist across restarts; configs are rewritten on startup. If system env vars (ANTHROPIC_*, OPENAI_*, etc.) conflict with the injected config, the page warns and offers one-click cleanup.' },
         help_logs_desc: { zh: '请求日志页记录所有经过网关转发的请求，并提供多维度的统计分析和故障切换事件追踪。', en: 'The Logs page records all gateway-forwarded requests with multi-dimensional statistics and failover event tracking.' },
         help_logs_filter_title: { zh: '<strong>日志筛选与导出：</strong>', en: '<strong>Filter & Export:</strong>' },
         help_logs_item_1: { zh: '<strong>筛选</strong>：按模型池、上游或状态码（2xx / 4xx / 5xx）过滤', en: '<strong>Filter</strong>: By pool, upstream, or status code (2xx / 4xx / 5xx)' },
@@ -3109,6 +3232,9 @@ test_chat_ok: { zh: '✓ 连接成功 · 模型 {model} · {ms}ms', en: '✓ Con
         help_portability_tip: { zh: '将便捷版 .exe 放入 U 盘或任意目录运行，所有数据会自动在程序同级目录生成。拔走即带走，不在电脑上残留任何用户数据。', en: 'Place the portable .exe on a USB drive or any directory. All data is generated alongside the program. Take it with you — no user data remains on the computer.' },
         help_client_example_desc: { zh: '以 Python OpenAI SDK 为例：', en: 'Example with Python OpenAI SDK:' },
         help_client_curl_desc: { zh: '使用 curl 命令行：', en: 'Using curl:' },
+        help_client_anthropic_desc: { zh: '使用 Anthropic Messages API 格式：', en: 'Using Anthropic Messages API format:' },
+        help_client_gemini_desc: { zh: '使用 Gemini Native API 格式：', en: 'Using Gemini Native API format:' },
+        help_client_tool_tip: { zh: '💡 如果使用 Claude Code、Codex CLI 等工具，可直接在「工具配置」页面一键注入，无需手动填写地址和密钥。', en: '💡 If you use Claude Code, Codex CLI, etc., inject the config with one click on the Tool Config page — no manual address/key entry needed.' },
         help_client_example_tip: { zh: '任意兼容 OpenAI API 的客户端（如 ChatBox、NextChat、Cursor 等）均可直接使用上述地址和密钥接入。', en: 'Any OpenAI-compatible client (e.g. ChatBox, NextChat, Cursor) can use the above address and key.' },
 
         // ── Help: Settings sub-sections ──
@@ -3166,6 +3292,22 @@ test_chat_ok: { zh: '✓ 连接成功 · 模型 {model} · {ms}ms', en: '✓ Con
         help_failover_trigger_3: { zh: '上游返回 HTTP 200 但响应体包含 <code>error</code> 字段（"假成功"检测）', en: 'Upstream returns HTTP 200 but response body contains an <code>error</code> field (false success detection)' },
         help_failover_trigger_4: { zh: '流式响应中 SSE chunk 包含 <code>error</code> 字段', en: 'SSE chunk in streaming response contains an <code>error</code> field' },
         help_failover_tip: { zh: '4xx 客户端错误（如 401 认证失败、400 参数错误）不会触发故障转移，因为这类错误对所有上游都会一样。只有服务端问题或连接问题才会切换上游。', en: '4xx client errors (e.g. 401 auth failure, 400 bad request) do not trigger failover, as these errors would be the same across all upstreams. Only server-side or connection issues trigger upstream switching.' },
+
+        // ── Help: Multi-format API conversion section ──
+        help_api_convert: { zh: '多格式 API 转换', en: 'Multi-Format API Conversion' },
+        help_api_convert_desc: { zh: '网关支持多种原生 API 格式的端点，自动将请求转换为上游所需的格式，响应也自动转回客户端期望的格式。', en: 'The gateway supports multiple native API format endpoints, auto-converting requests to the upstream format and responses back to the client format.' },
+        help_api_convert_endpoints_title: { zh: '<strong>支持的端点：</strong>', en: '<strong>Supported Endpoints:</strong>' },
+        help_api_convert_endpoint_1: { zh: 'OpenAI Chat：POST /v1/chat/completions（默认，兼容所有 OpenAI 客户端）', en: 'OpenAI Chat: POST /v1/chat/completions (default, compatible with all OpenAI clients)' },
+        help_api_convert_endpoint_2: { zh: 'Anthropic Messages：POST /v1/messages（兼容 Claude 原生客户端）', en: 'Anthropic Messages: POST /v1/messages (compatible with Claude native clients)' },
+        help_api_convert_endpoint_3: { zh: 'Gemini Native：POST /v1beta/models/{model}:generateContent（兼容 Gemini 原生客户端）', en: 'Gemini Native: POST /v1beta/models/{model}:generateContent (compatible with Gemini native clients)' },
+        help_api_convert_endpoint_4: { zh: 'OpenAI Responses：POST /v1/responses（兼容 Codex CLI 等工具）', en: 'OpenAI Responses: POST /v1/responses (compatible with Codex CLI and similar tools)' },
+        help_api_convert_detect_title: { zh: '<strong>格式检测：</strong>', en: '<strong>Format Detection:</strong>' },
+        help_api_convert_detect_desc: { zh: '网关根据请求路径自动识别格式，无需额外配置', en: 'The gateway auto-detects the format from the request path; no extra config needed' },
+        help_api_convert_upstream_title: { zh: '<strong>上游格式适配：</strong>', en: '<strong>Upstream Format Adaptation:</strong>' },
+        help_api_convert_upstream_desc: { zh: '在上游编辑中可设置该上游的原生 API 格式，网关会自动将客户端请求转换为上游格式，响应再转回客户端格式', en: 'Set the upstream native API format when editing an upstream; the gateway converts client requests to the upstream format and responses back to the client format' },
+        help_api_convert_stream_title: { zh: '<strong>流式转换：</strong>', en: '<strong>Streaming Conversion:</strong>' },
+        help_api_convert_stream_desc: { zh: 'SSE 流式响应也支持格式转换，实时将上游的流式格式转换为客户端期望的流式格式', en: 'SSE streaming also supports format conversion, converting upstream chunks to the client-expected stream format in real time' },
+        help_api_convert_tip: { zh: '提示：即使上游是 Anthropic 原生格式，使用 OpenAI 兼容客户端接入也能正常工作，网关会自动做双向转换。', en: 'Tip: Even if an upstream is Anthropic-native, OpenAI-compatible clients work fine — the gateway handles bidirectional conversion automatically.' },
 
         // ── Help: Security section ──
         help_security_1: { zh: '<strong>API Key 加密</strong>：所有上游 API Key 使用 AES-256-GCM 加密存储，明文绝不出现在数据库或日志中', en: '<strong>API Key Encryption</strong>: All upstream API Keys are encrypted with AES-256-GCM. Plaintext never appears in database or logs' },
@@ -4327,8 +4469,7 @@ if (page === 'settings' && lastUpdateInfo) {
                 cmd('get_tool_switches') || [],
                 cmd('list_pools') || []
             ]);
-            listEl.innerHTML = detections.map(d => {
-                const sw = (switches || []).find(s => s.app_id === d.app_id) || {};
+            listEl.innerHTML = detections.map(d => {                const sw = (switches || []).find(s => s.app_id === d.app_id) || {};
                 const isOn = !!sw.switch_enabled;
                 const installedBadge = d.installed
                     ? '<span class="tool-config-badge-installed">' + t('tool_config_installed') + '</span>'
@@ -4368,6 +4509,7 @@ if (page === 'settings' && lastUpdateInfo) {
                     </div>`;
             }).join('');
             if (showToast) toast(t('toast_tool_config_refreshed'), 'success');
+            checkEnvConflicts();
         } catch (e) {
             listEl.innerHTML = '<div class="empty-state" style="color:var(--danger);">' + esc(String(e)) + '</div>';
         }
@@ -4439,6 +4581,38 @@ if (page === 'settings' && lastUpdateInfo) {
             loadToolConfig();
         } catch (e) {
             toast(t('toast_save_fail') + e, 'error');
+        }
+    }
+
+    // Detect system env vars that would override the injected proxy config
+    // (e.g. ANTHROPIC_BASE_URL set at OS level beats settings.json's env).
+    let envConflictCache = [];
+
+    async function checkEnvConflicts() {
+        const banner = document.getElementById('env-conflict-banner');
+        if (!banner) return;
+        try {
+            envConflictCache = await (cmd('detect_env_conflicts') || []);
+        } catch (e) { envConflictCache = []; }
+        if (!envConflictCache.length) { banner.style.display = 'none'; return; }
+        const names = envConflictCache.map(c => esc(c.name)).join(', ');
+        banner.innerHTML =
+            '<span>⚠️ ' + t('env_conflict_warn').replace('{count}', envConflictCache.length) + ' (' + names + ')</span> ' +
+            '<button class="btn btn-danger btn-sm" onclick="cleanupEnvConflicts()">' + t('env_conflict_cleanup') + '</button>';
+        banner.style.display = 'flex';
+    }
+
+    async function cleanupEnvConflicts() {
+        if (!envConflictCache.length) return;
+        const ok = confirm(t('env_conflict_cleanup') + '?');
+        if (!ok) return;
+        try {
+            await cmd('cleanup_env_conflicts', { conflicts: envConflictCache });
+            envConflictCache = [];
+            document.getElementById('env-conflict-banner').style.display = 'none';
+            toast(t('env_conflict_cleanup_done'), 'success');
+        } catch (e) {
+            toast(t('env_conflict_cleanup_fail') + ': ' + e, 'error');
         }
     }
 

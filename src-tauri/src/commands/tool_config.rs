@@ -76,6 +76,31 @@ pub fn update_tool_config(
         .map_err(|e| e.to_string())
 }
 
+/// Detect all environment-variable conflicts that could override injected config.
+#[tauri::command]
+pub fn detect_env_conflicts() -> Vec<llm_api_proxy_lib::tool_config::env_check::EnvConflict> {
+    llm_api_proxy_lib::tool_config::env_check::detect_conflicts()
+}
+
+/// Remove conflicting environment variables (backing them up first).
+#[tauri::command]
+pub fn cleanup_env_conflicts(
+    conflicts: Vec<llm_api_proxy_lib::tool_config::env_check::EnvConflict>,
+) -> Result<Option<String>, String> {
+    llm_api_proxy_lib::tool_config::env_check::cleanup_conflicts(&conflicts)
+        .map(|p| p.map(|p| p.display().to_string()))
+        .map_err(|e| e.to_string())
+}
+
+/// Restore environment variables from a previously created backup file.
+#[tauri::command]
+pub fn restore_env_backup(backup_path: String) -> Result<(), String> {
+    llm_api_proxy_lib::tool_config::env_check::restore_env_backup(
+        std::path::Path::new(&backup_path),
+    )
+    .map_err(|e| e.to_string())
+}
+
 // ============================================================================
 // Capability-based pool suggestion (stage 2 integration)
 // ============================================================================

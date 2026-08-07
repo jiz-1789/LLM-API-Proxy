@@ -99,6 +99,9 @@ pub fn run() {
             commands::tool_config::disable_tool_switch,
             commands::tool_config::update_tool_config,
             commands::tool_config::suggest_pool,
+            commands::tool_config::detect_env_conflicts,
+            commands::tool_config::cleanup_env_conflicts,
+            commands::tool_config::restore_env_backup,
         ])
         .setup(|app| {
             // Read language setting for bilingual tray menu
@@ -160,8 +163,9 @@ pub fn run() {
             // Start background alert monitoring task
             llm_api_proxy_lib::alert::start_alert_task(state.db.clone());
 
-            // Restore tool configs on startup (switch=ON tools).
-            if let Err(e) = state.tool_switch_manager.restore_on_startup() {
+            // Restore tool configs on startup: first recover from any abnormal
+            // exit (secondary backups), then re-inject switch=ON tools.
+            if let Err(e) = state.tool_switch_manager.recover_from_crash() {
                 tracing::error!(error = %e, "启动时恢复工具配置失败");
             }
 
