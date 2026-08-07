@@ -15,8 +15,8 @@ use std::path::PathBuf;
 pub struct CodexWriter;
 
 const APP_ID: &str = "codex";
-const AUTH_REL: &str = ".codex/auth.json";
-const CONFIG_REL: &str = ".codex/config.toml";
+const AUTH_REL: &str = "auth.json";
+const CONFIG_REL: &str = "config.toml";
 
 impl ToolConfigWriter for CodexWriter {
     fn app_id(&self) -> &'static str {

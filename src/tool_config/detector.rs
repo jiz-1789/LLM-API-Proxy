@@ -544,6 +544,33 @@ mod tests {
     }
 
     #[test]
+    fn test_codex_paths_no_duplicate_codex_dir() {
+        let _lock = CODEX_HOME_TEST_LOCK.lock().unwrap();
+        // Regression: CODEX_HOME path resolution must not double the `.codex`
+        // directory (e.g. ~/.codex/.codex/auth.json) like the old `.codex/auth.json`
+        // relative passed through codex_home_path() did.
+        let dir = tempfile::tempdir().unwrap();
+        // SAFETY: single-threaded test environment.
+        unsafe {
+            std::env::set_var("CODEX_HOME", dir.path());
+        }
+        let auth = codex_auth_path().unwrap();
+        let config = codex_config_path().unwrap();
+        assert_eq!(auth, dir.path().join("auth.json"));
+        assert_eq!(config, dir.path().join("config.toml"));
+        // The resolved path must not contain `auth.json` nested inside a subdir
+        // named `.codex`.
+        assert!(
+            !auth.to_string_lossy().contains(".codex"),
+            "auth path unexpectedly contains nested .codex: {}",
+            auth.display()
+        );
+        unsafe {
+            std::env::remove_var("CODEX_HOME");
+        }
+    }
+
+    #[test]
     fn test_codex_installed_by_config_dir() {
         let _lock = CODEX_HOME_TEST_LOCK.lock().unwrap();
         // A config dir alone (like CC-Switch's detection) counts as installed.
