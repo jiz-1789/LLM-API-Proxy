@@ -100,6 +100,7 @@ pub struct SanitizedPool {
     pub timeout_seconds: i32,
     pub max_concurrency: i32,
     pub thinking_enabled: bool,
+    pub thinking_level: String,
     pub failover_enabled: bool,
 }
 
@@ -184,6 +185,7 @@ pub fn collect_sanitized_pools(db: &Database) -> Vec<SanitizedPool> {
             timeout_seconds: p.timeout_seconds,
             max_concurrency: p.max_concurrency,
             thinking_enabled: p.thinking_enabled,
+            thinking_level: p.thinking_level,
             failover_enabled: p.failover_enabled,
         })
         .collect()
@@ -561,7 +563,7 @@ mod tests {
     #[test]
     fn test_collect_sanitized_pools() {
         let db = test_db();
-        db.create_pool("pool_1", "test-pool", "Test Pool", 5, false)
+        db.create_pool("pool_1", "test-pool", "Test Pool", 5, false, "off", "")
             .unwrap();
 
         let pools = collect_sanitized_pools(&db);

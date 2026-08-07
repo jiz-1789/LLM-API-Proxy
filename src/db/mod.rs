@@ -61,6 +61,10 @@ pub struct Pool {
     pub timeout_seconds: i32,
     pub max_concurrency: i32,
     pub thinking_enabled: bool,
+    /// Thinking intensity level (off | low | medium | high | max | custom), v13.
+    pub thinking_level: String,
+    /// Raw JSON injected when thinking_level = 'custom', v13.
+    pub thinking_custom_params: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -72,6 +76,8 @@ pub struct PoolUpstreamInfo {
     pub provider_name: String,
     pub model: String,
     pub sort_order: i32,
+    /// Per-upstream thinking level override; empty means follow pool level, v13.
+    pub thinking_level_override: String,
 }
 
 /// A single request log entry.
@@ -406,8 +412,10 @@ impl Database {
             timeout_seconds: row.get(5)?,
             max_concurrency: row.get(6)?,
             thinking_enabled: row.get::<_, i32>(7)? != 0,
-            created_at: row.get(8)?,
-            updated_at: row.get(9)?,
+            thinking_level: row.get::<_, Option<String>>(8)?.unwrap_or_else(|| "off".to_string()),
+            thinking_custom_params: row.get::<_, Option<String>>(9)?.unwrap_or_default(),
+            created_at: row.get(10)?,
+            updated_at: row.get(11)?,
         })
     }
 
@@ -496,7 +504,8 @@ mod tests {
         db.initialize().unwrap();
 
         // Insert a pool so get_stats has data to read
-        db.create_pool("pool_test", "test", "Test", 5, false).unwrap();
+        db.create_pool("pool_test", "test", "Test", 5, false, "off", "")
+            .unwrap();
 
         let db_clone = Arc::new(db);
         let db_write = db_clone.clone();

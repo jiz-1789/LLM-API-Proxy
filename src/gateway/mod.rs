@@ -1,4 +1,4 @@
-pub mod auth;
+﻿pub mod auth;
 pub mod error_response;
 pub mod health;
 pub mod rate_limit;
@@ -25,12 +25,13 @@ use tracing::{info, warn};
 use crate::crypto::KeyManager;
 use crate::db::Database;
 use crate::pool::thinking;
+use crate::pool::thinking::ThinkingLevel;
 use crate::proxy::error::UpstreamError;
 use crate::proxy::failover::UpstreamClient;
 
 use rate_limit::{RateLimitConfig, RateLimiter};
 
-/// Per-pool round-robin counters (pool_id → next index).
+/// Per-pool round-robin counters (pool_id 鈫?next index).
 type RoundRobinCounters = Arc<Mutex<HashMap<String, usize>>>;
 
 /// Default stream idle timeout: if no SSE chunk is received within this
@@ -164,12 +165,12 @@ struct GatewayState {
     rate_limiter: RateLimiter,
 }
 
-/// GET /api/health — Returns three-tier health check (app + database + upstreams).
+/// GET /api/health 鈥?Returns three-tier health check (app + database + upstreams).
 async fn handle_health(State(state): State<GatewayState>) -> impl IntoResponse {
     health::health_response(&state.db)
 }
 
-/// GET /v1/models — Return all pools as available models.
+/// GET /v1/models 鈥?Return all pools as available models.
 async fn handle_models(State(state): State<GatewayState>) -> impl IntoResponse {
     match state.db.get_pools() {
         Ok(pools) => {
@@ -205,7 +206,7 @@ fn extract_usage(resp: &serde_json::Value) -> (i64, i64, i64) {
     }
 }
 
-/// POST /v1/chat/completions — Forward to upstream pool with round-robin + failover.
+/// POST /v1/chat/completions 鈥?Forward to upstream pool with round-robin + failover.
 ///
 /// Routing logic:
 /// 1. Round-robin: If `round_robin_strategy == "round_robin"`, rotate the
@@ -305,7 +306,7 @@ async fn handle_chat_completions(
         );
     }
 
-    // ── Pre-request configuration ──────────────────────────────────────
+    // 鈹€鈹€ Pre-request configuration 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
     // Check if client explicitly disabled reasoning/thinking
     let client_reasoning_disabled =
@@ -348,7 +349,7 @@ async fn handle_chat_completions(
     // Number of upstreams to try
     let max_attempts = if pool.failover_enabled { n } else { 1 };
 
-    // ── Failover loop ──────────────────────────────────────────────────
+    // 鈹€鈹€ Failover loop 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
     let mut last_error: Option<String> = None;
     let mut failed_upstreams_json: Vec<Value> = Vec::new();
@@ -455,13 +456,22 @@ async fn handle_chat_completions(
         }
 
         // Inject thinking params **per-upstream** based on this upstream's
-        // provider_name. Skip if the client explicitly set reasoning=false.
-        if !client_reasoning_disabled
-            && pool.thinking_enabled
-            && let Some(thinking_param) =
-                thinking::get_thinking_param(&upstream.provider_name, true)
-        {
-            thinking::merge_thinking_params(&mut request_body, &Some(thinking_param));
+        // provider_name and the configured thinking level (pool level, or the
+        // per-upstream override if set). Skip if the client explicitly set
+        // reasoning=false.
+        if !client_reasoning_disabled {
+            let pool_level = ThinkingLevel::parse(&pool.thinking_level);
+            let upstream_level = if pu.thinking_level_override.is_empty() {
+                pool_level
+            } else {
+                ThinkingLevel::parse(&pu.thinking_level_override)
+            };
+            let thinking_params = thinking::get_thinking_params(
+                &upstream.provider_name,
+                &upstream_level,
+                &pool.thinking_custom_params,
+            );
+            thinking::merge_thinking_params(&mut request_body, &thinking_params);
         }
 
         // For streaming requests, ensure we get usage info in the final chunk
@@ -474,7 +484,7 @@ async fn handle_chat_completions(
             );
         }
 
-        // ── SSE streaming path ──────────────────────────────────────
+        // 鈹€鈹€ SSE streaming path 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
         if is_stream {
             match state
                 .proxy_client
@@ -594,7 +604,7 @@ async fn handle_chat_completions(
                                     warn!(
                                         trace_id = %trace_id_clone,
                                         idle_timeout_secs = DEFAULT_STREAM_IDLE_TIMEOUT_SECS,
-                                        "Stream idle timeout — no data received, terminating stream"
+                                        "Stream idle timeout 鈥?no data received, terminating stream"
                                     );
                                     break;
                                 }
@@ -650,7 +660,7 @@ async fn handle_chat_completions(
                         error = %e,
                         "Stream upstream failed"
                     );
-                    // 4xx：客户端请求本身的问题，原样透传上游错误给客户端
+                    // 4xx锛氬鎴风璇锋眰鏈韩鐨勯棶棰橈紝鍘熸牱閫忎紶涓婃父閿欒缁欏鎴风
                     if let Some((passthrough_status, passthrough_body)) = e.passthrough_response() {
                         let elapsed = start_time.elapsed().as_millis() as i32;
                         let log_id = format!("log_{}", uuid::Uuid::new_v4().simple());
@@ -699,7 +709,7 @@ async fn handle_chat_completions(
                 }
             }
         } else {
-            // ── Non-streaming path ──────────────────────────────────
+            // 鈹€鈹€ Non-streaming path 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
             match state
                 .proxy_client
                 .forward_request(
@@ -806,10 +816,10 @@ async fn handle_chat_completions(
                         error = %e,
                         "Upstream failed"
                     );
-                    // 4xx：客户端请求本身的问题，原样透传上游错误给客户端，
-                    // 不做故障转移（换一个上游也会得到同样结果）。
+                    // 4xx锛氬鎴风璇锋眰鏈韩鐨勯棶棰橈紝鍘熸牱閫忎紶涓婃父閿欒缁欏鎴风锛?
+                    // 涓嶅仛鏁呴殰杞Щ锛堟崲涓€涓笂娓镐篃浼氬緱鍒板悓鏍风粨鏋滐級銆?
                     if let Some((passthrough_status, passthrough_body)) = e.passthrough_response() {
-                        // 记录请求日志，状态码为上游真实 4xx 状态码
+                        // 璁板綍璇锋眰鏃ュ織锛岀姸鎬佺爜涓轰笂娓哥湡瀹?4xx 鐘舵€佺爜
                         let elapsed = start_time.elapsed().as_millis() as i32;
                         let log_id = format!("log_{}", uuid::Uuid::new_v4().simple());
                         if let Err(le) = state.db.insert_request_log(
@@ -830,8 +840,8 @@ async fn handle_chat_completions(
                         ) {
                             warn!(trace_id = %trace_id, error = %le, "Failed to insert request log");
                         }
-                        // 401/403 说明上游 Key 有问题，标记健康失败；
-                        // 其余 4xx 是客户端请求问题，不惩罚上游
+                        // 401/403 璇存槑涓婃父 Key 鏈夐棶棰橈紝鏍囪鍋ュ悍澶辫触锛?
+                        // 鍏朵綑 4xx 鏄鎴风璇锋眰闂锛屼笉鎯╃綒涓婃父
                         if matches!(e, UpstreamError::AuthFailed { .. })
                             && let Err(he) = state.db.update_upstream_health(&upstream.id, false, Some(&e.error_summary()), UPSTREAM_FAILURE_THRESHOLD)
                         {
@@ -861,7 +871,7 @@ async fn handle_chat_completions(
         }
     }
 
-    // All upstreams exhausted — log the failure
+    // All upstreams exhausted 鈥?log the failure
     let elapsed = start_time.elapsed().as_millis() as i32;
     let log_id = format!("log_fail_{}", uuid::Uuid::new_v4().simple());
     if let Err(e) = state.db.insert_request_log(
@@ -903,7 +913,7 @@ mod tests {
     use super::*;
     use axum::http::{HeaderName, HeaderValue};
 
-    // ── filter_passthrough_headers 测试 ──────────────────────────
+    // 鈹€鈹€ filter_passthrough_headers 娴嬭瘯 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
     #[test]
     fn test_passthrough_x_ratelimit_headers() {
@@ -969,7 +979,7 @@ mod tests {
         assert!(!filtered.contains_key("server"));
     }
 
-    // ── with_request_id 测试 ─────────────────────────────────────
+    // 鈹€鈹€ with_request_id 娴嬭瘯 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
     #[test]
     fn test_with_request_id_adds_header() {
@@ -996,7 +1006,7 @@ mod tests {
         );
     }
 
-    // ── build_trace_headers 测试 ─────────────────────────────────
+    // 鈹€鈹€ build_trace_headers 娴嬭瘯 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
     #[test]
     fn test_build_trace_headers() {
@@ -1015,7 +1025,7 @@ mod tests {
         assert_eq!(headers.len(), 1);
     }
 
-    // ── PASSTHROUGH_HEADER_PREFIXES 完整性测试 ────────────────────
+    // 鈹€鈹€ PASSTHROUGH_HEADER_PREFIXES 瀹屾暣鎬ф祴璇?鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
     #[test]
     fn test_passthrough_prefixes_cover_expected_ranges() {

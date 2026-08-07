@@ -16,11 +16,22 @@ impl Database {
         display_name: &str,
         max_concurrency: i32,
         thinking_enabled: bool,
+        thinking_level: &str,
+        thinking_custom_params: &str,
     ) -> Result<(), AppError> {
         self.get_conn()?.execute(
-            "INSERT INTO pools (id, name, display_name, max_concurrency, thinking_enabled)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![id, name, display_name, max_concurrency, thinking_enabled as i32],
+            "INSERT INTO pools (id, name, display_name, max_concurrency, thinking_enabled,
+                                thinking_level, thinking_custom_params)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                id,
+                name,
+                display_name,
+                max_concurrency,
+                thinking_enabled as i32,
+                thinking_level,
+                thinking_custom_params
+            ],
         )?;
         Ok(())
     }
@@ -31,6 +42,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, name, display_name, round_robin_strategy, failover_enabled,
                     timeout_seconds, max_concurrency, thinking_enabled,
+                    thinking_level, thinking_custom_params,
                     created_at, updated_at
              FROM pools ORDER BY created_at DESC"
         )?;
@@ -44,6 +56,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, name, display_name, round_robin_strategy, failover_enabled,
                     timeout_seconds, max_concurrency, thinking_enabled,
+                    thinking_level, thinking_custom_params,
                     created_at, updated_at
              FROM pools WHERE id = ?1"
         )?;
@@ -61,6 +74,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, name, display_name, round_robin_strategy, failover_enabled,
                     timeout_seconds, max_concurrency, thinking_enabled,
+                    thinking_level, thinking_custom_params,
                     created_at, updated_at
              FROM pools WHERE name = ?1"
         )?;
@@ -79,12 +93,20 @@ impl Database {
         display_name: &str,
         max_concurrency: i32,
         thinking_enabled: bool,
+        thinking_level: &str,
+        thinking_custom_params: &str,
     ) -> Result<(), AppError> {
         let rows = self.get_conn()?.execute(
             "UPDATE pools SET display_name=?1, max_concurrency=?2, thinking_enabled=?3,
-             updated_at=datetime('now', 'localtime') WHERE id=?4",
+             thinking_level=?4, thinking_custom_params=?5,
+             updated_at=datetime('now', 'localtime') WHERE id=?6",
             params![
-                display_name, max_concurrency, thinking_enabled as i32, id
+                display_name,
+                max_concurrency,
+                thinking_enabled as i32,
+                thinking_level,
+                thinking_custom_params,
+                id
             ],
         )?;
         if rows == 0 {
@@ -132,7 +154,7 @@ impl Database {
     pub fn get_pool_upstreams(&self, pool_id: &str) -> Result<Vec<PoolUpstreamInfo>, AppError> {
         let conn = self.get_conn()?;
         let mut stmt = conn.prepare(
-            "SELECT u.id, u.provider_name, pu.model, pu.sort_order
+            "SELECT u.id, u.provider_name, pu.model, pu.sort_order, pu.thinking_level_override
              FROM pool_upstreams pu
              JOIN upstreams u ON u.id = pu.upstream_id
              WHERE pu.pool_id=?1
@@ -144,6 +166,7 @@ impl Database {
                 provider_name: row.get(1)?,
                 model: row.get(2)?,
                 sort_order: row.get(3)?,
+                thinking_level_override: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
             })
         })?;
         Self::collect_rows(rows)

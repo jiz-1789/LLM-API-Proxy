@@ -108,7 +108,7 @@ impl TestEnv {
     pub fn create_pool(&self, name: &str, display_name: &str, upstream_ids: &[String]) {
         let pool_id = format!("pool_test_{}", uuid::Uuid::new_v4().simple());
         self.db
-            .create_pool(&pool_id, name, display_name, 5, false)
+            .create_pool(&pool_id, name, display_name, 5, false, "off", "")
             .unwrap();
 
         for (i, uid) in upstream_ids.iter().enumerate() {
@@ -122,7 +122,7 @@ impl TestEnv {
     pub fn create_pool_no_failover(&self, name: &str, display_name: &str, upstream_ids: &[String]) {
         let pool_id = format!("pool_test_{}", uuid::Uuid::new_v4().simple());
         self.db
-            .create_pool(&pool_id, name, display_name, 5, false)
+            .create_pool(&pool_id, name, display_name, 5, false, "off", "")
             .unwrap();
 
         for (i, uid) in upstream_ids.iter().enumerate() {

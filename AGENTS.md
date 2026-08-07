@@ -54,7 +54,7 @@ src/config_io.rs             ← 配置导入导出
 
 1. 在 `src/db/migration.rs` 的 `run_migrations()` 方法中，向迁移逻辑末尾追加新版本
 2. 版本号**严格递增 +1**，不可跳号
-3. 当前最新版本为 **v10**（参见 `DEVELOPMENT.md` 迁移历史表）
+3. 当前最新版本为 **v13**（参见 `DEVELOPMENT.md` 迁移历史表）
 4. 同步更新 `DEVELOPMENT.md` 的 Schema 表和迁移历史表
 
 ```rust

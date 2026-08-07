@@ -25,6 +25,10 @@ pub struct CreatePoolRequest {
     pub max_concurrency: i32,
     #[serde(default)]
     pub thinking_enabled: bool,
+    #[serde(default = "default_thinking_level")]
+    pub thinking_level: String,
+    #[serde(default)]
+    pub thinking_custom_params: String,
     #[serde(default)]
     pub upstreams: Vec<PoolUpstreamEntry>,
 }
@@ -35,10 +39,18 @@ pub struct UpdatePoolRequest {
     pub display_name: String,
     pub max_concurrency: i32,
     pub thinking_enabled: bool,
+    #[serde(default = "default_thinking_level")]
+    pub thinking_level: String,
+    #[serde(default)]
+    pub thinking_custom_params: String,
 }
 
 fn default_concurrency() -> i32 {
     5
+}
+
+fn default_thinking_level() -> String {
+    "off".to_string()
 }
 
 /// Pool info returned to the frontend, enriched with upstream count.
@@ -52,6 +64,8 @@ pub struct PoolVO {
     pub timeout_seconds: i32,
     pub max_concurrency: i32,
     pub thinking_enabled: bool,
+    pub thinking_level: String,
+    pub thinking_custom_params: String,
     pub upstream_count: usize,
     pub created_at: String,
     pub updated_at: String,
@@ -71,6 +85,8 @@ pub(crate) fn pool_to_vo(p: &llm_api_proxy_lib::db::Pool, upstream_count: usize)
         timeout_seconds: p.timeout_seconds,
         max_concurrency: p.max_concurrency,
         thinking_enabled: p.thinking_enabled,
+        thinking_level: p.thinking_level.clone(),
+        thinking_custom_params: p.thinking_custom_params.clone(),
         upstream_count,
         created_at: p.created_at.clone(),
         updated_at: p.updated_at.clone(),
@@ -114,7 +130,15 @@ pub fn create_pool(
     let id = generate_pool_id();
     state
         .db
-        .create_pool(&id, &req.name, &req.display_name, req.max_concurrency, req.thinking_enabled)
+        .create_pool(
+            &id,
+            &req.name,
+            &req.display_name,
+            req.max_concurrency,
+            req.thinking_enabled,
+            &req.thinking_level,
+            &req.thinking_custom_params,
+        )
         .map_err(|e| e.to_string())?;
 
     for (i, entry) in req.upstreams.iter().enumerate() {
@@ -146,6 +170,8 @@ pub fn update_pool(
             &req.display_name,
             req.max_concurrency,
             req.thinking_enabled,
+            &req.thinking_level,
+            &req.thinking_custom_params,
         )
         .map_err(|e| e.to_string())?;
 
@@ -236,6 +262,8 @@ mod tests {
             timeout_seconds: 30,
             max_concurrency: 5,
             thinking_enabled: false,
+            thinking_level: "high".to_string(),
+            thinking_custom_params: String::new(),
             created_at: "2026-07-28 09:00:00".to_string(),
             updated_at: "2026-07-28 09:00:00".to_string(),
         }
@@ -253,6 +281,7 @@ mod tests {
         assert_eq!(vo.timeout_seconds, 30);
         assert_eq!(vo.max_concurrency, 5);
         assert!(!vo.thinking_enabled);
+        assert_eq!(vo.thinking_level, "high");
         assert_eq!(vo.upstream_count, 3);
         assert_eq!(vo.created_at, "2026-07-28 09:00:00");
     }
@@ -275,6 +304,8 @@ mod tests {
         assert_eq!(req.display_name, "Test Pool");
         assert_eq!(req.max_concurrency, 5); // default
         assert!(!req.thinking_enabled); // default
+        assert_eq!(req.thinking_level, "off"); // default
+        assert!(req.thinking_custom_params.is_empty()); // default
         assert!(req.upstreams.is_empty()); // default
     }
 
@@ -285,6 +316,8 @@ mod tests {
             "display_name": "Production",
             "max_concurrency": 10,
             "thinking_enabled": true,
+            "thinking_level": "max",
+            "thinking_custom_params": "{\"x\":1}",
             "upstreams": [
                 {"upstream_id": "up_001", "model": "gpt-4"},
                 {"upstream_id": "up_002", "model": "gpt-4"}
@@ -294,6 +327,8 @@ mod tests {
         assert_eq!(req.name, "prod-pool");
         assert_eq!(req.max_concurrency, 10);
         assert!(req.thinking_enabled);
+        assert_eq!(req.thinking_level, "max");
+        assert_eq!(req.thinking_custom_params, "{\"x\":1}");
         assert_eq!(req.upstreams.len(), 2);
         assert_eq!(req.upstreams[0].upstream_id, "up_001");
         assert_eq!(req.upstreams[0].model, "gpt-4");
@@ -305,12 +340,28 @@ mod tests {
         let json = r#"{
             "display_name": "Updated Name",
             "max_concurrency": 20,
-            "thinking_enabled": true
+            "thinking_enabled": true,
+            "thinking_level": "low",
+            "thinking_custom_params": ""
         }"#;
         let req: UpdatePoolRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.display_name, "Updated Name");
         assert_eq!(req.max_concurrency, 20);
         assert!(req.thinking_enabled);
+        assert_eq!(req.thinking_level, "low");
+    }
+
+    #[test]
+    fn test_update_pool_request_thinking_level_default() {
+        // Backward compat: old clients without thinking_level fields
+        let json = r#"{
+            "display_name": "Legacy",
+            "max_concurrency": 5,
+            "thinking_enabled": false
+        }"#;
+        let req: UpdatePoolRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.thinking_level, "off");
+        assert!(req.thinking_custom_params.is_empty());
     }
 
     #[test]

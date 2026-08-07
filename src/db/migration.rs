@@ -39,6 +39,8 @@ impl Database {
                 timeout_seconds INTEGER NOT NULL DEFAULT 30,
                 max_concurrency INTEGER NOT NULL DEFAULT 5,
                 thinking_enabled INTEGER NOT NULL DEFAULT 0,
+                thinking_level TEXT NOT NULL DEFAULT 'off',
+                thinking_custom_params TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
             );
@@ -48,6 +50,7 @@ impl Database {
                 upstream_id TEXT NOT NULL REFERENCES upstreams(id) ON DELETE CASCADE,
                 sort_order INTEGER NOT NULL DEFAULT 0,
                 model TEXT NOT NULL DEFAULT '',
+                thinking_level_override TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (pool_id, upstream_id)
             );
 
@@ -242,6 +245,82 @@ impl Database {
             info!("Database migrated to version 10");
         }
 
+        // v11 migration: create tool_configs table for tool config switch system (idempotent)
+        if current < 11 {
+            self.get_conn()?.execute_batch(
+                "CREATE TABLE IF NOT EXISTS tool_configs (
+                    id TEXT PRIMARY KEY,
+                    tool_app_id TEXT NOT NULL UNIQUE,
+                    pool_id TEXT,
+                    api_key_id TEXT,
+                    provider_name TEXT NOT NULL DEFAULT '',
+                    switch_enabled INTEGER NOT NULL DEFAULT 0,
+                    original_config TEXT NOT NULL DEFAULT '',
+                    config_snapshot TEXT NOT NULL DEFAULT '{}',
+                    last_written_at TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+                );",
+            )?;
+            self.get_conn()?.execute(
+                "UPDATE schema_version SET version = ?1",
+                params![11],
+            )?;
+            info!("Database migrated to version 11");
+        }
+
+        // v12 migration: upstream api_format column (idempotent)
+        if current < 12 {
+            let conn = self.get_conn()?;
+            if !Self::column_exists_on_conn(&conn, "upstreams", "api_format")? {
+                conn.execute(
+                    "ALTER TABLE upstreams ADD COLUMN api_format TEXT NOT NULL DEFAULT 'openai_chat'",
+                    [],
+                )?;
+            }
+            conn.execute(
+                "UPDATE schema_version SET version = ?1",
+                params![12],
+            )?;
+            info!("Database migrated to version 12");
+        }
+
+        // v13 migration: multi-level thinking intensity (idempotent)
+        // Adds pools.thinking_level, pools.thinking_custom_params,
+        // pool_upstreams.thinking_level_override. Old thinking_enabled
+        // column is kept for backward compatibility.
+        if current < 13 {
+            let conn = self.get_conn()?;
+            if !Self::column_exists_on_conn(&conn, "pools", "thinking_level")? {
+                conn.execute(
+                    "ALTER TABLE pools ADD COLUMN thinking_level TEXT NOT NULL DEFAULT 'off'",
+                    [],
+                )?;
+            }
+            if !Self::column_exists_on_conn(&conn, "pools", "thinking_custom_params")? {
+                conn.execute(
+                    "ALTER TABLE pools ADD COLUMN thinking_custom_params TEXT NOT NULL DEFAULT ''",
+                    [],
+                )?;
+            }
+            if !Self::column_exists_on_conn(&conn, "pool_upstreams", "thinking_level_override")? {
+                conn.execute(
+                    "ALTER TABLE pool_upstreams ADD COLUMN thinking_level_override TEXT NOT NULL DEFAULT ''",
+                    [],
+                )?;
+            }
+            // Data backfill: legacy thinking_enabled=true → thinking_level='high'
+            conn.execute(
+                "UPDATE pools SET thinking_level = 'high' WHERE thinking_enabled = 1 AND thinking_level = 'off'",
+                [],
+            )?;
+            conn.execute(
+                "UPDATE schema_version SET version = ?1",
+                params![13],
+            )?;
+            info!("Database migrated to version 13");
+        }
+
         Ok(())
     }
 
@@ -331,7 +410,17 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         db.initialize().unwrap();
         let version = db.get_schema_version().unwrap();
-        assert_eq!(version, 10);
+        assert_eq!(version, 13);
+    }
+
+    #[test]
+    fn test_thinking_columns_present_after_migration() {
+        let db = Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+        assert!(db.column_exists("pools", "thinking_level").unwrap());
+        assert!(db.column_exists("pools", "thinking_custom_params").unwrap());
+        assert!(db.column_exists("pool_upstreams", "thinking_level_override").unwrap());
+        assert!(db.column_exists("pools", "thinking_enabled").unwrap());
     }
 
     #[test]

@@ -595,6 +595,35 @@ gap: 8px;
         tr { transition: background var(--transition); }
         tbody tr:hover td { background: var(--bg-hover); }
 
+        /* === Thinking level selector === */
+        .thinking-level-selector {
+            display: flex;
+            gap: 0;
+            border-radius: var(--radius-sm);
+            overflow: hidden;
+            border: 1px solid var(--border);
+            margin-top: 8px;
+            flex-wrap: wrap;
+        }
+        .thinking-level-btn {
+            flex: 1;
+            min-width: 44px;
+            padding: 8px 10px;
+            text-align: center;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            border-right: 1px solid var(--border);
+            transition: all var(--transition);
+            border-radius: 0;
+        }
+        .thinking-level-btn:last-child { border-right: none; }
+        .thinking-level-btn:hover { background: var(--bg-hover); }
+        .thinking-level-btn.active { background: var(--accent); color: white; }
+        .thinking-custom-box textarea.form-input { resize: vertical; }
+
         /* === Toggle switch === */
         .toggle { position: relative; width: 44px; height: 26px; display: inline-block; flex-shrink: 0; }
         .toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
@@ -1344,11 +1373,12 @@ gap: 8px;
                                 <th data-i18n="pools_upstream_count">上游数</th>
                                 <th data-i18n="pools_max_concurrency">最大并发</th>
                                 <th data-i18n="modal_pool_thinking">思考模式</th>
+                                <th data-i18n="thinking_level_column">思考强度</th>
                                 <th data-i18n="upstreams_actions">操作</th>
                             </tr>
                         </thead>
                         <tbody id="pool-tbody">
-                            <tr><td colspan="6" class="empty-state" data-i18n="empty_loading">加载中...</td></tr>
+                            <tr><td colspan="7" class="empty-state" data-i18n="empty_loading">加载中...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -2119,11 +2149,21 @@ print(response.choices[0].message.content)</code></pre>
                     <input class="form-input" id="pf-concurrency" type="number" value="5" min="1" max="50">
                 </div>
                 <div class="form-group">
-                    <label class="form-label" data-i18n="modal_pool_thinking">思考模式</label>
-                    <label class="toggle" style="margin-top:8px;">
-                        <input type="checkbox" id="pf-thinking">
-                        <span class="slider"></span>
-                    </label>
+                    <label class="form-label" data-i18n="modal_pool_thinking">思考强度</label>
+                    <div class="thinking-level-selector" id="pf-thinking-levels">
+                        <button type="button" class="thinking-level-btn active" data-level="off" onclick="setThinkingLevel('off')" data-i18n="thinking_level_off">关闭</button>
+                        <button type="button" class="thinking-level-btn" data-level="low" onclick="setThinkingLevel('low')" data-i18n="thinking_level_low">低</button>
+                        <button type="button" class="thinking-level-btn" data-level="medium" onclick="setThinkingLevel('medium')" data-i18n="thinking_level_medium">中</button>
+                        <button type="button" class="thinking-level-btn" data-level="high" onclick="setThinkingLevel('high')" data-i18n="thinking_level_high">高</button>
+                        <button type="button" class="thinking-level-btn" data-level="max" onclick="setThinkingLevel('max')" data-i18n="thinking_level_max">最大</button>
+                        <button type="button" class="thinking-level-btn" data-level="custom" onclick="setThinkingLevel('custom')" data-i18n="thinking_level_custom">自定义</button>
+                    </div>
+                    <input type="hidden" id="pf-thinking">
+                    <div class="thinking-custom-box" id="pf-custom-box" style="display:none;margin-top:8px;">
+                        <label class="form-label" data-i18n="thinking_custom_params">自定义参数 (JSON)</label>
+                        <textarea class="form-input" id="pf-custom-params" rows="2" placeholder='{"reasoning": true, "reasoning_effort": "medium"}' style="font-family:'SF Mono','Cascadia Code',monospace;font-size:12px;"></textarea>
+                        <div class="form-hint" data-i18n="thinking_custom_params_hint">直接注入到请求体中的 JSON 参数</div>
+                    </div>
                 </div>
             </div>
             <div class="form-group">
@@ -2560,6 +2600,16 @@ settings_import_full: { zh: '全量导入', en: 'Import (Full)' },
         modal_pool_upstreams_hint: { zh: '勾选要加入该池的上游，并选择对应模型', en: 'Select upstreams and their models for this pool' },
         modal_pool_concurrency: { zh: '最大并发', en: 'Max Concurrency' },
         modal_pool_thinking: { zh: '思考模式', en: 'Thinking Mode' },
+        thinking_level_off: { zh: '关闭', en: 'Off' },
+        thinking_level_low: { zh: '低', en: 'Low' },
+        thinking_level_medium: { zh: '中', en: 'Medium' },
+        thinking_level_high: { zh: '高', en: 'High' },
+        thinking_level_max: { zh: '最大', en: 'Max' },
+        thinking_level_custom: { zh: '自定义', en: 'Custom' },
+        thinking_level_column: { zh: '思考强度', en: 'Thinking Level' },
+        thinking_custom_params: { zh: '自定义参数 (JSON)', en: 'Custom Params (JSON)' },
+        thinking_custom_params_hint: { zh: '直接注入到请求体中的 JSON 参数', en: 'JSON injected verbatim into the request body' },
+        toast_pool_custom_params_invalid: { zh: '自定义参数不是合法 JSON', en: 'Custom params are not valid JSON' },
         modal_pool_thinking_hint: { zh: '为支持的上游自动注入推理参数', en: 'Auto-inject reasoning params for supported upstreams' },
         modal_pool_failover: { zh: '故障转移', en: 'Failover' },
         modal_pool_failover_hint: { zh: '上游失败时自动尝试下一个', en: 'Try next upstream on failure' },
@@ -3901,6 +3951,7 @@ if (page === 'settings' && lastUpdateInfo) {
                 <td><span class="badge badge-blue">${p.upstream_count} ${t('label_upstream_suffix')}</span></td>
                 <td>${p.max_concurrency}</td>
                 <td>${p.thinking_enabled ? '<span class="badge badge-green">' + t('label_on') + '</span>' : '<span style="color:var(--text-muted)">' + t('label_off') + '</span>'}</td>
+                <td>${thinkingLevelLabel(p.thinking_level)}</td>
                 <td>
                     <button class="btn btn-ghost btn-sm" onclick="openPoolDetailModal('${jsEsc(p.id)}')">${t('btn_detail')}</button>
                     <button class="btn btn-ghost btn-sm" onclick="openEditPoolModal('${jsEsc(p.id)}')">${t('btn_edit')}</button>
@@ -3914,11 +3965,35 @@ if (page === 'settings' && lastUpdateInfo) {
         document.getElementById('pool-modal-title').textContent = t('modal_add_pool');
         document.getElementById('pool-edit-id').value = '';
         document.getElementById('pf-name').value = '';
+        document.getElementById('pf-name').disabled = false;
         document.getElementById('pf-display').value = '';
         document.getElementById('pf-concurrency').value = '5';
-        document.getElementById('pf-thinking').checked = false;
+        setThinkingLevel('off');
         await loadPoolUpstreamCheckboxes(null);
         document.getElementById('pool-modal').classList.add('open');
+    }
+
+    function setThinkingLevel(level) {
+        const box = document.getElementById('pf-custom-box');
+        document.querySelectorAll('#pf-thinking-levels .thinking-level-btn').forEach(btn => {
+            const active = btn.dataset.level === level;
+            btn.classList.toggle('active', active);
+        });
+        document.getElementById('pf-thinking').value = level;
+        box.style.display = level === 'custom' ? 'block' : 'none';
+        if (level !== 'custom') {
+            document.getElementById('pf-custom-params').value = '';
+        }
+    }
+
+    function getThinkingLevel() {
+        return document.getElementById('pf-thinking').value || 'off';
+    }
+
+    function thinkingLevelLabel(level) {
+        const key = 'thinking_level_' + (level || 'off');
+        const label = t(key);
+        return label !== key ? label : (level || 'off');
     }
 
     async function openEditPoolModal(id) {
@@ -3933,7 +4008,10 @@ if (page === 'settings' && lastUpdateInfo) {
             document.getElementById('pf-name').disabled = true;
             document.getElementById('pf-display').value = p.display_name;
             document.getElementById('pf-concurrency').value = p.max_concurrency;
-            document.getElementById('pf-thinking').checked = p.thinking_enabled;
+            setThinkingLevel(p.thinking_level || 'off');
+            if ((p.thinking_level || 'off') === 'custom') {
+                document.getElementById('pf-custom-params').value = p.thinking_custom_params || '';
+            }
             await loadPoolUpstreamCheckboxes(poolUpstreams);
             document.getElementById('pool-modal').classList.add('open');
         } catch (e) {
@@ -4042,6 +4120,7 @@ if (page === 'settings' && lastUpdateInfo) {
                 <div><span style="color:var(--text-muted);">${t('pools_display_name')}:</span> ${esc(pool.display_name)}</div>
                 <div><span style="color:var(--text-muted);">${t('pools_max_concurrency')}:</span> ${pool.max_concurrency}</div>
                 <div><span style="color:var(--text-muted);">${t('modal_pool_thinking')}:</span> ${pool.thinking_enabled ? t('label_on') : t('label_off')}</div>
+                <div><span style="color:var(--text-muted);">${t('thinking_level_column')}:</span> ${thinkingLevelLabel(pool.thinking_level)}</div>
             `;
 
             const poolUpstreams = await cmd('get_pool_upstreams', { poolId }) || [];
@@ -4151,7 +4230,11 @@ if (page === 'settings' && lastUpdateInfo) {
         const name = document.getElementById('pf-name').value.trim();
         const display_name = document.getElementById('pf-display').value.trim() || name;
         const max_concurrency = parseInt(document.getElementById('pf-concurrency').value) || 5;
-        const thinking_enabled = document.getElementById('pf-thinking').checked;
+        const thinking_enabled = getThinkingLevel() !== 'off';
+        const thinking_level = getThinkingLevel();
+        const thinking_custom_params = thinking_level === 'custom'
+            ? document.getElementById('pf-custom-params').value.trim()
+            : '';
 
         const upstreams = [];
         document.querySelectorAll('.pool-upstream-row').forEach(row => {
@@ -4165,6 +4248,14 @@ if (page === 'settings' && lastUpdateInfo) {
 
         if (!name) { toast(t('toast_pool_name_required'), 'error'); return; }
         if (!id && upstreams.length === 0) { toast(t('pool_validate_no_upstream'), 'error'); return; }
+        if (thinking_level === 'custom') {
+            try {
+                JSON.parse(thinking_custom_params || '{}');
+            } catch (e) {
+                toast(t('toast_pool_custom_params_invalid'), 'error');
+                return;
+            }
+        }
 
         const btn = document.getElementById('btn-save-pool');
         btn.disabled = true;
@@ -4173,7 +4264,7 @@ if (page === 'settings' && lastUpdateInfo) {
         try {
             if (id) {
                 await cmd('update_pool', {
-                    id, req: { display_name, max_concurrency, thinking_enabled }
+                    id, req: { display_name, max_concurrency, thinking_enabled, thinking_level, thinking_custom_params }
                 });
                 const currentUpstreams = await cmd('get_pool_upstreams', { poolId: id }) || [];
                 for (const u of currentUpstreams) {
@@ -4184,7 +4275,7 @@ if (page === 'settings' && lastUpdateInfo) {
                 }
                 toast(t('toast_pool_updated'), 'success');
             } else {
-                await cmd('create_pool', { req: { name, display_name, max_concurrency, thinking_enabled, upstreams } });
+                await cmd('create_pool', { req: { name, display_name, max_concurrency, thinking_enabled, thinking_level, thinking_custom_params, upstreams } });
                 toast(t('toast_pool_created'), 'success');
             }
             closePoolModal();
