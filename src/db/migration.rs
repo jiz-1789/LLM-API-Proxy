@@ -321,6 +321,36 @@ impl Database {
             info!("Database migrated to version 13");
         }
 
+        // v14 migration: model capabilities columns (idempotent)
+        // upstreams.capabilities, pools.capabilities, pool_upstreams.capabilities
+        // store JSON-serialized ModelCapabilities; empty means unknown.
+        if current < 14 {
+            let conn = self.get_conn()?;
+            if !Self::column_exists_on_conn(&conn, "upstreams", "capabilities")? {
+                conn.execute(
+                    "ALTER TABLE upstreams ADD COLUMN capabilities TEXT NOT NULL DEFAULT ''",
+                    [],
+                )?;
+            }
+            if !Self::column_exists_on_conn(&conn, "pools", "capabilities")? {
+                conn.execute(
+                    "ALTER TABLE pools ADD COLUMN capabilities TEXT NOT NULL DEFAULT ''",
+                    [],
+                )?;
+            }
+            if !Self::column_exists_on_conn(&conn, "pool_upstreams", "capabilities")? {
+                conn.execute(
+                    "ALTER TABLE pool_upstreams ADD COLUMN capabilities TEXT NOT NULL DEFAULT ''",
+                    [],
+                )?;
+            }
+            conn.execute(
+                "UPDATE schema_version SET version = ?1",
+                params![14],
+            )?;
+            info!("Database migrated to version 14");
+        }
+
         Ok(())
     }
 
@@ -410,7 +440,7 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         db.initialize().unwrap();
         let version = db.get_schema_version().unwrap();
-        assert_eq!(version, 13);
+        assert_eq!(version, 14);
     }
 
     #[test]
@@ -421,6 +451,15 @@ mod tests {
         assert!(db.column_exists("pools", "thinking_custom_params").unwrap());
         assert!(db.column_exists("pool_upstreams", "thinking_level_override").unwrap());
         assert!(db.column_exists("pools", "thinking_enabled").unwrap());
+    }
+
+    #[test]
+    fn test_capabilities_columns_present_after_migration() {
+        let db = Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+        assert!(db.column_exists("upstreams", "capabilities").unwrap());
+        assert!(db.column_exists("pools", "capabilities").unwrap());
+        assert!(db.column_exists("pool_upstreams", "capabilities").unwrap());
     }
 
     #[test]

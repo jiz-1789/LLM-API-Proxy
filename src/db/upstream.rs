@@ -19,11 +19,12 @@ impl Database {
         available_models: &str,
         enabled: bool,
         remark: &str,
+        capabilities: &str,
     ) -> Result<(), AppError> {
         self.get_conn()?.execute(
-            "INSERT INTO upstreams (id, provider_name, base_url, api_key_encrypted, selected_model, available_models, enabled, remark)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![id, provider_name, base_url, api_key_encrypted, selected_model, available_models, enabled as i32, remark],
+            "INSERT INTO upstreams (id, provider_name, base_url, api_key_encrypted, selected_model, available_models, enabled, remark, capabilities)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![id, provider_name, base_url, api_key_encrypted, selected_model, available_models, enabled as i32, remark, capabilities],
         )?;
         Ok(())
     }
@@ -34,7 +35,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, provider_name, base_url, api_key_encrypted, selected_model,
                     available_models, enabled, remark, status, failure_count, last_failure_time,
-                    last_success_time, last_error_reason, recovered_at,
+                    last_success_time, last_error_reason, recovered_at, capabilities,
                     created_at, updated_at
              FROM upstreams ORDER BY created_at DESC"
         )?;
@@ -48,7 +49,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, provider_name, base_url, api_key_encrypted, selected_model,
                     available_models, enabled, remark, status, failure_count, last_failure_time,
-                    last_success_time, last_error_reason, recovered_at,
+                    last_success_time, last_error_reason, recovered_at, capabilities,
                     created_at, updated_at
              FROM upstreams WHERE id = ?1"
         )?;
@@ -69,7 +70,7 @@ impl Database {
         let sql = format!(
             "SELECT id, provider_name, base_url, api_key_encrypted, selected_model,
                     available_models, enabled, remark, status, failure_count, last_failure_time,
-                    last_success_time, last_error_reason, recovered_at,
+                    last_success_time, last_error_reason, recovered_at, capabilities,
                     created_at, updated_at
              FROM upstreams WHERE id IN ({})",
             placeholders.join(", ")
@@ -96,12 +97,13 @@ impl Database {
         available_models: &str,
         enabled: bool,
         remark: &str,
+        capabilities: &str,
     ) -> Result<(), AppError> {
         let rows = self.get_conn()?.execute(
             "UPDATE upstreams SET provider_name=?1, base_url=?2, api_key_encrypted=?3,
-             selected_model=?4, available_models=?5, enabled=?6, remark=?7, updated_at=datetime('now', 'localtime')
-             WHERE id=?8",
-            params![provider_name, base_url, api_key_encrypted, selected_model, available_models, enabled as i32, remark, id],
+             selected_model=?4, available_models=?5, enabled=?6, remark=?7, capabilities=?8, updated_at=datetime('now', 'localtime')
+             WHERE id=?9",
+            params![provider_name, base_url, api_key_encrypted, selected_model, available_models, enabled as i32, remark, capabilities, id],
         )?;
         if rows == 0 {
             return Err(AppError::NotFound(format!("upstream {}", id)));

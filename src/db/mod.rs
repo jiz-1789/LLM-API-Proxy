@@ -21,6 +21,7 @@ pub use pool::*;
 pub use log::*;
 pub use settings::*;
 pub use api_key::*;
+pub use crate::gateway::convert::capabilities::ModelCapabilities;
 
 // ============================================================================
 // Public Data Types
@@ -46,6 +47,8 @@ pub struct Upstream {
     pub last_error_reason: Option<String>,
     /// Timestamp when upstream recovered from down state (v6, nullable).
     pub recovered_at: Option<String>,
+    /// JSON-serialized ModelCapabilities; empty means unknown, v14.
+    pub capabilities: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -65,6 +68,8 @@ pub struct Pool {
     pub thinking_level: String,
     /// Raw JSON injected when thinking_level = 'custom', v13.
     pub thinking_custom_params: String,
+    /// Pool-level aggregated capabilities (union of upstreams, computed by backend), v14.
+    pub capabilities: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -78,6 +83,8 @@ pub struct PoolUpstreamInfo {
     pub sort_order: i32,
     /// Per-upstream thinking level override; empty means follow pool level, v13.
     pub thinking_level_override: String,
+    /// Per-upstream model capabilities in this pool, v14.
+    pub capabilities: String,
 }
 
 /// A single request log entry.
@@ -397,8 +404,9 @@ impl Database {
             last_success_time: row.get(11)?,
             last_error_reason: row.get(12)?,
             recovered_at: row.get(13)?,
-            created_at: row.get(14)?,
-            updated_at: row.get(15)?,
+            capabilities: row.get::<_, Option<String>>(14)?.unwrap_or_default(),
+            created_at: row.get(15)?,
+            updated_at: row.get(16)?,
         })
     }
 
@@ -414,8 +422,9 @@ impl Database {
             thinking_enabled: row.get::<_, i32>(7)? != 0,
             thinking_level: row.get::<_, Option<String>>(8)?.unwrap_or_else(|| "off".to_string()),
             thinking_custom_params: row.get::<_, Option<String>>(9)?.unwrap_or_default(),
-            created_at: row.get(10)?,
-            updated_at: row.get(11)?,
+            capabilities: row.get::<_, Option<String>>(10)?.unwrap_or_default(),
+            created_at: row.get(11)?,
+            updated_at: row.get(12)?,
         })
     }
 
@@ -504,7 +513,7 @@ mod tests {
         db.initialize().unwrap();
 
         // Insert a pool so get_stats has data to read
-        db.create_pool("pool_test", "test", "Test", 5, false, "off", "")
+        db.create_pool("pool_test", "test", "Test", 5, false, "off", "", "")
             .unwrap();
 
         let db_clone = Arc::new(db);

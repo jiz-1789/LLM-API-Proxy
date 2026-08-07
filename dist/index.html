@@ -624,6 +624,51 @@ gap: 8px;
         .thinking-level-btn.active { background: var(--accent); color: white; }
         .thinking-custom-box textarea.form-input { resize: vertical; }
 
+        /* === Model capability tags & editor === */
+        .capability-tags { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+        .capability-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 500;
+            background: var(--bg-hover);
+            color: var(--text-secondary);
+        }
+        .capability-tag.image { background: rgba(59, 130, 246, 0.12); color: rgb(59, 130, 246); }
+        .capability-tag.audio { background: rgba(168, 85, 247, 0.12); color: rgb(168, 85, 247); }
+        .capability-tag.video { background: rgba(236, 72, 153, 0.12); color: rgb(236, 72, 153); }
+        .capability-tag.function { background: rgba(34, 197, 94, 0.12); color: rgb(34, 197, 94); }
+        .capability-tag.context { background: rgba(245, 158, 11, 0.12); color: rgb(245, 158, 11); }
+        .capability-editor {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 12px;
+            background: var(--bg-secondary);
+        }
+        .capability-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px 16px;
+        }
+        .capability-check {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            cursor: pointer;
+        }
+        .capability-check input { accent-color: var(--accent); cursor: pointer; }
+        .capability-nums {
+            display: flex;
+            gap: 16px;
+            margin-top: 10px;
+        }
+        .capability-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+
         /* === Toggle switch === */
         .toggle { position: relative; width: 44px; height: 26px; display: inline-block; flex-shrink: 0; }
         .toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
@@ -2106,6 +2151,36 @@ print(response.choices[0].message.content)</code></pre>
                     <input class="form-input" id="f-remark" data-i18n-ph="modal_remark_ph" placeholder="可选备注" autocomplete="off">
                 </div>
             </div>
+            <div class="form-group">
+                <label class="form-label" data-i18n="capabilities_label">模型能力</label>
+                <div class="capability-editor" id="capability-editor">
+                    <div class="capability-grid">
+                        <label class="capability-check"><input type="checkbox" id="cap-input-text" checked data-cap><span data-i18n="cap_chk_input_text">文本输入</span></label>
+                        <label class="capability-check"><input type="checkbox" id="cap-input-image" data-cap><span data-i18n="cap_chk_input_image">图片输入</span></label>
+                        <label class="capability-check"><input type="checkbox" id="cap-input-audio" data-cap><span data-i18n="cap_chk_input_audio">音频输入</span></label>
+                        <label class="capability-check"><input type="checkbox" id="cap-input-video" data-cap><span data-i18n="cap_chk_input_video">视频输入</span></label>
+                        <label class="capability-check"><input type="checkbox" id="cap-output-text" checked data-cap><span data-i18n="cap_chk_output_text">文本输出</span></label>
+                        <label class="capability-check"><input type="checkbox" id="cap-output-image" data-cap><span data-i18n="cap_chk_output_image">图片输出</span></label>
+                        <label class="capability-check"><input type="checkbox" id="cap-output-audio" data-cap><span data-i18n="cap_chk_output_audio">音频输出</span></label>
+                        <label class="capability-check"><input type="checkbox" id="cap-fn" data-cap><span data-i18n="cap_chk_fn">函数调用</span></label>
+                        <label class="capability-check"><input type="checkbox" id="cap-stream" checked data-cap><span data-i18n="cap_chk_stream">流式输出</span></label>
+                    </div>
+                    <div class="capability-nums">
+                        <div class="form-group" style="flex:1;">
+                            <label class="form-label" data-i18n="cap_labels_context">上下文窗口 (tokens)</label>
+                            <input class="form-input" id="cap-context" type="number" placeholder="可选" min="0" style="font-family:'SF Mono','Cascadia Code',monospace;font-size:12px;">
+                        </div>
+                        <div class="form-group" style="flex:1;">
+                            <label class="form-label" data-i18n="cap_max_output">最大输出 (tokens)</label>
+                            <input class="form-input" id="cap-maxout" type="number" placeholder="可选" min="0" style="font-family:'SF Mono','Cascadia Code',monospace;font-size:12px;">
+                        </div>
+                    </div>
+                    <div class="capability-actions">
+                        <button type="button" class="btn btn-ghost btn-sm" onclick="autoInferCapabilities()" data-i18n="cap_auto_infer">自动推断</button>
+                        <span class="form-hint" style="font-size:11px;" data-i18n="capabilities_hint">留空则根据模型名自动推断</span>
+                    </div>
+                </div>
+            </div>
             <div class="form-actions">
                 <button class="btn btn-ghost" onclick="closeModal()" data-i18n="modal_cancel">取消</button>
                 <button class="btn btn-primary" id="btn-save" onclick="saveUpstream()" data-i18n="modal_save">保存</button>
@@ -2610,6 +2685,26 @@ settings_import_full: { zh: '全量导入', en: 'Import (Full)' },
         thinking_custom_params: { zh: '自定义参数 (JSON)', en: 'Custom Params (JSON)' },
         thinking_custom_params_hint: { zh: '直接注入到请求体中的 JSON 参数', en: 'JSON injected verbatim into the request body' },
         toast_pool_custom_params_invalid: { zh: '自定义参数不是合法 JSON', en: 'Custom params are not valid JSON' },
+        capabilities_label: { zh: '模型能力', en: 'Model Capabilities' },
+        capabilities_hint: { zh: '留空则根据模型名自动推断', en: 'Leave empty to auto-infer from model name' },
+        cap_auto_infer: { zh: '自动推断', en: 'Auto-infer' },
+        cap_inferred: { zh: '已根据模型名填充能力', en: 'Capabilities inferred from model name' },
+        cap_labels_context: { zh: '上下文窗口 (tokens)', en: 'Context window (tokens)' },
+        cap_max_output: { zh: '最大输出 (tokens)', en: 'Max output (tokens)' },
+        cap_labels: {
+            zh: { text: '文本', image: '图片', audio: '音频', video: '视频', function: '函数调用', streaming: '流式' },
+            en: { text: 'text', image: 'image', audio: 'audio', video: 'video', function: 'function', streaming: 'stream' }
+        },
+        cap_labels_none: { zh: '未知', en: 'unknown' },
+        cap_chk_input_text: { zh: '文本输入', en: 'Text input' },
+        cap_chk_input_image: { zh: '图片输入', en: 'Image input' },
+        cap_chk_input_audio: { zh: '音频输入', en: 'Audio input' },
+        cap_chk_input_video: { zh: '视频输入', en: 'Video input' },
+        cap_chk_output_text: { zh: '文本输出', en: 'Text output' },
+        cap_chk_output_image: { zh: '图片输出', en: 'Image output' },
+        cap_chk_output_audio: { zh: '音频输出', en: 'Audio output' },
+        cap_chk_fn: { zh: '函数调用', en: 'Function calling' },
+        cap_chk_stream: { zh: '流式输出', en: 'Streaming' },
         modal_pool_thinking_hint: { zh: '为支持的上游自动注入推理参数', en: 'Auto-inject reasoning params for supported upstreams' },
         modal_pool_failover: { zh: '故障转移', en: 'Failover' },
         modal_pool_failover_hint: { zh: '上游失败时自动尝试下一个', en: 'Try next upstream on failure' },
@@ -3381,6 +3476,7 @@ if (page === 'settings' && lastUpdateInfo) {
         document.getElementById('f-enabled').checked = true;
         document.getElementById('f-remark').value = '';
         document.getElementById('model-chips').innerHTML = '';
+        resetCapabilitiesForm();
         document.getElementById('upstream-modal').classList.add('open');
     }
 
@@ -3404,6 +3500,7 @@ if (page === 'settings' && lastUpdateInfo) {
             container.innerHTML = models.map(m =>
                 `<span class="model-chip selected" onclick="selectModel(this, '${esc(m)}')">${esc(m)}</span>`
             ).join('');
+            loadCapabilitiesIntoForm(u);
             document.getElementById('upstream-modal').classList.add('open');
         } catch (e) {
             toast(t('toast_load_upstream_detail_fail') + e, 'error');
@@ -3525,6 +3622,7 @@ if (page === 'settings' && lastUpdateInfo) {
         }
         const enabled = document.getElementById('f-enabled').checked;
         const remark = document.getElementById('f-remark').value.trim();
+        const capabilities = JSON.stringify(readCapabilitiesFromForm());
 
         if (!provider_name || !base_url || !api_key) {
             toast(t('toast_required_fields'), 'error');
@@ -3537,10 +3635,10 @@ if (page === 'settings' && lastUpdateInfo) {
 
         try {
             if (id) {
-                await cmd('update_upstream', { id, req: { provider_name, base_url, api_key, selected_model, available_models, enabled, remark } });
+                await cmd('update_upstream', { id, req: { provider_name, base_url, api_key, selected_model, available_models, enabled, remark, capabilities } });
                 toast(t('toast_upstream_updated'), 'success');
             } else {
-                await cmd('create_upstream', { req: { provider_name, base_url, api_key, selected_model, available_models, enabled, remark } });
+                await cmd('create_upstream', { req: { provider_name, base_url, api_key, selected_model, available_models, enabled, remark, capabilities } });
                 toast(t('toast_upstream_created'), 'success');
             }
             closeModal();
@@ -3996,6 +4094,119 @@ if (page === 'settings' && lastUpdateInfo) {
         return label !== key ? label : (level || 'off');
     }
 
+    // ================================================================
+    // Model Capabilities (P3.1)
+    // ================================================================
+
+    function capabilityTag(label, cls, icon) {
+        return '<span class="capability-tag ' + (cls || '') + '">' + (icon || '') + ' ' + esc(label) + '</span>';
+    }
+
+    // Render capability tags from a ModelCapabilities JSON string (or object).
+    function renderCapabilityTags(caps) {
+        let c = caps;
+        if (typeof caps === 'string') {
+            if (!caps || !caps.trim()) return '';
+            try { c = JSON.parse(caps); } catch (e) { return ''; }
+        }
+        if (!c || typeof c !== 'object') return '';
+        const labels = t('cap_labels');
+        const parts = [];
+        const inMod = c.input_modalities || [];
+        const outMod = c.output_modalities || [];
+        const has = (v) => (inMod.indexOf(v) !== -1);
+        const hasOut = (v) => (outMod.indexOf(v) !== -1);
+        if (has('text')) parts.push(capabilityTag(labels.text, '', '📝'));
+        if (has('image')) parts.push(capabilityTag(labels.image, 'image', '🖼️'));
+        if (has('audio')) parts.push(capabilityTag(labels.audio, 'audio', '🔊'));
+        if (has('video')) parts.push(capabilityTag(labels.video, '', '🎬'));
+        if (c.supports_function_calling) parts.push(capabilityTag(labels.function, 'function', '🔧'));
+        if (c.supports_streaming) parts.push(capabilityTag(labels.streaming, '', '⚡'));
+        if (c.context_window) parts.push(capabilityTag((Math.floor(c.context_window / 1024)) + 'K', 'context', '📊'));
+        if (parts.length === 0) return '<span style="color:var(--text-muted);font-size:11px;">' + t('cap_labels_none') + '</span>';
+        return parts.join('');
+    }
+
+    // Read current capability form state into a ModelCapabilities JSON object/string.
+    function readCapabilitiesFromForm() {
+        const inMod = [];
+        if (document.getElementById('cap-input-text').checked) inMod.push('text');
+        if (document.getElementById('cap-input-image').checked) inMod.push('image');
+        if (document.getElementById('cap-input-audio').checked) inMod.push('audio');
+        if (document.getElementById('cap-input-video').checked) inMod.push('video');
+        const outMod = [];
+        if (document.getElementById('cap-output-text').checked) outMod.push('text');
+        if (document.getElementById('cap-output-image').checked) outMod.push('image');
+        if (document.getElementById('cap-output-audio').checked) outMod.push('audio');
+        return {
+            input_modalities: inMod,
+            output_modalities: outMod,
+            supports_function_calling: document.getElementById('cap-fn').checked,
+            supports_streaming: document.getElementById('cap-stream').checked,
+            context_window: parseInt(document.getElementById('cap-context').value, 10) || null,
+            max_output_tokens: parseInt(document.getElementById('cap-maxout').value, 10) || null
+        };
+    }
+
+    function loadCapabilitiesIntoForm(u) {
+        let c = {};
+        if (u && u.capabilities && u.capabilities.trim()) {
+            try { c = JSON.parse(u.capabilities); } catch (e) { c = {}; }
+        }
+        const inMod = c.input_modalities || [];
+        const outMod = c.output_modalities || [];
+        const set = (id, v) => { document.getElementById(id).checked = !!v; };
+        set('cap-input-text', inMod.indexOf('text') !== -1);
+        set('cap-input-image', inMod.indexOf('image') !== -1);
+        set('cap-input-audio', inMod.indexOf('audio') !== -1);
+        set('cap-input-video', inMod.indexOf('video') !== -1);
+        set('cap-output-text', outMod.indexOf('text') !== -1);
+        set('cap-output-image', outMod.indexOf('image') !== -1);
+        set('cap-output-audio', outMod.indexOf('audio') !== -1);
+        set('cap-fn', !!c.supports_function_calling);
+        set('cap-stream', c.supports_streaming !== false);
+        document.getElementById('cap-context').value = c.context_window || '';
+        document.getElementById('cap-maxout').value = c.max_output_tokens || '';
+    }
+
+    function resetCapabilitiesForm() {
+        document.getElementById('cap-input-text').checked = true;
+        document.getElementById('cap-input-image').checked = false;
+        document.getElementById('cap-input-audio').checked = false;
+        document.getElementById('cap-input-video').checked = false;
+        document.getElementById('cap-output-text').checked = true;
+        document.getElementById('cap-output-image').checked = false;
+        document.getElementById('cap-output-audio').checked = false;
+        document.getElementById('cap-fn').checked = false;
+        document.getElementById('cap-stream').checked = true;
+        document.getElementById('cap-context').value = '';
+        document.getElementById('cap-maxout').value = '';
+    }
+
+    // Client-side auto-infer preview; the authoritative inference is done server-side.
+    function autoInferCapabilities() {
+        resetCapabilitiesForm();
+        const model = document.getElementById('f-model').value.trim().toLowerCase();
+        let caps = readCapabilitiesFromForm();
+        if (model.indexOf('gpt-4o') !== -1 || model.indexOf('gpt-5') !== -1 || model.indexOf('claude-3') !== -1 || model.indexOf('claude-4') !== -1 || model.indexOf('claude-5') !== -1) {
+            document.getElementById('cap-input-image').checked = true;
+            document.getElementById('cap-fn').checked = true;
+            document.getElementById('cap-context').value = 200000;
+        } else if (model.indexOf('gemini') !== -1) {
+            document.getElementById('cap-input-image').checked = true;
+            document.getElementById('cap-input-audio').checked = true;
+            document.getElementById('cap-fn').checked = true;
+            document.getElementById('cap-context').value = 1000000;
+        } else if (model.indexOf('deepseek') !== -1) {
+            document.getElementById('cap-fn').checked = true;
+            document.getElementById('cap-context').value = 64000;
+        } else if (model.indexOf('qwen') !== -1) {
+            document.getElementById('cap-fn').checked = true;
+            document.getElementById('cap-context').value = 131072;
+        }
+        toast(t('cap_inferred'), 'success');
+    }
+
     async function openEditPoolModal(id) {
         try {
             const p = await cmd('get_pool', { id });
@@ -4121,6 +4332,9 @@ if (page === 'settings' && lastUpdateInfo) {
                 <div><span style="color:var(--text-muted);">${t('pools_max_concurrency')}:</span> ${pool.max_concurrency}</div>
                 <div><span style="color:var(--text-muted);">${t('modal_pool_thinking')}:</span> ${pool.thinking_enabled ? t('label_on') : t('label_off')}</div>
                 <div><span style="color:var(--text-muted);">${t('thinking_level_column')}:</span> ${thinkingLevelLabel(pool.thinking_level)}</div>
+                <div style="margin-top:8px;"><span style="color:var(--text-muted);">${t('capabilities_label')}:</span>
+                    <span class="capability-tags">${renderCapabilityTags(pool.capabilities)}</span>
+                </div>
             `;
 
             const poolUpstreams = await cmd('get_pool_upstreams', { poolId }) || [];

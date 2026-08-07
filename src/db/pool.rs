@@ -18,11 +18,12 @@ impl Database {
         thinking_enabled: bool,
         thinking_level: &str,
         thinking_custom_params: &str,
+        capabilities: &str,
     ) -> Result<(), AppError> {
         self.get_conn()?.execute(
             "INSERT INTO pools (id, name, display_name, max_concurrency, thinking_enabled,
-                                thinking_level, thinking_custom_params)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                                thinking_level, thinking_custom_params, capabilities)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 id,
                 name,
@@ -30,7 +31,8 @@ impl Database {
                 max_concurrency,
                 thinking_enabled as i32,
                 thinking_level,
-                thinking_custom_params
+                thinking_custom_params,
+                capabilities
             ],
         )?;
         Ok(())
@@ -42,7 +44,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, name, display_name, round_robin_strategy, failover_enabled,
                     timeout_seconds, max_concurrency, thinking_enabled,
-                    thinking_level, thinking_custom_params,
+                    thinking_level, thinking_custom_params, capabilities,
                     created_at, updated_at
              FROM pools ORDER BY created_at DESC"
         )?;
@@ -56,7 +58,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, name, display_name, round_robin_strategy, failover_enabled,
                     timeout_seconds, max_concurrency, thinking_enabled,
-                    thinking_level, thinking_custom_params,
+                    thinking_level, thinking_custom_params, capabilities,
                     created_at, updated_at
              FROM pools WHERE id = ?1"
         )?;
@@ -74,7 +76,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, name, display_name, round_robin_strategy, failover_enabled,
                     timeout_seconds, max_concurrency, thinking_enabled,
-                    thinking_level, thinking_custom_params,
+                    thinking_level, thinking_custom_params, capabilities,
                     created_at, updated_at
              FROM pools WHERE name = ?1"
         )?;
@@ -95,22 +97,54 @@ impl Database {
         thinking_enabled: bool,
         thinking_level: &str,
         thinking_custom_params: &str,
+        capabilities: &str,
     ) -> Result<(), AppError> {
         let rows = self.get_conn()?.execute(
             "UPDATE pools SET display_name=?1, max_concurrency=?2, thinking_enabled=?3,
-             thinking_level=?4, thinking_custom_params=?5,
-             updated_at=datetime('now', 'localtime') WHERE id=?6",
+             thinking_level=?4, thinking_custom_params=?5, capabilities=?6,
+             updated_at=datetime('now', 'localtime') WHERE id=?7",
             params![
                 display_name,
                 max_concurrency,
                 thinking_enabled as i32,
                 thinking_level,
                 thinking_custom_params,
+                capabilities,
                 id
             ],
         )?;
         if rows == 0 {
             return Err(AppError::NotFound(format!("pool {}", id)));
+        }
+        Ok(())
+    }
+
+    /// 重新计算池级能力（池内所有上游能力的并集）并写回。
+    pub fn recompute_pool_capabilities(&self, pool_id: &str) -> Result<(), AppError> {
+        let infos = self.get_pool_upstreams(pool_id)?;
+        let mut merged = super::ModelCapabilities::default();
+        for info in &infos {
+            let caps = if info.capabilities.trim().is_empty() {
+                crate::gateway::convert::capabilities::infer_capabilities(&info.model)
+            } else {
+                super::ModelCapabilities::from_json_str(&info.capabilities)
+                    .unwrap_or_else(|| crate::gateway::convert::capabilities::infer_capabilities(&info.model))
+            };
+            merged = merged.union(&caps);
+        }
+        let json = merged.to_json_str();
+        self.get_conn()?.execute(
+            "UPDATE pools SET capabilities=?1, updated_at=datetime('now', 'localtime') WHERE id=?2",
+            params![json, pool_id],
+        )?;
+        Ok(())
+    }
+
+    /// 重新计算所有池的池级能力。
+    pub fn recompute_all_pool_capabilities(&self) -> Result<(), AppError> {
+        let pools = self.get_pools()?;
+        for pool in &pools {
+            self.recompute_pool_capabilities(&pool.id)?;
         }
         Ok(())
     }
@@ -134,10 +168,11 @@ impl Database {
         model: &str,
     ) -> Result<(), AppError> {
         self.get_conn()?.execute(
-            "INSERT INTO pool_upstreams (pool_id, upstream_id, sort_order, model)
-             VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO pool_upstreams (pool_id, upstream_id, sort_order, model, capabilities)
+             SELECT ?1, ?2, ?3, ?4, capabilities FROM upstreams WHERE id=?2",
             params![pool_id, upstream_id, sort_order, model],
         )?;
+        self.recompute_pool_capabilities(pool_id)?;
         Ok(())
     }
 
@@ -147,6 +182,7 @@ impl Database {
             "DELETE FROM pool_upstreams WHERE pool_id=?1 AND upstream_id=?2",
             params![pool_id, upstream_id],
         )?;
+        self.recompute_pool_capabilities(pool_id)?;
         Ok(())
     }
 
@@ -154,7 +190,7 @@ impl Database {
     pub fn get_pool_upstreams(&self, pool_id: &str) -> Result<Vec<PoolUpstreamInfo>, AppError> {
         let conn = self.get_conn()?;
         let mut stmt = conn.prepare(
-            "SELECT u.id, u.provider_name, pu.model, pu.sort_order, pu.thinking_level_override
+            "SELECT u.id, u.provider_name, pu.model, pu.sort_order, pu.thinking_level_override, pu.capabilities
              FROM pool_upstreams pu
              JOIN upstreams u ON u.id = pu.upstream_id
              WHERE pu.pool_id=?1
@@ -167,6 +203,7 @@ impl Database {
                 model: row.get(2)?,
                 sort_order: row.get(3)?,
                 thinking_level_override: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                capabilities: row.get::<_, Option<String>>(5)?.unwrap_or_default(),
             })
         })?;
         Self::collect_rows(rows)
@@ -205,5 +242,82 @@ impl Database {
             "SELECT COUNT(*) FROM pools", [], |row| row.get(0)
         )?;
         Ok(count)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::ModelCapabilities;
+
+    #[test]
+    fn test_pool_capabilities_roundtrip_and_recompute() {
+        let db = Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+        let crypto = crate::crypto::KeyManager::initialize(&std::env::temp_dir()).unwrap();
+        let enc = crypto.encrypt_api_key("sk-test").unwrap();
+
+        db.create_upstream("up_a", "OpenAI", "https://a.com", &enc, "gpt-4o", "[]", true, "", "")
+            .unwrap();
+        db.create_upstream("up_b", "DeepSeek", "https://b.com", &enc, "deepseek-chat", "[]", true, "", "")
+            .unwrap();
+
+        db.create_pool("pool_1", "p1", "P1", 5, false, "off", "", "")
+            .unwrap();
+        db.add_upstream_to_pool("pool_1", "up_a", 0, "gpt-4o")
+            .unwrap();
+        db.add_upstream_to_pool("pool_1", "up_b", 1, "deepseek-chat")
+            .unwrap();
+
+        // Pool capabilities auto-aggregated (union) after add_upstream_to_pool.
+        let pool = db.get_pool_by_id("pool_1").unwrap().unwrap();
+        let caps = ModelCapabilities::from_json_str(&pool.capabilities).unwrap();
+        assert!(caps.input_modalities.contains(&"text".to_string()));
+        assert!(caps.input_modalities.contains(&"image".to_string()));
+        assert!(caps.supports_function_calling);
+
+        // Removing an upstream recomputes and narrows capabilities.
+        db.remove_upstream_from_pool("pool_1", "up_a").unwrap();
+        let pool = db.get_pool_by_id("pool_1").unwrap().unwrap();
+        let caps = ModelCapabilities::from_json_str(&pool.capabilities).unwrap();
+        assert!(!caps.input_modalities.contains(&"image".to_string()));
+
+        // Explicit recompute is idempotent and round-trips.
+        db.recompute_all_pool_capabilities().unwrap();
+        let pool = db.get_pool_by_id("pool_1").unwrap().unwrap();
+        let caps = ModelCapabilities::from_json_str(&pool.capabilities).unwrap();
+        assert!(caps.supports_function_calling);
+        assert_eq!(caps.input_modalities, vec!["text".to_string()]);
+    }
+
+    #[test]
+    fn test_explicit_capabilities_are_respected_in_recompute() {
+        let db = Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+        let crypto = crate::crypto::KeyManager::initialize(&std::env::temp_dir()).unwrap();
+        let enc = crypto.encrypt_api_key("sk-test").unwrap();
+
+        // A custom capability JSON stored on the upstream overrides inference.
+        let explicit = serde_json::json!({
+            "input_modalities": ["text", "audio"],
+            "output_modalities": ["text"],
+            "supports_function_calling": true,
+            "supports_streaming": true,
+            "context_window": null,
+            "max_output_tokens": null
+        })
+        .to_string();
+
+        db.create_upstream("up_c", "Custom", "https://c.com", &enc, "some-model", "[]", true, "", &explicit)
+            .unwrap();
+        db.create_pool("pool_2", "p2", "P2", 5, false, "off", "", "")
+            .unwrap();
+        db.add_upstream_to_pool("pool_2", "up_c", 0, "some-model")
+            .unwrap();
+
+        let pool = db.get_pool_by_id("pool_2").unwrap().unwrap();
+        let caps = ModelCapabilities::from_json_str(&pool.capabilities).unwrap();
+        assert!(caps.input_modalities.contains(&"audio".to_string()));
+        assert!(!caps.input_modalities.contains(&"image".to_string()));
     }
 }

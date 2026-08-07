@@ -21,6 +21,8 @@ pub struct UpstreamVO {
     pub available_models: Vec<String>,
     pub enabled: bool,
     pub remark: String,
+    /// JSON-serialized ModelCapabilities; empty means auto-infer, v14.
+    pub capabilities: String,
     pub status: String,
     pub failure_count: i32,
     pub last_failure_time: Option<String>,
@@ -44,6 +46,9 @@ pub struct CreateUpstreamRequest {
     pub enabled: bool,
     #[serde(default)]
     pub remark: String,
+    /// JSON-serialized ModelCapabilities; empty means auto-infer, v14.
+    #[serde(default)]
+    pub capabilities: String,
 }
 
 /// Request body for updating an upstream.
@@ -58,6 +63,9 @@ pub struct UpdateUpstreamRequest {
     pub enabled: bool,
     #[serde(default)]
     pub remark: String,
+    /// JSON-serialized ModelCapabilities; empty means auto-infer, v14.
+    #[serde(default)]
+    pub capabilities: String,
 }
 
 // ============================================================================
@@ -77,6 +85,7 @@ pub(crate) fn to_vo(u: &llm_api_proxy_lib::db::Upstream) -> UpstreamVO {
         available_models,
         enabled: u.enabled,
         remark: u.remark.clone(),
+        capabilities: u.capabilities.clone(),
         status: u.status.clone(),
         failure_count: u.failure_count,
         last_failure_time: u.last_failure_time.clone(),
@@ -113,6 +122,15 @@ pub fn get_upstream(id: String, state: State<'_, AppState>) -> Result<UpstreamVO
         .ok_or_else(|| format!("上游 {} 不存在", id))
 }
 
+/// Resolve capabilities for an upstream: use provided value, else auto-infer from model name.
+fn resolve_capabilities(provided: &str, selected_model: &str) -> String {
+    if !provided.trim().is_empty() {
+        return provided.to_string();
+    }
+    llm_api_proxy_lib::gateway::convert::capabilities::infer_capabilities(selected_model)
+        .to_json_str()
+}
+
 /// Create a new upstream. The plaintext API key is encrypted before storage.
 #[tauri::command]
 pub fn create_upstream(
@@ -122,6 +140,7 @@ pub fn create_upstream(
     let encrypted = state.crypto.encrypt_api_key(&req.api_key)?;
     let id = generate_id();
     let models_json = serde_json::to_string(&req.available_models).unwrap_or_else(|_| "[]".to_string());
+    let capabilities = resolve_capabilities(&req.capabilities, &req.selected_model);
 
     state
         .db
@@ -134,7 +153,13 @@ pub fn create_upstream(
             &models_json,
             req.enabled,
             &req.remark,
+            &capabilities,
         )
+        .map_err(|e| e.to_string())?;
+
+    state
+        .db
+        .recompute_all_pool_capabilities()
         .map_err(|e| e.to_string())?;
 
     state
@@ -163,6 +188,7 @@ pub fn update_upstream(
         state.crypto.encrypt_api_key(&req.api_key)?
     };
     let models_json = serde_json::to_string(&req.available_models).unwrap_or_else(|_| "[]".to_string());
+    let capabilities = resolve_capabilities(&req.capabilities, &req.selected_model);
 
     state
         .db
@@ -175,7 +201,13 @@ pub fn update_upstream(
             &models_json,
             req.enabled,
             &req.remark,
+            &capabilities,
         )
+        .map_err(|e| e.to_string())?;
+
+    state
+        .db
+        .recompute_all_pool_capabilities()
         .map_err(|e| e.to_string())?;
 
     state
@@ -444,6 +476,7 @@ mod tests {
             available_models: r#"["gpt-4","gpt-3.5-turbo"]"#.to_string(),
             enabled: true,
             remark: "test upstream".to_string(),
+            capabilities: String::new(),
             status: "healthy".to_string(),
             failure_count: 0,
             last_failure_time: None,

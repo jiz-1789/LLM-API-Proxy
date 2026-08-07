@@ -66,6 +66,8 @@ pub struct PoolVO {
     pub thinking_enabled: bool,
     pub thinking_level: String,
     pub thinking_custom_params: String,
+    /// Pool-level aggregated capabilities (JSON), v14.
+    pub capabilities: String,
     pub upstream_count: usize,
     pub created_at: String,
     pub updated_at: String,
@@ -87,6 +89,7 @@ pub(crate) fn pool_to_vo(p: &llm_api_proxy_lib::db::Pool, upstream_count: usize)
         thinking_enabled: p.thinking_enabled,
         thinking_level: p.thinking_level.clone(),
         thinking_custom_params: p.thinking_custom_params.clone(),
+        capabilities: p.capabilities.clone(),
         upstream_count,
         created_at: p.created_at.clone(),
         updated_at: p.updated_at.clone(),
@@ -138,6 +141,7 @@ pub fn create_pool(
             req.thinking_enabled,
             &req.thinking_level,
             &req.thinking_custom_params,
+            "",
         )
         .map_err(|e| e.to_string())?;
 
@@ -172,6 +176,7 @@ pub fn update_pool(
             req.thinking_enabled,
             &req.thinking_level,
             &req.thinking_custom_params,
+            "",
         )
         .map_err(|e| e.to_string())?;
 
@@ -264,6 +269,7 @@ mod tests {
             thinking_enabled: false,
             thinking_level: "high".to_string(),
             thinking_custom_params: String::new(),
+            capabilities: String::new(),
             created_at: "2026-07-28 09:00:00".to_string(),
             updated_at: "2026-07-28 09:00:00".to_string(),
         }

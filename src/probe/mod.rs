@@ -266,7 +266,7 @@ mod tests {
         db.initialize().unwrap();
 
         let id = uuid::Uuid::new_v4().to_string();
-        db.create_upstream(&id, "Test", "http://test", b"key", "model", "[]", true, "")
+        db.create_upstream(&id, "Test", "http://test", b"key", "model", "[]", true, "", "")
             .unwrap();
 
         // Simulate failures first
@@ -288,7 +288,7 @@ mod tests {
         db.initialize().unwrap();
 
         let id = uuid::Uuid::new_v4().to_string();
-        db.create_upstream(&id, "Test", "http://test", b"key", "model", "[]", true, "")
+        db.create_upstream(&id, "Test", "http://test", b"key", "model", "[]", true, "", "")
             .unwrap();
 
         db.update_upstream_health(&id, false, Some("error"), 3).unwrap();
@@ -305,7 +305,7 @@ mod tests {
         db.initialize().unwrap();
 
         let id = uuid::Uuid::new_v4().to_string();
-        db.create_upstream(&id, "Test", "http://test", b"key", "model", "[]", true, "")
+        db.create_upstream(&id, "Test", "http://test", b"key", "model", "[]", true, "", "")
             .unwrap();
 
         // 3 failures with threshold 3 → down on 3rd
@@ -327,7 +327,7 @@ mod tests {
         db.initialize().unwrap();
 
         let id = uuid::Uuid::new_v4().to_string();
-        db.create_upstream(&id, "Test", "http://test", b"key", "model", "[]", true, "")
+        db.create_upstream(&id, "Test", "http://test", b"key", "model", "[]", true, "", "")
             .unwrap();
 
         // Mark as down
@@ -349,7 +349,7 @@ mod tests {
         db.initialize().unwrap();
 
         let id = uuid::Uuid::new_v4().to_string();
-        db.create_upstream(&id, "Test", "http://test", b"key", "model", "[]", true, "")
+        db.create_upstream(&id, "Test", "http://test", b"key", "model", "[]", true, "", "")
             .unwrap();
 
         // threshold = 0 means always degraded, never down
