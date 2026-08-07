@@ -35,6 +35,9 @@ pub struct ExportUpstream {
     /// JSON-serialized ModelCapabilities; empty means auto-infer, v14.
     #[serde(default)]
     pub capabilities: String,
+    /// Upstream native API format, defaults to openai_chat, v12.
+    #[serde(default)]
+    pub api_format: String,
 }
 
 /// A pool in export format, with nested upstream associations.
@@ -122,6 +125,7 @@ pub fn export_config(db: &Database, crypto: &KeyManager) -> Result<ConfigExport,
             enabled: u.enabled,
             remark: u.remark.clone(),
             capabilities: u.capabilities.clone(),
+            api_format: u.api_format.clone(),
         });
     }
 
@@ -248,8 +252,8 @@ fn import_full(
 
             conn.execute(
                 "INSERT INTO upstreams (id, provider_name, base_url, api_key_encrypted,
-                 selected_model, available_models, enabled, remark, capabilities)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                 selected_model, available_models, enabled, remark, capabilities, api_format)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     new_id,
                     u.provider_name,
@@ -260,6 +264,7 @@ fn import_full(
                     u.enabled as i32,
                     u.remark,
                     u.capabilities,
+                    if u.api_format.is_empty() { "openai_chat" } else { &u.api_format },
                 ],
             )?;
             id_map.insert(u.id.clone(), new_id);
@@ -355,9 +360,9 @@ fn import_incremental(
                 // Update existing upstream
                 conn.execute(
                     "UPDATE upstreams SET provider_name=?1, base_url=?2, api_key_encrypted=?3,
-                     selected_model=?4, available_models=?5, enabled=?6, remark=?7, capabilities=?8,
+                     selected_model=?4, available_models=?5, enabled=?6, remark=?7, capabilities=?8, api_format=?9,
                      updated_at=datetime('now', 'localtime')
-                     WHERE id=?9",
+                     WHERE id=?10",
                     params![
                         u.provider_name,
                         u.base_url,
@@ -367,6 +372,7 @@ fn import_incremental(
                         u.enabled as i32,
                         u.remark,
                         u.capabilities,
+                        if u.api_format.is_empty() { "openai_chat" } else { &u.api_format },
                         existing,
                     ],
                 )?;
@@ -377,8 +383,8 @@ fn import_incremental(
                 let new_id = generate_id("up");
                 conn.execute(
                     "INSERT INTO upstreams (id, provider_name, base_url, api_key_encrypted,
-                     selected_model, available_models, enabled, remark, capabilities)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                     selected_model, available_models, enabled, remark, capabilities, api_format)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                     params![
                         &new_id,
                         u.provider_name,
@@ -389,6 +395,7 @@ fn import_incremental(
                         u.enabled as i32,
                         u.remark,
                         u.capabilities,
+                        if u.api_format.is_empty() { "openai_chat" } else { &u.api_format },
                     ],
                 )?;
                 id_map.insert(u.id.clone(), new_id);
@@ -587,6 +594,7 @@ mod tests {
                 enabled: true,
                 remark: "test".to_string(),
                 capabilities: String::new(),
+                api_format: "openai_chat".to_string(),
             }],
             pools: vec![ExportPool {
                 name: "gpt-4-pool".to_string(),
@@ -744,7 +752,7 @@ mod tests {
 
         // Add some existing data first
         let encrypted = crypto.encrypt_api_key("sk-existing").unwrap();
-        db.create_upstream("up_existing", "Existing", "https://existing.com", &encrypted, "model", "[]", true, "", "").unwrap();
+        db.create_upstream("up_existing", "Existing", "https://existing.com", &encrypted, "model", "[]", true, "", "", "openai_chat").unwrap();
 
         let config = make_test_export();
         let result = import_config(&db, &crypto, &config, &ImportMode::Full).unwrap();
@@ -778,7 +786,7 @@ mod tests {
 
         // Create an existing upstream that matches the import
         let encrypted = crypto.encrypt_api_key("sk-old-key").unwrap();
-        db.create_upstream("up_existing", "OpenAI", "https://api.openai.com", &encrypted, "gpt-3.5-turbo", "[]", false, "old remark", "").unwrap();
+        db.create_upstream("up_existing", "OpenAI", "https://api.openai.com", &encrypted, "gpt-3.5-turbo", "[]", false, "old remark", "", "openai_chat").unwrap();
 
         let config = make_test_export();
         let result = import_config(&db, &crypto, &config, &ImportMode::Incremental).unwrap();
@@ -875,7 +883,7 @@ mod tests {
 
         // Create existing data that doesn't match the import
         let encrypted = crypto.encrypt_api_key("sk-other").unwrap();
-        db.create_upstream("up_other", "OtherProvider", "https://other.com", &encrypted, "model-x", "[]", true, "", "").unwrap();
+        db.create_upstream("up_other", "OtherProvider", "https://other.com", &encrypted, "model-x", "[]", true, "", "", "openai_chat").unwrap();
         db.create_pool("pool_other", "other-pool", "Other Pool", 3, false, "off", "", "")
             .unwrap();
 
@@ -938,7 +946,7 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         db.initialize().unwrap();
         // Create upstream with empty encrypted key
-        db.create_upstream("up_empty", "Empty", "https://empty.com", &[], "model", "[]", true, "", "").unwrap();
+        db.create_upstream("up_empty", "Empty", "https://empty.com", &[], "model", "[]", true, "", "", "openai_chat").unwrap();
 
         let temp_dir = tempfile::tempdir().unwrap();
         let crypto = KeyManager::initialize(temp_dir.path()).unwrap();

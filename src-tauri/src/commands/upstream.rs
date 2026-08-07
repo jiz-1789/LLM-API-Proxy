@@ -23,6 +23,8 @@ pub struct UpstreamVO {
     pub remark: String,
     /// JSON-serialized ModelCapabilities; empty means auto-infer, v14.
     pub capabilities: String,
+    /// Upstream native API format: openai_chat | openai_responses | anthropic | gemini_native, v12.
+    pub api_format: String,
     pub status: String,
     pub failure_count: i32,
     pub last_failure_time: Option<String>,
@@ -49,6 +51,9 @@ pub struct CreateUpstreamRequest {
     /// JSON-serialized ModelCapabilities; empty means auto-infer, v14.
     #[serde(default)]
     pub capabilities: String,
+    /// Upstream native API format, defaults to openai_chat, v12.
+    #[serde(default = "default_api_format")]
+    pub api_format: String,
 }
 
 /// Request body for updating an upstream.
@@ -66,6 +71,9 @@ pub struct UpdateUpstreamRequest {
     /// JSON-serialized ModelCapabilities; empty means auto-infer, v14.
     #[serde(default)]
     pub capabilities: String,
+    /// Upstream native API format, defaults to openai_chat, v12.
+    #[serde(default = "default_api_format")]
+    pub api_format: String,
 }
 
 // ============================================================================
@@ -86,6 +94,7 @@ pub(crate) fn to_vo(u: &llm_api_proxy_lib::db::Upstream) -> UpstreamVO {
         enabled: u.enabled,
         remark: u.remark.clone(),
         capabilities: u.capabilities.clone(),
+        api_format: u.api_format.clone(),
         status: u.status.clone(),
         failure_count: u.failure_count,
         last_failure_time: u.last_failure_time.clone(),
@@ -122,9 +131,13 @@ pub fn get_upstream(id: String, state: State<'_, AppState>) -> Result<UpstreamVO
         .ok_or_else(|| format!("上游 {} 不存在", id))
 }
 
+/// Default upstream API format (OpenAI Chat Completions).
+fn default_api_format() -> String {
+    "openai_chat".to_string()
+}
+
 /// Resolve capabilities for an upstream: use provided value, else auto-infer from model name.
-fn resolve_capabilities(provided: &str, selected_model: &str) -> String {
-    if !provided.trim().is_empty() {
+fn resolve_capabilities(provided: &str, selected_model: &str) -> String {    if !provided.trim().is_empty() {
         return provided.to_string();
     }
     llm_api_proxy_lib::gateway::convert::capabilities::infer_capabilities(selected_model)
@@ -141,6 +154,11 @@ pub fn create_upstream(
     let id = generate_id();
     let models_json = serde_json::to_string(&req.available_models).unwrap_or_else(|_| "[]".to_string());
     let capabilities = resolve_capabilities(&req.capabilities, &req.selected_model);
+    let api_format = if req.api_format.is_empty() {
+        "openai_chat".to_string()
+    } else {
+        req.api_format.clone()
+    };
 
     state
         .db
@@ -154,6 +172,7 @@ pub fn create_upstream(
             req.enabled,
             &req.remark,
             &capabilities,
+            &api_format,
         )
         .map_err(|e| e.to_string())?;
 
@@ -189,6 +208,11 @@ pub fn update_upstream(
     };
     let models_json = serde_json::to_string(&req.available_models).unwrap_or_else(|_| "[]".to_string());
     let capabilities = resolve_capabilities(&req.capabilities, &req.selected_model);
+    let api_format = if req.api_format.is_empty() {
+        "openai_chat".to_string()
+    } else {
+        req.api_format.clone()
+    };
 
     state
         .db
@@ -202,6 +226,7 @@ pub fn update_upstream(
             req.enabled,
             &req.remark,
             &capabilities,
+            &api_format,
         )
         .map_err(|e| e.to_string())?;
 
@@ -477,6 +502,7 @@ mod tests {
             enabled: true,
             remark: "test upstream".to_string(),
             capabilities: String::new(),
+            api_format: "openai_chat".to_string(),
             status: "healthy".to_string(),
             failure_count: 0,
             last_failure_time: None,

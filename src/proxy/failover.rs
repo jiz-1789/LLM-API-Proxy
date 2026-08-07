@@ -3,7 +3,39 @@ use serde_json::Value;
 use tracing::debug;
 
 use crate::proxy::error::{TimeoutPhase, UpstreamError};
-use crate::proxy::url_util::build_chat_completions_url;
+use crate::proxy::url_util::build_format_url;
+
+/// Build the authentication headers for an upstream request based on its
+/// native API format:
+/// - openai_chat / openai_responses: `Authorization: Bearer <key>`
+/// - anthropic: `x-api-key: <key>` + `anthropic-version: 2023-06-01`
+/// - gemini_native: `x-goog-api-key: <key>`
+fn format_auth_headers(api_format: &str, api_key: &str) -> reqwest::header::HeaderMap {
+    let mut headers = reqwest::header::HeaderMap::new();
+    match api_format {
+        "anthropic" => {
+            let key = reqwest::header::HeaderName::from_static("x-api-key");
+            if let Ok(v) = reqwest::header::HeaderValue::from_str(api_key) {
+                headers.insert(key, v);
+            }
+            if let Ok(v) = reqwest::header::HeaderValue::from_str("2023-06-01") {
+                headers.insert("anthropic-version", v);
+            }
+        }
+        "gemini_native" => {
+            let key = reqwest::header::HeaderName::from_static("x-goog-api-key");
+            if let Ok(v) = reqwest::header::HeaderValue::from_str(api_key) {
+                headers.insert(key, v);
+            }
+        }
+        _ => {
+            if let Ok(v) = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", api_key)) {
+                headers.insert("authorization", v);
+            }
+        }
+    }
+    headers
+}
 
 /// Connect timeout for establishing a TCP connection to the upstream.
 ///
@@ -48,17 +80,18 @@ impl UpstreamClient {
         &self,
         base_url: &str,
         api_key: &str,
-        _model: &str,
+        model: &str,
+        api_format: &str,
         body: &Value,
         extra_headers: Option<&reqwest::header::HeaderMap>,
     ) -> Result<Response, UpstreamError> {
-        let url = build_chat_completions_url(base_url);
+        let url = build_format_url(base_url, api_format, model);
         debug!("Forwarding request to upstream: {}", url);
 
         let mut req = self
             .http_client
             .post(&url)
-            .header("Authorization", format!("Bearer {}", api_key))
+            .headers(format_auth_headers(api_format, api_key))
             .header("Content-Type", "application/json")
             .json(body);
 
@@ -129,17 +162,18 @@ impl UpstreamClient {
         &self,
         base_url: &str,
         api_key: &str,
-        _model: &str,
+        model: &str,
+        api_format: &str,
         body: &Value,
         extra_headers: Option<&reqwest::header::HeaderMap>,
     ) -> Result<reqwest::Response, UpstreamError> {
-        let url = build_chat_completions_url(base_url);
+        let url = build_format_url(base_url, api_format, model);
         debug!("Forwarding streaming request to upstream: {}", url);
 
         let mut req = self
             .http_client
             .post(&url)
-            .header("Authorization", format!("Bearer {}", api_key))
+            .headers(format_auth_headers(api_format, api_key))
             .header("Content-Type", "application/json")
             .json(body);
 

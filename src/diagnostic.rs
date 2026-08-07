@@ -91,6 +91,8 @@ pub struct SanitizedUpstream {
     pub recovered_at: Option<String>,
     /// JSON-serialized ModelCapabilities; empty means unknown, v14.
     pub capabilities: String,
+    /// Upstream native API format, v12.
+    pub api_format: String,
 }
 
 /// A sanitized pool entry for diagnostic output.
@@ -174,6 +176,7 @@ pub fn collect_sanitized_upstreams(db: &Database) -> Vec<SanitizedUpstream> {
             last_error_reason: u.last_error_reason,
             recovered_at: u.recovered_at,
             capabilities: u.capabilities,
+            api_format: u.api_format,
         })
         .collect()
 }
@@ -512,6 +515,7 @@ mod tests {
             true,
             "",
             "",
+            "openai_chat",
         )
         .unwrap();
 
@@ -535,6 +539,7 @@ mod tests {
             true,
             "",
             "",
+            "openai_chat",
         )
         .unwrap();
 
@@ -561,6 +566,7 @@ mod tests {
             true,
             "",
             "",
+            "openai_chat",
         )
         .unwrap();
 
@@ -639,6 +645,7 @@ mod tests {
             true,
             "",
             "",
+            "openai_chat",
         )
         .unwrap();
         db.save_setting("gateway_api_key", "sk-gw-super-secret").unwrap();

@@ -46,6 +46,58 @@ pub fn build_models_url(base_url: &str) -> String {
     build_endpoint_url(base_url, "models")
 }
 
+/// Build the full URL for the Anthropic `/v1/messages` endpoint.
+///
+/// | Input | Output |
+/// |-------|--------|
+/// | `https://api.anthropic.com` | `https://api.anthropic.com/v1/messages` |
+/// | `https://api.anthropic.com/v1` | `https://api.anthropic.com/v1/messages` |
+/// | `https://api.anthropic.com/v1/messages` | (unchanged) |
+pub fn build_anthropic_messages_url(base_url: &str) -> String {
+    build_endpoint_url(base_url, "messages")
+}
+
+/// Build the full URL for the Gemini Native `:generateContent` endpoint.
+///
+/// Gemini's native path is `/v1beta/models/{model}:generateContent`. The base
+/// URL is normally the bare host (e.g. `https://generativelanguage.googleapis.com`).
+///
+/// | Input | Output |
+/// |-------|--------|
+/// | `https://generativelanguage.googleapis.com` | `.../v1beta/models/gemini-2.0-flash:generateContent` |
+/// | `https://generativelanguage.googleapis.com/v1beta` | `.../v1beta/models/gemini-2.0-flash:generateContent` |
+pub fn build_gemini_generate_url(base_url: &str, model: &str) -> String {
+    let mut base = base_url.trim_end_matches('/');
+    if base.ends_with("/v1beta") {
+        base = &base[..base.len() - "/v1beta".len()];
+    }
+    let suffix = format!("/v1beta/models/{}:generateContent", model);
+    format!("{}{}", base, suffix)
+}
+
+/// Build the full URL for the OpenAI Responses `/v1/responses` endpoint.
+///
+/// | Input | Output |
+/// |-------|--------|
+/// | `https://api.openai.com` | `https://api.openai.com/v1/responses` |
+/// | `https://api.openai.com/v1` | `https://api.openai.com/v1/responses` |
+/// | `https://api.openai.com/v1/responses` | (unchanged) |
+pub fn build_responses_url(base_url: &str) -> String {
+    build_endpoint_url(base_url, "responses")
+}
+
+/// Build the request URL for an upstream based on its native API format.
+///
+/// `api_format` values: `openai_chat` | `openai_responses` | `anthropic` | `gemini_native`.
+pub fn build_format_url(base_url: &str, api_format: &str, model: &str) -> String {
+    match api_format {
+        "anthropic" => build_anthropic_messages_url(base_url),
+        "gemini_native" => build_gemini_generate_url(base_url, model),
+        "openai_responses" => build_responses_url(base_url),
+        _ => build_chat_completions_url(base_url),
+    }
+}
+
 // ============================================================================
 // Internal helpers
 // ============================================================================
@@ -339,5 +391,93 @@ mod tests {
         assert!(has_version_segment(
             "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         ));
+    }
+
+    // ── Native format endpoints ─────────────────────────────────
+
+    #[test]
+    fn test_anthropic_messages_bare_root() {
+        assert_eq!(
+            build_anthropic_messages_url("https://api.anthropic.com"),
+            "https://api.anthropic.com/v1/messages"
+        );
+    }
+
+    #[test]
+    fn test_anthropic_messages_with_v1() {
+        assert_eq!(
+            build_anthropic_messages_url("https://api.anthropic.com/v1"),
+            "https://api.anthropic.com/v1/messages"
+        );
+    }
+
+    #[test]
+    fn test_anthropic_messages_already_full() {
+        assert_eq!(
+            build_anthropic_messages_url("https://api.anthropic.com/v1/messages"),
+            "https://api.anthropic.com/v1/messages"
+        );
+    }
+
+    #[test]
+    fn test_gemini_generate_bare_root() {
+        assert_eq!(
+            build_gemini_generate_url(
+                "https://generativelanguage.googleapis.com",
+                "gemini-2.0-flash"
+            ),
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        );
+    }
+
+    #[test]
+    fn test_gemini_generate_strips_duplicate_v1beta() {
+        assert_eq!(
+            build_gemini_generate_url(
+                "https://generativelanguage.googleapis.com/v1beta",
+                "gemini-2.0-flash"
+            ),
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        );
+    }
+
+    #[test]
+    fn test_responses_bare_root() {
+        assert_eq!(
+            build_responses_url("https://api.openai.com"),
+            "https://api.openai.com/v1/responses"
+        );
+    }
+
+    #[test]
+    fn test_responses_with_v1() {
+        assert_eq!(
+            build_responses_url("https://api.openai.com/v1"),
+            "https://api.openai.com/v1/responses"
+        );
+    }
+
+    #[test]
+    fn test_build_format_url_dispatch() {
+        assert_eq!(
+            build_format_url("https://api.openai.com", "openai_chat", "gpt-4"),
+            "https://api.openai.com/v1/chat/completions"
+        );
+        assert_eq!(
+            build_format_url("https://api.anthropic.com", "anthropic", "claude-3"),
+            "https://api.anthropic.com/v1/messages"
+        );
+        assert_eq!(
+            build_format_url(
+                "https://generativelanguage.googleapis.com",
+                "gemini_native",
+                "gemini-2.0-flash"
+            ),
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        );
+        assert_eq!(
+            build_format_url("https://api.openai.com", "openai_responses", "gpt-4"),
+            "https://api.openai.com/v1/responses"
+        );
     }
 }

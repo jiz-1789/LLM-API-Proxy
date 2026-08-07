@@ -49,6 +49,8 @@ pub struct Upstream {
     pub recovered_at: Option<String>,
     /// JSON-serialized ModelCapabilities; empty means unknown, v14.
     pub capabilities: String,
+    /// Upstream native API format: openai_chat | openai_responses | anthropic | gemini_native, v12.
+    pub api_format: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -405,8 +407,9 @@ impl Database {
             last_error_reason: row.get(12)?,
             recovered_at: row.get(13)?,
             capabilities: row.get::<_, Option<String>>(14)?.unwrap_or_default(),
-            created_at: row.get(15)?,
-            updated_at: row.get(16)?,
+            api_format: row.get::<_, Option<String>>(15)?.unwrap_or_else(|| "openai_chat".to_string()),
+            created_at: row.get(16)?,
+            updated_at: row.get(17)?,
         })
     }
 

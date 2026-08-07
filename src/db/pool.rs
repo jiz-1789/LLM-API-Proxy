@@ -257,9 +257,9 @@ mod tests {
         let crypto = crate::crypto::KeyManager::initialize(&std::env::temp_dir()).unwrap();
         let enc = crypto.encrypt_api_key("sk-test").unwrap();
 
-        db.create_upstream("up_a", "OpenAI", "https://a.com", &enc, "gpt-4o", "[]", true, "", "")
+        db.create_upstream("up_a", "OpenAI", "https://a.com", &enc, "gpt-4o", "[]", true, "", "", "openai_chat")
             .unwrap();
-        db.create_upstream("up_b", "DeepSeek", "https://b.com", &enc, "deepseek-chat", "[]", true, "", "")
+        db.create_upstream("up_b", "DeepSeek", "https://b.com", &enc, "deepseek-chat", "[]", true, "", "", "openai_chat")
             .unwrap();
 
         db.create_pool("pool_1", "p1", "P1", 5, false, "off", "", "")
@@ -308,7 +308,7 @@ mod tests {
         })
         .to_string();
 
-        db.create_upstream("up_c", "Custom", "https://c.com", &enc, "some-model", "[]", true, "", &explicit)
+        db.create_upstream("up_c", "Custom", "https://c.com", &enc, "some-model", "[]", true, "", &explicit, "openai_chat")
             .unwrap();
         db.create_pool("pool_2", "p2", "P2", 5, false, "off", "", "")
             .unwrap();

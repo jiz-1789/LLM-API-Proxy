@@ -2181,6 +2181,16 @@ print(response.choices[0].message.content)</code></pre>
                     </div>
                 </div>
             </div>
+            <div class="form-group">
+                <label class="form-label" data-i18n="api_format_label">上游 API 格式</label>
+                <select class="form-input" id="f-api-format">
+                    <option value="openai_chat" data-i18n="api_format_openai_chat">OpenAI Chat (默认)</option>
+                    <option value="openai_responses" data-i18n="api_format_openai_responses">OpenAI Responses</option>
+                    <option value="anthropic" data-i18n="api_format_anthropic">Anthropic Messages</option>
+                    <option value="gemini_native" data-i18n="api_format_gemini_native">Gemini Native</option>
+                </select>
+                <div class="form-hint" data-i18n="api_format_hint">网关自动将客户端请求转换为该格式发送给上游，响应再转回</div>
+            </div>
             <div class="form-actions">
                 <button class="btn btn-ghost" onclick="closeModal()" data-i18n="modal_cancel">取消</button>
                 <button class="btn btn-primary" id="btn-save" onclick="saveUpstream()" data-i18n="modal_save">保存</button>
@@ -2705,6 +2715,12 @@ settings_import_full: { zh: '全量导入', en: 'Import (Full)' },
         cap_chk_output_audio: { zh: '音频输出', en: 'Audio output' },
         cap_chk_fn: { zh: '函数调用', en: 'Function calling' },
         cap_chk_stream: { zh: '流式输出', en: 'Streaming' },
+        api_format_label: { zh: '上游 API 格式', en: 'Upstream API Format' },
+        api_format_hint: { zh: '网关自动将客户端请求转换为该格式发送给上游，响应再转回', en: 'Gateway auto-converts requests to this format and converts responses back' },
+        api_format_openai_chat: { zh: 'OpenAI Chat (默认)', en: 'OpenAI Chat (default)' },
+        api_format_openai_responses: { zh: 'OpenAI Responses', en: 'OpenAI Responses' },
+        api_format_anthropic: { zh: 'Anthropic Messages', en: 'Anthropic Messages' },
+        api_format_gemini_native: { zh: 'Gemini Native', en: 'Gemini Native' },
         modal_pool_thinking_hint: { zh: '为支持的上游自动注入推理参数', en: 'Auto-inject reasoning params for supported upstreams' },
         modal_pool_failover: { zh: '故障转移', en: 'Failover' },
         modal_pool_failover_hint: { zh: '上游失败时自动尝试下一个', en: 'Try next upstream on failure' },
@@ -3477,6 +3493,7 @@ if (page === 'settings' && lastUpdateInfo) {
         document.getElementById('f-remark').value = '';
         document.getElementById('model-chips').innerHTML = '';
         resetCapabilitiesForm();
+        document.getElementById('f-api-format').value = 'openai_chat';
         document.getElementById('upstream-modal').classList.add('open');
     }
 
@@ -3501,6 +3518,7 @@ if (page === 'settings' && lastUpdateInfo) {
                 `<span class="model-chip selected" onclick="selectModel(this, '${esc(m)}')">${esc(m)}</span>`
             ).join('');
             loadCapabilitiesIntoForm(u);
+            document.getElementById('f-api-format').value = u.api_format || 'openai_chat';
             document.getElementById('upstream-modal').classList.add('open');
         } catch (e) {
             toast(t('toast_load_upstream_detail_fail') + e, 'error');
@@ -3623,6 +3641,7 @@ if (page === 'settings' && lastUpdateInfo) {
         const enabled = document.getElementById('f-enabled').checked;
         const remark = document.getElementById('f-remark').value.trim();
         const capabilities = JSON.stringify(readCapabilitiesFromForm());
+        const api_format = document.getElementById('f-api-format').value;
 
         if (!provider_name || !base_url || !api_key) {
             toast(t('toast_required_fields'), 'error');
@@ -3635,10 +3654,10 @@ if (page === 'settings' && lastUpdateInfo) {
 
         try {
             if (id) {
-                await cmd('update_upstream', { id, req: { provider_name, base_url, api_key, selected_model, available_models, enabled, remark, capabilities } });
+                await cmd('update_upstream', { id, req: { provider_name, base_url, api_key, selected_model, available_models, enabled, remark, capabilities, api_format } });
                 toast(t('toast_upstream_updated'), 'success');
             } else {
-                await cmd('create_upstream', { req: { provider_name, base_url, api_key, selected_model, available_models, enabled, remark, capabilities } });
+                await cmd('create_upstream', { req: { provider_name, base_url, api_key, selected_model, available_models, enabled, remark, capabilities, api_format } });
                 toast(t('toast_upstream_created'), 'success');
             }
             closeModal();

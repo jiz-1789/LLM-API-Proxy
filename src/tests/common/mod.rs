@@ -81,6 +81,7 @@ impl TestEnv {
                 true,
                 "",
                 "",
+                "openai_chat",
             )
             .unwrap();
         id
@@ -101,6 +102,7 @@ impl TestEnv {
                 false,
                 "",
                 "",
+                "openai_chat",
             )
             .unwrap();
         id

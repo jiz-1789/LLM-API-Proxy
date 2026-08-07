@@ -485,6 +485,46 @@ async fn handle_chat_completions(
             );
         }
 
+        // Convert request body to the upstream's native API format if needed.
+        // Streaming conversion is not yet supported (P3b); guard against it.
+        let upstream_format = upstream.api_format.as_str();
+        if is_stream && convert::needs_request_conversion(upstream_format) {
+            warn!(
+                trace_id = %trace_id,
+                provider = %upstream.provider_name,
+                api_format = upstream_format,
+                "Streaming requests to non-OpenAI upstream formats are not yet supported"
+            );
+            failed_upstreams_json.push(json!({
+                "provider": upstream.provider_name,
+                "model": model_str,
+                "error": "streaming conversion not supported for this upstream format"
+            }));
+            last_error = Some("streaming conversion not supported".to_string());
+            continue;
+        }
+        if !is_stream && convert::needs_request_conversion(upstream_format) {
+            match convert::convert_request_to_upstream(&request_body, upstream_format) {
+                Ok(converted) => request_body = converted,
+                Err(e) => {
+                    warn!(
+                        trace_id = %trace_id,
+                        provider = %upstream.provider_name,
+                        api_format = upstream_format,
+                        error = %e,
+                        "Failed to convert request to upstream format"
+                    );
+                    failed_upstreams_json.push(json!({
+                        "provider": upstream.provider_name,
+                        "model": model_str,
+                        "error": format!("request conversion failed: {}", e)
+                    }));
+                    last_error = Some(format!("request conversion failed: {}", e));
+                    continue;
+                }
+            }
+        }
+
         // 鈹€鈹€ SSE streaming path 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
         if is_stream {
             match state
@@ -493,6 +533,7 @@ async fn handle_chat_completions(
                     &upstream.base_url,
                     &api_key,
                     model_str,
+                    &upstream.api_format,
                     &request_body,
                     Some(&trace_headers),
                 )
@@ -717,6 +758,7 @@ async fn handle_chat_completions(
                     &upstream.base_url,
                     &api_key,
                     model_str,
+                    &upstream.api_format,
                     &request_body,
                     Some(&trace_headers),
                 )
@@ -725,8 +767,17 @@ async fn handle_chat_completions(
                 Ok(response) => {
                     let elapsed = start_time.elapsed().as_millis() as i32;
 
+                    // Convert native upstream response back to OpenAI Chat format
+                    let mut resp_body = if convert::needs_response_conversion(&upstream.api_format) {
+                        convert::convert_response_to_client(
+                            &response.body,
+                            &upstream.api_format,
+                            &pool.display_name,
+                        )
+                    } else {
+                        response.body
+                    };
                     // Replace model name in response with the pool's display name
-                    let mut resp_body = response.body;
                     if let Some(obj) = resp_body.as_object_mut() {
                         obj.insert(
                             "model".to_string(),
