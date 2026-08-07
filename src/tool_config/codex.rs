@@ -33,7 +33,6 @@ impl ToolConfigWriter for CodexWriter {
 
     fn is_installed(&self) -> bool {
         detector::cli_installed("codex")
-            || detector::config_dir_installed(detector::home_path(".codex"), 2)
     }
 
     fn config_paths(&self) -> Vec<PathBuf> {

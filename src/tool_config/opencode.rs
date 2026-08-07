@@ -30,10 +30,6 @@ impl ToolConfigWriter for OpenCodeWriter {
 
     fn is_installed(&self) -> bool {
         detector::cli_installed("opencode")
-            || detector::opencode_config_paths()
-                .iter()
-                .filter_map(|p| p.parent().map(|d| d.to_path_buf()))
-                .any(|d| detector::config_dir_installed(Some(d), 2))
     }
 
     fn config_paths(&self) -> Vec<PathBuf> {

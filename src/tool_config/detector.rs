@@ -271,22 +271,6 @@ pub fn cli_installed(name: &str) -> bool {
     find_cli(name).is_some()
 }
 
-/// A config directory that counts as "installed" when it contains at least
-/// `min_files` entries (a lone orphan file like a stray config.yaml is not a
-/// reliable install signal).
-pub fn config_dir_installed(dir: Option<PathBuf>, min_files: usize) -> bool {
-    let Some(dir) = dir else {
-        return false;
-    };
-    if !dir.is_dir() {
-        return false;
-    }
-    let count = std::fs::read_dir(&dir)
-        .map(|entries| entries.filter_map(Result::ok).count())
-        .unwrap_or(0);
-    count >= min_files
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -360,24 +344,6 @@ mod tests {
             assert!(s.contains("Claude"), "first candidate should mention Claude, got {s}");
             assert!(s.ends_with("claude_desktop_config.json"), "got {s}");
         }
-    }
-
-    #[test]
-    fn test_config_dir_installed_requires_min_files() {
-        let dir = tempfile::tempdir().unwrap();
-        // Single orphan file → NOT installed
-        std::fs::write(dir.path().join("config.yaml"), "stray").unwrap();
-        assert!(!config_dir_installed(Some(dir.path().to_path_buf()), 2));
-
-        // Add a second file → installed
-        std::fs::write(dir.path().join("another.txt"), "x").unwrap();
-        assert!(config_dir_installed(Some(dir.path().to_path_buf()), 2));
-    }
-
-    #[test]
-    fn test_config_dir_installed_none_path() {
-        assert!(!config_dir_installed(None, 2));
-        assert!(!config_dir_installed(Some(PathBuf::from("definitely_missing_xyz")), 2));
     }
 
     #[test]

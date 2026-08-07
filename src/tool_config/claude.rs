@@ -31,7 +31,6 @@ impl ToolConfigWriter for ClaudeCodeWriter {
 
     fn is_installed(&self) -> bool {
         detector::cli_installed("claude")
-            || detector::config_dir_installed(detector::home_path(".claude"), 2)
     }
 
     fn config_paths(&self) -> Vec<PathBuf> {

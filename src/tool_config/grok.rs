@@ -27,7 +27,6 @@ impl ToolConfigWriter for GrokWriter {
 
     fn is_installed(&self) -> bool {
         detector::cli_installed("grok")
-            || detector::config_dir_installed(detector::home_path(".grok"), 2)
     }
 
     fn config_paths(&self) -> Vec<PathBuf> {

@@ -27,7 +27,6 @@ impl ToolConfigWriter for GeminiWriter {
 
     fn is_installed(&self) -> bool {
         detector::cli_installed("gemini")
-            || detector::config_dir_installed(detector::home_path(".gemini"), 2)
     }
 
     fn config_paths(&self) -> Vec<PathBuf> {
