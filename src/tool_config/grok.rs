@@ -54,18 +54,6 @@ impl ToolConfigWriter for GrokWriter {
             .first()
             .ok_or_else(|| AppError::Config("缺少原始配置".to_string()))?;
 
-        let mut toml = original
-            .clone()
-            .unwrap_or_default()
-            .trim_end()
-            .to_string();
-        if toml.is_empty() {
-            toml = String::new();
-        }
-        if !toml.ends_with('\n') && !toml.is_empty() {
-            toml.push('\n');
-        }
-
         // Provider-scoped key so multiple profiles don't clobber each other.
         let provider_key = provider_name.trim();
         let provider_key = if provider_key.is_empty() {
@@ -74,12 +62,37 @@ impl ToolConfigWriter for GrokWriter {
             provider_key.to_string()
         };
 
-        let block = format!(
-            "\nmodel_provider = \"{provider_key}\"\nmodel = \"{default_pool_name}\"\n\n[model_providers.{provider_key}]\nname = \"{provider_name}\"\nbase_url = \"{proxy_base_url}\"\nwire_api = \"responses\"\nrequires_openai_auth = true\n",
-        );
-        toml.push_str(&block);
+        // Order-preserving upsert: reuse an existing `[model_providers.{key}]`
+        // table instead of appending a duplicate section.
+        let mut doc = original
+            .clone()
+            .unwrap_or_default()
+            .parse::<toml_edit::DocumentMut>()
+            .unwrap_or_default();
 
-        atomic_write(path, toml.as_bytes())
+        doc["model_provider"] = toml_edit::value(&provider_key);
+        doc["model"] = toml_edit::value(default_pool_name);
+
+        if !doc.as_table().contains_key("model_providers") {
+            doc["model_providers"] = toml_edit::table();
+        }
+        let providers = doc
+            .get_mut("model_providers")
+            .and_then(toml_edit::Item::as_table_mut)
+            .ok_or_else(|| AppError::Config("model_providers 必须是 TOML 表".to_string()))?;
+        if !providers.contains_key(&provider_key) {
+            providers.insert(&provider_key, toml_edit::table());
+        }
+        let provider = providers
+            .get_mut(&provider_key)
+            .and_then(toml_edit::Item::as_table_mut)
+            .ok_or_else(|| AppError::Config("model_providers.{provider_key} 必须是 TOML 表".to_string()))?;
+        provider["name"] = toml_edit::value(provider_name);
+        provider["base_url"] = toml_edit::value(proxy_base_url);
+        provider["wire_api"] = toml_edit::value("responses");
+        provider["requires_openai_auth"] = toml_edit::value(true);
+
+        atomic_write(path, doc.to_string().as_bytes())
     }
 
     fn restore_original_config(&self, original_configs: &[BackupEntry]) -> Result<(), AppError> {
@@ -135,5 +148,24 @@ mod tests {
         let toml = std::fs::read_to_string(&cfg).unwrap();
         assert!(toml.starts_with("disable_browser = true"));
         assert!(toml.contains("[model_providers.P]"));
+    }
+
+    #[test]
+    fn test_grok_reuses_existing_provider_section_no_duplicate() {
+        let dir = TempDir::new().unwrap();
+        let cfg = dir.path().join("config.toml");
+        let existing = "model_provider = \"llm-api-proxy\"\nmodel = \"old-model\"\n\n[model_providers.llm-api-proxy]\nname = \"llm-api-proxy\"\nbase_url = \"http://old:8080/v1\"\nwire_api = \"responses\"\n";
+        std::fs::write(&cfg, existing).unwrap();
+        let writer = GrokWriter;
+        let original = vec![(cfg.clone(), Some(existing.to_string()))];
+        writer
+            .merge_and_write_config(&original, "http://new:47339", "k", &[], "new-pool", "P", "llm-api-proxy")
+            .unwrap();
+        let toml = std::fs::read_to_string(&cfg).unwrap();
+        assert_eq!(toml.matches("[model_providers.llm-api-proxy]").count(), 1);
+        assert!(toml.contains("base_url = \"http://new:47339\""));
+        assert!(toml.contains("model = \"new-pool\""));
+        let parsed = toml.parse::<toml_edit::DocumentMut>();
+        assert!(parsed.is_ok(), "invalid TOML after upsert: {toml}");
     }
 }

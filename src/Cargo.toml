@@ -43,6 +43,7 @@ bytes = { workspace = true }
 log = "0.4"
 zip = { workspace = true }
 dashmap = { workspace = true }
+toml_edit = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"

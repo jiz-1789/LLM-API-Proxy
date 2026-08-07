@@ -62,3 +62,6 @@ zip = "2"
 
 # Concurrent map for rate limiting
 dashmap = "6"
+
+# Order-preserving TOML editing (Codex/Grok config.toml upsert)
+toml_edit = "0.22"

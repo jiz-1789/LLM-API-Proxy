@@ -85,11 +85,31 @@ pub fn claude_desktop_config_paths() -> Vec<PathBuf> {
 }
 
 /// Codex CLI config: `~/.codex/auth.json` + `~/.codex/config.toml`.
+///
+/// Codex honors the `CODEX_HOME` environment variable (like CC-Switch does);
+/// when set to an existing directory, that directory is used instead of
+/// `~/.codex`.
+pub fn codex_home_dir() -> Option<PathBuf> {
+    if let Some(codex_home) = std::env::var_os("CODEX_HOME") {
+        let path = PathBuf::from(&codex_home);
+        let trimmed = codex_home.to_string_lossy().trim().to_string();
+        if !trimmed.is_empty() && path.is_dir() {
+            return Some(path);
+        }
+    }
+    home_dir().map(|h| h.join(".codex"))
+}
+
+/// Resolve `~/.codex` (or `$CODEX_HOME`) to a config file path.
+pub fn codex_home_path(relative: &str) -> Option<PathBuf> {
+    codex_home_dir().map(|h| h.join(relative))
+}
+
 pub fn codex_auth_path() -> Option<PathBuf> {
-    home_path(".codex/auth.json")
+    codex_home_path("auth.json")
 }
 pub fn codex_config_path() -> Option<PathBuf> {
-    home_path(".codex/config.toml")
+    codex_home_path("config.toml")
 }
 
 /// Gemini CLI: `~/.gemini/settings.json` (+ `.env`).
@@ -174,6 +194,82 @@ pub fn which_in_path(name: &str) -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// Locate a Codex executable.
+///
+/// Codex ships in several forms:
+/// 1. CLI installed on PATH (`codex` / `codex.exe`)
+/// 2. Desktop app standalone install: `%LOCALAPPDATA%\OpenAI\Codex\bin\{hash}\codex.exe`
+///    (the bin dir contains hash-named subdirectories holding the real binaries)
+/// 3. MS Store package: `C:\Program Files\WindowsApps\OpenAI.Codex_*\app\...`
+///
+/// Returns the directory containing the executable, if found.
+pub fn find_codex_executable_dir() -> Option<PathBuf> {
+    // 1. CLI on PATH
+    if let Some(p) = which_in_path("codex") {
+        return p.parent().map(Path::to_path_buf);
+    }
+
+    #[cfg(windows)]
+    {
+        // 2. Desktop app standalone install: search bin/{hash}/ recursively.
+        if let Some(la) = local_appdata_dir() {
+            let bin_dir = la.join("OpenAI").join("Codex").join("bin");
+            if let Ok(entries) = std::fs::read_dir(&bin_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if !path.is_dir() {
+                        continue;
+                    }
+                    for name in ["codex.exe", "Codex.exe"] {
+                        let candidate = path.join(name);
+                        if candidate.is_file() {
+                            return Some(path);
+                        }
+                    }
+                }
+            }
+        }
+        // 3. MS Store package app dir.
+        if let Some(pf) = std::env::var_os("ProgramFiles") {
+            let windows_apps = PathBuf::from(&pf).join("WindowsApps");
+            if let Ok(entries) = std::fs::read_dir(&windows_apps) {
+                for entry in entries.flatten() {
+                    let dir = entry.path();
+                    if !dir.is_dir() {
+                        continue;
+                    }
+                    let name = dir
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("")
+                        .to_ascii_lowercase();
+                    if name.starts_with("openai.codex")
+                        || name.starts_with("openai.codexbeta")
+                    {
+                        let app_dir = dir.join("app");
+                        if app_dir.is_dir() {
+                            return Some(app_dir);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Check whether Codex is installed (CLI, desktop app, or CODEX_HOME config).
+pub fn codex_installed() -> bool {
+    if find_codex_executable_dir().is_some() {
+        return true;
+    }
+    // A config dir (CODEX_HOME or ~/.codex) is a reliable signal too — CC-Switch
+    // detects Codex purely by config-dir existence.
+    codex_home_dir()
+        .filter(|dir| dir.exists())
+        .is_some()
 }
 
 // ============================================================================
@@ -274,6 +370,9 @@ pub fn cli_installed(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Serializes CODEX_HOME-mutating tests (env vars are process-global).
+    static CODEX_HOME_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
     fn test_home_dir_returns_some() {
@@ -381,6 +480,100 @@ mod tests {
         assert!(joined.contains("opencode.json"), "got {joined}");
         #[cfg(windows)]
         assert!(joined.contains("opencode.desktop"), "desktop path missing, got {joined}");
+    }
+
+    #[test]
+    fn test_codex_home_dir_uses_env_when_valid() {
+        let _lock = CODEX_HOME_TEST_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        // SAFETY: single-threaded test environment; no concurrent env reads.
+        unsafe {
+            std::env::set_var("CODEX_HOME", dir.path());
+        }
+        let home = codex_home_dir().unwrap();
+        assert_eq!(home, dir.path());
+        unsafe {
+            std::env::remove_var("CODEX_HOME");
+        }
+    }
+
+    #[test]
+    fn test_codex_home_dir_ignores_empty_env() {
+        let _lock = CODEX_HOME_TEST_LOCK.lock().unwrap();
+        // Empty CODEX_HOME should fall back to ~/.codex.
+        // SAFETY: single-threaded test environment.
+        unsafe {
+            std::env::set_var("CODEX_HOME", "   ");
+        }
+        let home = codex_home_dir().unwrap();
+        assert!(home.to_string_lossy().contains(".codex"));
+        unsafe {
+            std::env::remove_var("CODEX_HOME");
+        }
+    }
+
+    #[test]
+    fn test_codex_home_dir_falls_back_to_default() {
+        let _lock = CODEX_HOME_TEST_LOCK.lock().unwrap();
+        unsafe {
+            std::env::remove_var("CODEX_HOME");
+        }
+        let home = codex_home_dir().unwrap();
+        assert!(home.to_string_lossy().contains(".codex"));
+    }
+
+    #[test]
+    fn test_codex_auth_config_paths_respect_env() {
+        let _lock = CODEX_HOME_TEST_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        // SAFETY: single-threaded test environment.
+        unsafe {
+            std::env::set_var("CODEX_HOME", dir.path());
+        }
+        assert_eq!(
+            codex_auth_path().unwrap(),
+            dir.path().join("auth.json")
+        );
+        assert_eq!(
+            codex_config_path().unwrap(),
+            dir.path().join("config.toml")
+        );
+        unsafe {
+            std::env::remove_var("CODEX_HOME");
+        }
+    }
+
+    #[test]
+    fn test_codex_installed_by_config_dir() {
+        let _lock = CODEX_HOME_TEST_LOCK.lock().unwrap();
+        // A config dir alone (like CC-Switch's detection) counts as installed.
+        let dir = tempfile::tempdir().unwrap();
+        // SAFETY: single-threaded test environment.
+        unsafe {
+            std::env::set_var("CODEX_HOME", dir.path());
+        }
+        assert!(codex_installed());
+        unsafe {
+            std::env::remove_var("CODEX_HOME");
+        }
+    }
+
+    #[test]
+    fn test_find_codex_executable_dir_detects_desktop_bin() {
+        // Simulate the desktop-app layout: %LOCALAPPDATA%\OpenAI\Codex\bin\{hash}\codex.exe
+        #[cfg(windows)]
+        {
+            let la = local_appdata_dir().unwrap();
+            let bin = la.join("OpenAI").join("Codex").join("bin");
+            if !bin.exists() {
+                return; // skip if user has no Codex install (CI machine)
+            }
+            let found = find_codex_executable_dir();
+            assert!(
+                found.is_some(),
+                "expected to find Codex in LOCALAPPDATA\\OpenAI\\Codex\\bin\\*\\codex.exe"
+            );
+        }
     }
 }
 

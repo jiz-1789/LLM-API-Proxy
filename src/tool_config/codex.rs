@@ -32,24 +32,24 @@ impl ToolConfigWriter for CodexWriter {
     }
 
     fn is_installed(&self) -> bool {
-        detector::cli_installed("codex")
+        detector::codex_installed()
     }
 
     fn config_paths(&self) -> Vec<PathBuf> {
         let mut paths = Vec::new();
-        if let Some(p) = detector::home_path(AUTH_REL) {
+        if let Some(p) = detector::codex_home_path(AUTH_REL) {
             paths.push(p);
         }
-        if let Some(p) = detector::home_path(CONFIG_REL) {
+        if let Some(p) = detector::codex_home_path(CONFIG_REL) {
             paths.push(p);
         }
         paths
     }
 
     fn read_original_config(&self) -> Result<Vec<BackupEntry>, AppError> {
-        let auth = detector::home_path(AUTH_REL)
+        let auth = detector::codex_home_path(AUTH_REL)
             .ok_or_else(|| AppError::Config("无法定位用户主目录".to_string()))?;
-        let config = detector::home_path(CONFIG_REL)
+        let config = detector::codex_home_path(CONFIG_REL)
             .ok_or_else(|| AppError::Config("无法定位用户主目录".to_string()))?;
         Ok(vec![
             (auth.clone(), std::fs::read_to_string(&auth).ok()),
@@ -85,26 +85,39 @@ impl ToolConfigWriter for CodexWriter {
         }
         let auth_content = serde_json::to_string_pretty(&auth_root).unwrap_or_default();
 
-        // config.toml: preserve existing, rewrite/insert model_provider section
-        let mut toml = config_original
+        // config.toml: order-preserving upsert of the custom provider section.
+        // Preserves all existing keys/tables (model_catalog_json, notify,
+        // mcp_servers, etc.) and reuses the existing `[model_providers.custom]`
+        // table instead of appending a duplicate section.
+        let mut doc = config_original
             .clone()
             .unwrap_or_default()
-            .trim_end()
-            .to_string();
-        if toml.is_empty() {
-            toml = String::new();
-        }
+            .parse::<toml_edit::DocumentMut>()
+            .unwrap_or_default();
 
-        // Ensure config.toml ends with newline before appending
-        if !toml.ends_with('\n') && !toml.is_empty() {
-            toml.push('\n');
-        }
+        doc["model_provider"] = toml_edit::value("custom");
+        doc["model"] = toml_edit::value(default_pool_name);
 
-        let provider_block = format!(
-            "\nmodel_provider = \"custom\"\nmodel = \"{}\"\n\n[model_providers.custom]\nname = \"{}\"\nbase_url = \"{}\"\nwire_api = \"responses\"\nrequires_openai_auth = true\n",
-            default_pool_name, provider_name, proxy_base_url
-        );
-        toml.push_str(&provider_block);
+        if !doc.as_table().contains_key("model_providers") {
+            doc["model_providers"] = toml_edit::table();
+        }
+        let providers = doc
+            .get_mut("model_providers")
+            .and_then(toml_edit::Item::as_table_mut)
+            .ok_or_else(|| AppError::Config("model_providers 必须是 TOML 表".to_string()))?;
+        if !providers.contains_key("custom") {
+            providers.insert("custom", toml_edit::table());
+        }
+        let provider = providers
+            .get_mut("custom")
+            .and_then(toml_edit::Item::as_table_mut)
+            .ok_or_else(|| AppError::Config("model_providers.custom 必须是 TOML 表".to_string()))?;
+        provider["name"] = toml_edit::value(provider_name);
+        provider["base_url"] = toml_edit::value(proxy_base_url);
+        provider["wire_api"] = toml_edit::value("responses");
+        provider["requires_openai_auth"] = toml_edit::value(true);
+
+        let toml = doc.to_string();
 
         atomic_write_multi(&[
             (auth_path.clone(), auth_content),
@@ -178,14 +191,14 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let auth = dir.path().join("auth.json");
         let config = dir.path().join("config.toml");
-        std::fs::write(&config, "model_provider = \"openai\"\n").unwrap();
+        std::fs::write(&config, "sandbox_mode = \"danger-full-access\"\n").unwrap();
 
         let writer = CodexWriter;
         let original = vec![
             (auth.clone(), None),
             (
                 config.clone(),
-                Some("model_provider = \"openai\"\n".to_string()),
+                Some("sandbox_mode = \"danger-full-access\"\n".to_string()),
             ),
         ];
 
@@ -202,11 +215,65 @@ mod tests {
             .unwrap();
 
         let toml = std::fs::read_to_string(&config).unwrap();
-        // Original line preserved
-        assert!(toml.starts_with("model_provider = \"openai\""));
-        // Proxy block appended
+        // Original unrelated root key preserved
+        assert!(toml.contains("sandbox_mode = \"danger-full-access\""));
+        // Proxy provider upserted
         assert!(toml.contains("[model_providers.custom]"));
         assert!(toml.contains("model = \"my-pool\""));
+        assert!(toml.contains("model_provider = \"custom\""));
+        // No duplicate section
+        let occurrences = toml.matches("[model_providers.custom]").count();
+        assert_eq!(occurrences, 1, "duplicate [model_providers.custom] found: {toml}");
+    }
+
+    #[test]
+    fn test_codex_merge_reuses_existing_custom_section_no_duplicate() {
+        // Simulate a real user config that already has [model_providers.custom]
+        // (e.g. written by cc-switch): the proxy must overwrite fields in place,
+        // not append a second identical section.
+        let dir = TempDir::new().unwrap();
+        let auth = dir.path().join("auth.json");
+        let config = dir.path().join("config.toml");
+        let existing = r#"model = "gpt-5.4"
+model_provider = "custom"
+model_catalog_json = "cc-switch-model-catalog.json"
+
+[model_providers.custom]
+name = "custom"
+wire_api = "responses"
+requires_openai_auth = true
+base_url = "http://127.0.0.1:57321/v1"
+"#;
+        std::fs::write(&config, existing).unwrap();
+
+        let writer = CodexWriter;
+        let original = vec![
+            (auth.clone(), None),
+            (config.clone(), Some(existing.to_string())),
+        ];
+
+        writer
+            .merge_and_write_config(
+                &original,
+                "http://127.0.0.1:47339",
+                "sk-gw-proxy",
+                &[],
+                "grok-4.5",
+                "Grok 4.5",
+                "LLM-API-Proxy",
+            )
+            .unwrap();
+
+        let toml = std::fs::read_to_string(&config).unwrap();
+        // Exactly one [model_providers.custom] section
+        assert_eq!(toml.matches("[model_providers.custom]").count(), 1);
+        // base_url overwritten in place, model_catalog_json preserved
+        assert!(toml.contains("base_url = \"http://127.0.0.1:47339\""));
+        assert!(toml.contains("model_catalog_json = \"cc-switch-model-catalog.json\""));
+        assert!(toml.contains("model = \"grok-4.5\""));
+        // It must parse as valid TOML (no duplicate-key error)
+        let parsed = toml.parse::<toml_edit::DocumentMut>();
+        assert!(parsed.is_ok(), "config.toml no longer valid TOML: {toml}");
     }
 
     #[test]
