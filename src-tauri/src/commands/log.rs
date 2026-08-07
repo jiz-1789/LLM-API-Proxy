@@ -89,6 +89,8 @@ pub fn get_request_logs(
 }
 
 /// Get token usage stats for an upstream (today + total + 30-day daily breakdown + per-model).
+/// Reads from the standalone `token_usage` table so statistics are not affected
+/// by request_logs cleanup.
 #[tauri::command]
 pub fn get_upstream_token_usage(
     upstream_id: String,
@@ -96,24 +98,24 @@ pub fn get_upstream_token_usage(
 ) -> Result<TokenUsageResponse, String> {
     let today = state
         .db
-        .get_upstream_today_tokens(&upstream_id, None)
+        .token_today(&upstream_id, None)
         .map_err(|e| e.to_string())?;
     let total = state
         .db
-        .get_upstream_total_tokens(&upstream_id, None)
+        .token_total(&upstream_id, None)
         .map_err(|e| e.to_string())?;
     let daily = state
         .db
-        .get_upstream_token_stats(&upstream_id, 30)
+        .token_daily(&upstream_id, None, 30)
         .map_err(|e| e.to_string())?;
     let per_model = state
         .db
-        .get_upstream_model_token_stats(&upstream_id)
+        .token_per_model(&upstream_id)
         .map_err(|e| e.to_string())?;
     Ok(TokenUsageResponse { today, total, daily, per_model })
 }
 
-/// Reset token stats for an upstream by deleting all its request logs.
+/// Reset token stats for an upstream by clearing its token_usage records.
 #[tauri::command]
 pub fn reset_upstream_token_stats(
     upstream_id: String,
@@ -121,11 +123,11 @@ pub fn reset_upstream_token_stats(
 ) -> Result<i64, String> {
     state
         .db
-        .reset_upstream_token_stats(&upstream_id)
+        .clear_upstream_token_usage(&upstream_id)
         .map_err(|e| e.to_string())
 }
 
-/// Get token stats for an upstream filtered by model.
+/// Get token stats for an upstream filtered by model (from token_usage).
 #[tauri::command]
 pub fn get_upstream_model_detail(
     upstream_id: String,
@@ -135,21 +137,30 @@ pub fn get_upstream_model_detail(
     let model_ref = model.as_deref().filter(|m| !m.is_empty());
     let today = state
         .db
-        .get_upstream_today_tokens(&upstream_id, model_ref)
+        .token_today(&upstream_id, model_ref)
         .map_err(|e| e.to_string())?;
     let total = state
         .db
-        .get_upstream_total_tokens(&upstream_id, model_ref)
+        .token_total(&upstream_id, model_ref)
         .map_err(|e| e.to_string())?;
     let daily = state
         .db
-        .get_upstream_token_stats_filtered(&upstream_id, model_ref, 30)
+        .token_daily(&upstream_id, model_ref, 30)
         .map_err(|e| e.to_string())?;
     let hourly = state
         .db
-        .get_upstream_hourly_stats(&upstream_id, model_ref)
+        .token_hourly(&upstream_id, model_ref)
         .map_err(|e| e.to_string())?;
     Ok(ModelDetailResponse { today, total, daily, hourly })
+}
+
+/// Clear all token usage statistics (manual cleanup, does NOT touch request logs).
+#[tauri::command]
+pub fn clear_all_token_usage(state: State<'_, AppState>) -> Result<i64, String> {
+    state
+        .db
+        .clear_token_usage()
+        .map_err(|e| e.to_string())
 }
 
 /// Get aggregate statistics for the dashboard.
@@ -438,13 +449,13 @@ pub struct TokenOverviewResponse {
 }
 
 /// Get token usage overview aggregated by pool and by upstream.
-/// Returns today's and all-time totals for each group.
+/// Returns today's and all-time totals for each group (from token_usage).
 #[tauri::command]
 pub fn get_token_overview(
     state: State<'_, AppState>,
 ) -> Result<TokenOverviewResponse, String> {
-    let by_pool = state.db.get_pool_token_overview().map_err(|e| e.to_string())?;
-    let mut by_upstream = state.db.get_upstream_token_overview().map_err(|e| e.to_string())?;
+    let by_pool = state.db.token_overview_by_pool().map_err(|e| e.to_string())?;
+    let mut by_upstream = state.db.token_overview_by_upstream().map_err(|e| e.to_string())?;
 
     // Resolve upstream IDs to provider names
     let upstreams = state.db.get_upstreams().map_err(|e| e.to_string())?;

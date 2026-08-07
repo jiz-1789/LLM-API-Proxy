@@ -351,6 +351,35 @@ impl Database {
             info!("Database migrated to version 14");
         }
 
+        // v15 migration: standalone token usage table (decoupled from request_logs).
+        // Token statistics are recorded per-request here so that log cleanup
+        // (which truncates request_logs) never distorts dashboard / 30-day /
+        // hourly token statistics. Stats can be manually cleared.
+        if current < 15 {
+            self.get_conn()?.execute_batch(
+                "CREATE TABLE IF NOT EXISTS token_usage (
+                    id TEXT PRIMARY KEY,
+                    request_id TEXT NOT NULL,
+                    pool_name TEXT,
+                    upstream_id TEXT,
+                    model TEXT,
+                    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                    completion_tokens INTEGER NOT NULL DEFAULT 0,
+                    total_tokens INTEGER NOT NULL DEFAULT 0,
+                    status_code INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+                );
+                CREATE INDEX IF NOT EXISTS idx_token_usage_created_at ON token_usage(created_at);
+                CREATE INDEX IF NOT EXISTS idx_token_usage_upstream ON token_usage(upstream_id);
+                CREATE INDEX IF NOT EXISTS idx_token_usage_pool ON token_usage(pool_name);",
+            )?;
+            self.get_conn()?.execute(
+                "UPDATE schema_version SET version = ?1",
+                params![15],
+            )?;
+            info!("Database migrated to version 15");
+        }
+
         Ok(())
     }
 
@@ -436,11 +465,26 @@ mod tests {
     }
 
     #[test]
+    fn test_token_usage_table_created() {
+        let db = Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+        let conn = db.get_conn().unwrap();
+        // Table exists and is queryable
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM token_usage", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+        assert!(index_exists(&conn, "token_usage", "idx_token_usage_created_at"));
+        assert!(index_exists(&conn, "token_usage", "idx_token_usage_upstream"));
+        assert!(index_exists(&conn, "token_usage", "idx_token_usage_pool"));
+    }
+
+    #[test]
     fn test_schema_version_is_v10_after_migration() {
         let db = Database::open_in_memory().unwrap();
         db.initialize().unwrap();
         let version = db.get_schema_version().unwrap();
-        assert_eq!(version, 14);
+        assert_eq!(version, 15);
     }
 
     #[test]

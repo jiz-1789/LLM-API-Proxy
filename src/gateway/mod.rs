@@ -603,12 +603,17 @@ async fn process_completion(
                     }
 
                     // Build byte stream from upstream response
+                    let tu_status = upstream_response.status().as_u16() as i32;
                     let byte_stream = upstream_response.bytes_stream();
                     let display_name = pool.display_name.clone();
                     let upstream_format = upstream.api_format.clone();
                     let db_clone = state.db.clone();
                     let log_id_clone = log_id.clone();
                     let trace_id_clone = trace_id.clone();
+                    let tu_pool = pool.name.clone();
+                    let tu_upstream = upstream.id.clone();
+                    let tu_model = model_str.to_string();
+                    let tu_request_id = request_id.clone();
                     let (tx, rx) =
                         tokio::sync::mpsc::channel::<Result<Bytes, std::convert::Infallible>>(64);
 
@@ -745,6 +750,26 @@ async fn process_completion(
                             )
                         {
                             warn!(trace_id = %trace_id_clone, error = %e, "Failed to update request log tokens");
+                        }
+                        // Record standalone token usage for the streamed request.
+                        if let Some((prompt, completion, total)) = last_usage
+                            && total > 0
+                        {
+                            let tu_id = format!("tu_{}", uuid::Uuid::new_v4().simple());
+                            if let Err(e) = db_clone.record_token_usage(&crate::db::TokenUsageRecord {
+                                id: tu_id,
+                                request_id: tu_request_id,
+                                pool_name: Some(tu_pool),
+                                upstream_id: Some(tu_upstream),
+                                model: Some(tu_model),
+                                prompt_tokens: prompt,
+                                completion_tokens: completion,
+                                total_tokens: total,
+                                status_code: if stream_error.is_some() { 500 } else { tu_status },
+                                created_at: String::new(),
+                            }) {
+                                warn!(trace_id = %trace_id_clone, error = %e, "Failed to record token usage");
+                            }
                         }
                     });
 
@@ -922,6 +947,26 @@ async fn process_completion(
                         total_tokens,
                     ) {
                         warn!(trace_id = %trace_id, error = %e, "Failed to insert request log");
+                    }
+
+                    // Record standalone token usage (decoupled from request_logs so
+                    // log cleanup never distorts statistics).
+                    if total_tokens > 0 {
+                        let tu_id = format!("tu_{}", uuid::Uuid::new_v4().simple());
+                        if let Err(e) = state.db.record_token_usage(&crate::db::TokenUsageRecord {
+                            id: tu_id,
+                            request_id: request_id.clone(),
+                            pool_name: Some(pool.name.clone()),
+                            upstream_id: Some(upstream.id.clone()),
+                            model: Some(model_str.to_string()),
+                            prompt_tokens,
+                            completion_tokens,
+                            total_tokens,
+                            status_code: response.status_code,
+                            created_at: String::new(),
+                        }) {
+                            warn!(trace_id = %trace_id, error = %e, "Failed to record token usage");
+                        }
                     }
 
                     // Build response with passthrough headers from upstream + X-Request-Id

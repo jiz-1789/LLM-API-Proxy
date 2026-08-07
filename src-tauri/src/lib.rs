@@ -58,6 +58,7 @@ pub fn run() {
             commands::log::get_request_stats,
             commands::log::get_failover_events,
             commands::log::get_token_overview,
+            commands::log::clear_all_token_usage,
             commands::health::check_upstream_health,
             commands::health::check_all_upstreams_health,
             commands::settings::get_settings,

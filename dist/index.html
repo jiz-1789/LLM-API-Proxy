@@ -1533,6 +1533,7 @@ gap: 8px;
                             <span data-i18n="logs_token_overview_title">Token 用量统计</span>
                         </div>
                         <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); loadTokenOverview()" data-i18n="logs_refresh">刷新</button>
+                        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); clearTokenUsage()" data-i18n="logs_token_clear">清理统计</button>
                     </div>
                     <div class="collapse-body collapsed">
                         <div style="display:flex;gap:20px;flex-wrap:wrap;">
@@ -2546,7 +2547,10 @@ logs_failover_all_failed: { zh: '全部失败', en: 'All Failed' },
 logs_token_overview_title: { zh: 'Token 用量统计', en: 'Token Usage Overview' },
 logs_token_by_pool: { zh: '按模型池', en: 'By Pool' },
 logs_token_by_upstream: { zh: '按上游', en: 'By Upstream' },
-logs_token_today: { zh: '今日 Token', en: 'Today Tokens' },
+        logs_token_today: { zh: '今日 Token', en: 'Today Tokens' },
+        logs_token_clear: { zh: '清理统计', en: 'Clear Stats' },
+        logs_token_clear_confirm: { zh: '确定要清空所有 Token 用量统计吗？此操作不可撤销。', en: 'Clear all token usage statistics? This cannot be undone.' },
+        logs_token_cleared: { zh: 'Token 统计已清空', en: 'Token statistics cleared' },
 logs_token_total: { zh: '累计 Token', en: 'Total Tokens' },
 logs_token_today_req: { zh: '今日请求', en: 'Today Requests' },
         logs_token_total_req: { zh: '累计请求', en: 'Total Requests' },
@@ -5051,6 +5055,17 @@ loadLogs(false);
     // ================================================================
     // Token Usage Overview (P2-6)
     // ================================================================
+    async function clearTokenUsage() {
+        if (!confirm(t('logs_token_clear_confirm'))) return;
+        try {
+            await cmd('clear_all_token_usage');
+            toast(t('logs_token_cleared'), 'success');
+            loadTokenOverview();
+        } catch (e) {
+            toast(t('toast_save_fail') + e, 'error');
+        }
+    }
+
     async function loadTokenOverview() {
         try {
             const data = await cmd('get_token_overview');
