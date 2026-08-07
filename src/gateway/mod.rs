@@ -486,24 +486,8 @@ async fn handle_chat_completions(
         }
 
         // Convert request body to the upstream's native API format if needed.
-        // Streaming conversion is not yet supported (P3b); guard against it.
         let upstream_format = upstream.api_format.as_str();
-        if is_stream && convert::needs_request_conversion(upstream_format) {
-            warn!(
-                trace_id = %trace_id,
-                provider = %upstream.provider_name,
-                api_format = upstream_format,
-                "Streaming requests to non-OpenAI upstream formats are not yet supported"
-            );
-            failed_upstreams_json.push(json!({
-                "provider": upstream.provider_name,
-                "model": model_str,
-                "error": "streaming conversion not supported for this upstream format"
-            }));
-            last_error = Some("streaming conversion not supported".to_string());
-            continue;
-        }
-        if !is_stream && convert::needs_request_conversion(upstream_format) {
+        if convert::needs_request_conversion(upstream_format) {
             match convert::convert_request_to_upstream(&request_body, upstream_format) {
                 Ok(converted) => request_body = converted,
                 Err(e) => {
@@ -579,6 +563,7 @@ async fn handle_chat_completions(
                     // Build byte stream from upstream response
                     let byte_stream = upstream_response.bytes_stream();
                     let display_name = pool.display_name.clone();
+                    let upstream_format = upstream.api_format.clone();
                     let db_clone = state.db.clone();
                     let log_id_clone = log_id.clone();
                     let trace_id_clone = trace_id.clone();
@@ -597,6 +582,8 @@ async fn handle_chat_completions(
                         let mut lines = reader.lines();
                         let mut last_usage: Option<(i64, i64, i64)> = None;
                         let mut stream_error: Option<String> = None;
+                        let use_native_converter = convert::needs_request_conversion(&upstream_format);
+                        let mut native_converter = convert::NativeStreamConverter::new(&upstream_format);
                         let idle_timeout = std::time::Duration::from_secs(DEFAULT_STREAM_IDLE_TIMEOUT_SECS);
 
                         loop {
@@ -604,10 +591,28 @@ async fn handle_chat_completions(
                             // If no data arrives within the timeout, terminate the stream.
                             match tokio::time::timeout(idle_timeout, lines.next_line()).await {
                                 Ok(Ok(Some(line))) => {
-                                    let output = if let Some(json_str) = line.strip_prefix("data: ") {
+                                    let mut outputs: Vec<String> = Vec::new();
+                                    if use_native_converter {
+                                        let converted = native_converter.process(&line, &display_name);
+                                        if let Some(u) = converted.usage {
+                                            last_usage = Some(u);
+                                        }
+                                        if stream_error.is_none() && converted.error.is_some() {
+                                            stream_error = converted.error.clone();
+                                        }
+                                        outputs = converted.lines;
+                                        if converted.done {
+                                            for out in outputs {
+                                                if tx.send(Ok(Bytes::from(out))).await.is_err() {
+                                                    break;
+                                                }
+                                            }
+                                            break;
+                                        }
+                                    } else if let Some(json_str) = line.strip_prefix("data: ") {
                                         let trimmed = json_str.trim();
                                         if trimmed == "[DONE]" {
-                                            "data: [DONE]\n\n".to_string()
+                                            outputs.push("data: [DONE]\n\n".to_string());
                                         } else {
                                             // Single-pass: parse JSON once, replace model,
                                             // extract usage, and detect errors
@@ -616,21 +621,23 @@ async fn handle_chat_completions(
                                             if let Some(u) = usage {
                                                 last_usage = Some(u);
                                             }
-                                            if stream_error.is_none() {
-                                                if let Some(msg) = error_msg {
-                                                    stream_error = Some(msg);
-                                                }
+                                            if stream_error.is_none()
+                                                && let Some(msg) = error_msg
+                                            {
+                                                stream_error = Some(msg);
                                             }
-                                            chunk
+                                            outputs.push(chunk);
                                         }
                                     } else if line.is_empty() || line.starts_with(':') {
                                         // Skip blank separators and SSE comments
                                         continue;
                                     } else {
-                                        format!("{}\n\n", line)
-                                    };
-                                    if tx.send(Ok(Bytes::from(output))).await.is_err() {
-                                        break; // client disconnected
+                                        outputs.push(format!("{}\n\n", line));
+                                    }
+                                    for out in outputs {
+                                        if tx.send(Ok(Bytes::from(out))).await.is_err() {
+                                            break;
+                                        }
                                     }
                                 }
                                 Ok(Ok(None)) => break, // stream ended
@@ -646,10 +653,19 @@ async fn handle_chat_completions(
                                     warn!(
                                         trace_id = %trace_id_clone,
                                         idle_timeout_secs = DEFAULT_STREAM_IDLE_TIMEOUT_SECS,
-                                        "Stream idle timeout 鈥?no data received, terminating stream"
+                                        "Stream idle timeout — no data received, terminating stream"
                                     );
                                     break;
                                 }
+                            }
+                        }
+
+                        // Fall back to converter-accumulated usage if the chunk-based
+                        // extraction missed it (native formats report usage in control events).
+                        if last_usage.is_none() && use_native_converter {
+                            let (p, c, t) = native_converter.final_usage();
+                            if p > 0 || c > 0 {
+                                last_usage = Some((p, c, t));
                             }
                         }
 

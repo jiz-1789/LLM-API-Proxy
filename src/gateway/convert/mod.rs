@@ -1,6 +1,9 @@
 pub mod anthropic;
 pub mod capabilities;
 pub mod gemini;
+pub mod stream;
+
+pub use stream::NativeStreamConverter;
 
 use serde_json::Value;
 
