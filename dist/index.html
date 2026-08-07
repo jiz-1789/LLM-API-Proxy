@@ -901,6 +901,29 @@ gap: 8px;
             font-weight: 500;
         }
         .settings-row .form-input, .settings-row .form-select { flex: 1; }
+        .help-icon-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            border: 1px solid var(--border);
+            background: var(--bg-tertiary);
+            color: var(--text-muted);
+            font-size: 11px;
+            font-weight: 700;
+            line-height: 1;
+            cursor: pointer;
+            padding: 0;
+            flex-shrink: 0;
+            transition: all var(--transition);
+        }
+        .help-icon-btn:hover {
+            background: var(--accent);
+            color: #fff;
+            border-color: var(--accent);
+        }
 
         /* === Language toggle in titlebar === */
         .lang-toggle {
@@ -1567,13 +1590,16 @@ gap: 8px;
                             <input class="form-input" id="set-rate-limit-window" type="number" min="1" max="3600" value="60" style="max-width:120px;">
                         </div>
                         <div class="settings-row">
-                            <label data-i18n="settings_rate_limit_xff">信任 X-Forwarded-For</label>
+                            <div style="display:flex;align-items:center;gap:6px;">
+                                <label style="font-size:13px;color:var(--text-secondary);min-width:100px;font-weight:500;" data-i18n="settings_rate_limit_xff">信任 X-Forwarded-For</label>
+                                <button type="button" class="help-icon-btn" onclick="showXffHelp()" data-i18n-title="settings_rate_limit_xff_help_btn_tip" aria-label="帮助">?</button>
+                            </div>
                             <div style="display:flex;align-items:center;gap:10px;">
                                 <label class="toggle">
                                     <input type="checkbox" id="set-rate-limit-xff">
                                     <span class="slider"></span>
                                 </label>
-                                <span style="font-size:12px;color:var(--text-muted);" data-i18n="settings_rate_limit_xff_hint">反向代理模式下启用，直连模式无需开启</span>
+                                <span style="font-size:12px;color:var(--text-muted);" data-i18n="settings_rate_limit_xff_hint">仅当程序部署在 Nginx 等反向代理后面时才需开启，普通直连请保持关闭</span>
                             </div>
                         </div>
                     </div>
@@ -1871,7 +1897,7 @@ gap: 8px;
                         <li data-i18n-html="help_settings_ratelimit_1"><strong>启用限流</strong>：开启后按客户端 IP 限制请求频率</li>
                         <li data-i18n-html="help_settings_ratelimit_2"><strong>最大请求数</strong>：时间窗口内允许的最大请求数</li>
                         <li data-i18n-html="help_settings_ratelimit_3"><strong>时间窗口</strong>：限流计数的时间范围（秒）</li>
-                        <li data-i18n-html="help_settings_ratelimit_4"><strong>信任 X-Forwarded-For</strong>：反向代理模式下启用，直连模式无需开启</li>
+                        <li data-i18n-html="help_settings_ratelimit_4"><strong>信任 X-Forwarded-For</strong>：仅当程序部署在 Nginx 等反向代理后面时才需开启，普通直连请保持关闭。点击设置项旁的「?」可查看详细解释</li>
                     </ul>
                     <div class="help-tip" data-i18n="help_settings_ratelimit_tip">限流配置修改后需重启应用生效。超限请求将返回 429 状态码并携带 Retry-After 头。</div>
 
@@ -1940,7 +1966,7 @@ gap: 8px;
                     <p data-i18n="help_failover_desc">当请求转发到某个上游失败时，网关会自动尝试下一个可用上游，确保请求尽可能成功。</p>
                     <p data-i18n-html="help_failover_trigger_title"><strong>触发故障转移的条件：</strong></p>
                     <ul>
-                        <li data-i18n-html="help_failover_trigger_1">HTTP 连接错误或超时（连接阶段、响应头阶段、响应体阶段）</li>
+                        <li data-i18n-html="help_failover_trigger_1">HTTP 连接错误或连接超时（60 秒内未建立连接）、流式响应长时间无数据</li>
                         <li data-i18n-html="help_failover_trigger_2">上游返回 HTTP 5xx 服务端错误</li>
                         <li data-i18n-html="help_failover_trigger_3">上游返回 HTTP 200 但响应体包含 <code>error</code> 字段（"假成功"检测）</li>
                         <li data-i18n-html="help_failover_trigger_4">流式响应中 SSE chunk 包含 <code>error</code> 字段</li>
@@ -2207,6 +2233,17 @@ print(response.choices[0].message.content)</code></pre>
         </div>
     </div>
 
+    <!-- ==================== X-Forwarded-For Help Modal ==================== -->
+    <div class="modal-overlay" id="xff-help-modal">
+        <div class="modal" style="width:560px;">
+            <div class="modal-title" data-i18n="settings_rate_limit_xff_help_title">信任 X-Forwarded-For 是什么？</div>
+            <div style="color:var(--text-secondary);font-size:13px;line-height:1.8;" data-i18n-html="settings_rate_limit_xff_help_body"></div>
+            <div class="form-actions">
+                <button class="btn btn-primary" onclick="closeXffHelp()" data-i18n="modal_close">关闭</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ==================== Context Menu ==================== -->
 <div class="ctx-menu" id="ctx-menu" style="display:none;"></div>
 
@@ -2395,7 +2432,10 @@ logs_token_today_req: { zh: '今日请求', en: 'Today Requests' },
         settings_rate_limit_max: { zh: '最大请求数', en: 'Max Requests' },
         settings_rate_limit_window: { zh: '时间窗口（秒）', en: 'Window (seconds)' },
         settings_rate_limit_xff: { zh: '信任 X-Forwarded-For', en: 'Trust X-Forwarded-For' },
-        settings_rate_limit_xff_hint: { zh: '反向代理模式下启用，直连模式无需开启', en: 'Enable for reverse proxy mode, not needed for direct connection' },
+        settings_rate_limit_xff_hint: { zh: '仅当程序部署在 Nginx 等反向代理后面时才需开启，普通直连请保持关闭', en: 'Only needed when running behind a reverse proxy (e.g. Nginx). Keep off for direct connection' },
+        settings_rate_limit_xff_help_btn_tip: { zh: '查看详细说明', en: 'View detailed explanation' },
+        settings_rate_limit_xff_help_title: { zh: '信任 X-Forwarded-For 是什么？', en: 'What is "Trust X-Forwarded-For"?' },
+        settings_rate_limit_xff_help_body: { zh: '<p>这个开关决定<b>限流时按哪个 IP 计数</b>。限流是按"客户端 IP"统计请求次数的，这里就是选择这个 IP 的来源。</p><p><b>① 直连模式（默认，推荐）</b></p><p>客户端直接连接本程序，程序直接使用 TCP 连接上的真实地址来识别 IP。这个地址无法伪造，最安全。默认只监听 127.0.0.1，本地使用都属于这种情况，<b>保持关闭即可</b>。</p><p><b>② 反向代理模式（仅高级用户）</b></p><p>如果你把程序部署到 Nginx、Caddy 等反向代理后面，客户端会先连代理、再由代理转发进来，此时程序看到的 IP 全部是代理的 IP，所有客户端会<b>共用同一个限流配额</b>，限流形同虚设。反向代理会自动在请求头加入 <code>X-Forwarded-For</code> 记录真实客户端 IP，开启此开关后，程序就会从中读取真实 IP。</p><p><b>⚠️ 为什么直连时不要开启？</b></p><p>因为 <code>X-Forwarded-For</code> 是客户端可以自行伪造的请求头。直连时开启等于把这个"可信身份"接口暴露给所有客户端，任何人都能伪造该字段绕过限流，属于安全漏洞。</p><p><b>一句话总结</b>：没把程序放到反向代理后面就保持默认关闭，不需要动它。</p>', en: '<p>This switch controls <b>which IP is counted for rate limiting</b>. Rate limiting tracks request counts per "client IP" — this is where that IP comes from.</p><p><b>1. Direct mode (default, recommended)</b></p><p>Clients connect directly to this app, so it uses the real TCP connection address to identify the IP. This address cannot be forged and is the safest option. Since the app listens on 127.0.0.1 by default, local usage always falls into this case — <b>keep it OFF</b>.</p><p><b>2. Reverse proxy mode (advanced only)</b></p><p>If you run this app behind a reverse proxy (Nginx, Caddy, etc.), clients connect to the proxy first, which then forwards requests to this app. The app then sees only the proxy\'s IP for every request, so <b>all clients share one rate-limit quota</b> and rate limiting stops working. Reverse proxies add an <code>X-Forwarded-For</code> header containing the real client IP; enabling this switch makes the app read the real IP from that header.</p><p><b>⚠️ Why keep it off in direct mode?</b></p><p>Because <code>X-Forwarded-For</code> is a request header that any client can forge. Enabling it in direct mode exposes this trusted identity channel to all clients — anyone can fake the header to bypass rate limiting, a security hole.</p><p><b>In short</b>: unless you run this app behind a reverse proxy, keep it OFF.</p>' },
         settings_probe_title: { zh: '主动探测', en: 'Active Probing' },
         settings_probe_desc: { zh: '定期检测上游连通性，自动标记不可用上游。修改后需重启应用生效。', en: 'Periodically check upstream connectivity and auto-mark unavailable upstreams. Requires restart to take effect.' },
         settings_probe_enabled: { zh: '启用探测', en: 'Enable Probing' },
@@ -2518,8 +2558,6 @@ settings_import_full: { zh: '全量导入', en: 'Import (Full)' },
         modal_pool_display_ph: { zh: '在界面中展示的名称', en: 'Friendly name shown in UI' },
         modal_pool_upstreams: { zh: '关联上游', en: 'Associated Upstreams' },
         modal_pool_upstreams_hint: { zh: '勾选要加入该池的上游，并选择对应模型', en: 'Select upstreams and their models for this pool' },
-        modal_pool_timeout: { zh: '超时（秒）', en: 'Timeout (sec)' },
-        modal_pool_timeout_hint: { zh: '0 表示使用默认值 60 秒', en: '0 = default 60s' },
         modal_pool_concurrency: { zh: '最大并发', en: 'Max Concurrency' },
         modal_pool_thinking: { zh: '思考模式', en: 'Thinking Mode' },
         modal_pool_thinking_hint: { zh: '为支持的上游自动注入推理参数', en: 'Auto-inject reasoning params for supported upstreams' },
@@ -2842,7 +2880,7 @@ test_chat_ok: { zh: '✓ 连接成功 · 模型 {model} · {ms}ms', en: '✓ Con
         help_settings_ratelimit_1: { zh: '<strong>启用限流</strong>：开启后按客户端 IP 限制请求频率', en: '<strong>Enable</strong>: Limits request frequency per client IP when enabled' },
         help_settings_ratelimit_2: { zh: '<strong>最大请求数</strong>：时间窗口内允许的最大请求数', en: '<strong>Max Requests</strong>: Maximum requests allowed within the time window' },
         help_settings_ratelimit_3: { zh: '<strong>时间窗口</strong>：限流计数的时间范围（秒）', en: '<strong>Time Window</strong>: Rate limit counting period in seconds' },
-        help_settings_ratelimit_4: { zh: '<strong>信任 X-Forwarded-For</strong>：反向代理模式下启用，直连模式无需开启', en: '<strong>Trust X-Forwarded-For</strong>: Enable for reverse proxy mode. Not needed for direct connection' },
+        help_settings_ratelimit_4: { zh: '<strong>信任 X-Forwarded-For</strong>：仅当程序部署在 Nginx 等反向代理后面时才需开启，普通直连请保持关闭。点击设置项旁的「?」可查看详细解释', en: '<strong>Trust X-Forwarded-For</strong>: Only needed when running behind a reverse proxy (e.g. Nginx). Keep off for direct connection. Click the "?" next to the setting for details' },
         help_settings_ratelimit_tip: { zh: '限流配置修改后需重启应用生效。超限请求将返回 429 状态码并携带 Retry-After 头。', en: 'Rate limit changes require app restart. Exceeded requests return 429 with a Retry-After header.' },
         help_settings_probe_title2: { zh: '<strong>主动探测</strong>', en: '<strong>Active Probing</strong>' },
         help_settings_probe_1: { zh: '<strong>启用探测</strong>：开启后定期向上游发送测试请求（GET /v1/models），自动标记不可用上游', en: '<strong>Enable</strong>: Periodically sends test requests (GET /v1/models) to upstreams, auto-marking unavailable ones' },
@@ -2875,7 +2913,7 @@ test_chat_ok: { zh: '✓ 连接成功 · 模型 {model} · {ms}ms', en: '✓ Con
         // ── Help: Failover section ──
         help_failover_desc: { zh: '当请求转发到某个上游失败时，网关会自动尝试下一个可用上游，确保请求尽可能成功。', en: 'When a request fails on one upstream, the gateway automatically tries the next available upstream to maximize success.' },
         help_failover_trigger_title: { zh: '<strong>触发故障转移的条件：</strong>', en: '<strong>Failover Triggers:</strong>' },
-        help_failover_trigger_1: { zh: 'HTTP 连接错误或超时（连接阶段、响应头阶段、响应体阶段）', en: 'HTTP connection error or timeout (connect, response headers, response body phases)' },
+        help_failover_trigger_1: { zh: 'HTTP 连接错误或连接超时（60 秒内未建立连接）、流式响应长时间无数据', en: 'HTTP connection error or connect timeout (no connection within 60s), or streaming response idle for too long' },
         help_failover_trigger_2: { zh: '上游返回 HTTP 5xx 服务端错误', en: 'Upstream returns HTTP 5xx server error' },
         help_failover_trigger_3: { zh: '上游返回 HTTP 200 但响应体包含 <code>error</code> 字段（"假成功"检测）', en: 'Upstream returns HTTP 200 but response body contains an <code>error</code> field (false success detection)' },
         help_failover_trigger_4: { zh: '流式响应中 SSE chunk 包含 <code>error</code> 字段', en: 'SSE chunk in streaming response contains an <code>error</code> field' },
@@ -5134,6 +5172,14 @@ function generateApiKey() {
 
     function closeCreatedModal() {
         document.getElementById('apikey-created-modal').classList.remove('open');
+    }
+
+    function showXffHelp() {
+        document.getElementById('xff-help-modal').classList.add('open');
+    }
+
+    function closeXffHelp() {
+        document.getElementById('xff-help-modal').classList.remove('open');
     }
 
     function copyCreatedApiKey() {

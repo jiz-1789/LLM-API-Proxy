@@ -35,7 +35,11 @@ type RoundRobinCounters = Arc<Mutex<HashMap<String, usize>>>;
 
 /// Default stream idle timeout: if no SSE chunk is received within this
 /// duration, the stream is considered stalled and will be terminated.
-const DEFAULT_STREAM_IDLE_TIMEOUT_SECS: u64 = 120;
+///
+/// Set to 300s (5 minutes) to tolerate long-thinking models that may stay
+/// silent for extended periods, while still guarding against a truly hung
+/// stream.
+const DEFAULT_STREAM_IDLE_TIMEOUT_SECS: u64 = 300;
 
 /// Consecutive failure threshold for marking an upstream as "down".
 /// When `failure_count` reaches this value, status changes from "degraded" to "down".
@@ -211,8 +215,10 @@ fn extract_usage(resp: &serde_json::Value) -> (i64, i64, i64) {
 /// 3. Thinking mode: Injected **per-upstream** based on each upstream's
 ///    `provider_name`, not the first upstream's. A client may override with
 ///    `"reasoning": false` to disable thinking entirely.
-/// 4. Timeout: Uses `pool.timeout_seconds` for both streaming and non-streaming
-///    requests. Streaming also applies an idle timeout between chunks.
+/// 4. Timeout: No request-level timeout is applied to upstream requests, so
+///    long-thinking models are never cut off. Only a TCP connect timeout guards
+///    against unreachable upstreams; streaming additionally applies an idle
+///    timeout between chunks to detect a hung stream.
 /// 5. Trace ID: A UUID-based `trace_id` is generated per request, sent to
 ///    upstream as `X-Request-Id` header, and returned to the client in the
 ///    response header for end-to-end tracing.
@@ -304,14 +310,6 @@ async fn handle_chat_completions(
     // Check if client explicitly disabled reasoning/thinking
     let client_reasoning_disabled =
         body.get("reasoning").and_then(|v| v.as_bool()) == Some(false);
-
-    // Pool-level timeout for both streaming and non-streaming requests.
-    // Falls back to 60 seconds if not configured (0 = unset).
-    let timeout_secs = if pool.timeout_seconds > 0 {
-        pool.timeout_seconds as u64
-    } else {
-        60
-    };
 
     // Determine round-robin starting index
     let n = pool_upstreams.len();
@@ -485,7 +483,6 @@ async fn handle_chat_completions(
                     &api_key,
                     model_str,
                     &request_body,
-                    timeout_secs,
                     Some(&trace_headers),
                 )
                 .await
@@ -653,6 +650,38 @@ async fn handle_chat_completions(
                         error = %e,
                         "Stream upstream failed"
                     );
+                    // 4xx：客户端请求本身的问题，原样透传上游错误给客户端
+                    if let Some((passthrough_status, passthrough_body)) = e.passthrough_response() {
+                        let elapsed = start_time.elapsed().as_millis() as i32;
+                        let log_id = format!("log_{}", uuid::Uuid::new_v4().simple());
+                        if let Err(le) = state.db.insert_request_log(
+                            &log_id,
+                            &request_id,
+                            Some(&pool.name),
+                            Some(&upstream.id),
+                            Some(model_str),
+                            &serde_json::to_string(&failed_upstreams_json).unwrap_or_default(),
+                            "POST",
+                            "/v1/chat/completions",
+                            passthrough_status as i32,
+                            elapsed,
+                            is_stream,
+                            0,
+                            0,
+                            0,
+                        ) {
+                            warn!(trace_id = %trace_id, error = %le, "Failed to insert request log");
+                        }
+                        if matches!(e, UpstreamError::AuthFailed { .. })
+                            && let Err(he) = state.db.update_upstream_health(&upstream.id, false, Some(&e.error_summary()), UPSTREAM_FAILURE_THRESHOLD)
+                        {
+                            warn!(trace_id = %trace_id, error = %he, "Failed to update upstream health after auth failure");
+                        }
+                        return with_request_id(
+                            error_response::passthrough_upstream_error(passthrough_status, passthrough_body, None),
+                            &trace_id,
+                        );
+                    }
                     // Update upstream health: failed stream attempt
                     if let Err(he) = state.db.update_upstream_health(&upstream.id, false, Some(&e.error_summary()), UPSTREAM_FAILURE_THRESHOLD) {
                         warn!(trace_id = %trace_id, error = %he, "Failed to update upstream health after stream failure");
@@ -678,7 +707,6 @@ async fn handle_chat_completions(
                     &api_key,
                     model_str,
                     &request_body,
-                    timeout_secs,
                     Some(&trace_headers),
                 )
                 .await
@@ -778,6 +806,42 @@ async fn handle_chat_completions(
                         error = %e,
                         "Upstream failed"
                     );
+                    // 4xx：客户端请求本身的问题，原样透传上游错误给客户端，
+                    // 不做故障转移（换一个上游也会得到同样结果）。
+                    if let Some((passthrough_status, passthrough_body)) = e.passthrough_response() {
+                        // 记录请求日志，状态码为上游真实 4xx 状态码
+                        let elapsed = start_time.elapsed().as_millis() as i32;
+                        let log_id = format!("log_{}", uuid::Uuid::new_v4().simple());
+                        if let Err(le) = state.db.insert_request_log(
+                            &log_id,
+                            &request_id,
+                            Some(&pool.name),
+                            Some(&upstream.id),
+                            Some(model_str),
+                            &serde_json::to_string(&failed_upstreams_json).unwrap_or_default(),
+                            "POST",
+                            "/v1/chat/completions",
+                            passthrough_status as i32,
+                            elapsed,
+                            is_stream,
+                            0,
+                            0,
+                            0,
+                        ) {
+                            warn!(trace_id = %trace_id, error = %le, "Failed to insert request log");
+                        }
+                        // 401/403 说明上游 Key 有问题，标记健康失败；
+                        // 其余 4xx 是客户端请求问题，不惩罚上游
+                        if matches!(e, UpstreamError::AuthFailed { .. })
+                            && let Err(he) = state.db.update_upstream_health(&upstream.id, false, Some(&e.error_summary()), UPSTREAM_FAILURE_THRESHOLD)
+                        {
+                            warn!(trace_id = %trace_id, error = %he, "Failed to update upstream health after auth failure");
+                        }
+                        return with_request_id(
+                            error_response::passthrough_upstream_error(passthrough_status, passthrough_body, None),
+                            &trace_id,
+                        );
+                    }
                     // Update upstream health: failed non-stream attempt
                     if let Err(he) = state.db.update_upstream_health(&upstream.id, false, Some(&e.error_summary()), UPSTREAM_FAILURE_THRESHOLD) {
                         warn!(trace_id = %trace_id, error = %he, "Failed to update upstream health after failure");
