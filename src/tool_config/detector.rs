@@ -176,6 +176,117 @@ pub fn which_in_path(name: &str) -> Option<PathBuf> {
     None
 }
 
+// ============================================================================
+// Executable-first installation detection (cc-switch compatible dirs)
+// ============================================================================
+
+/// npm/pnpm/yarn/bun global bin directories commonly added to PATH.
+fn global_bin_dirs() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    // Windows npm: %APPDATA%\npm
+    if let Some(ap) = appdata_dir() {
+        out.push(ap.join("npm"));
+    }
+    // ~/.local/bin, ~/.bin (Unix)
+    if let Some(h) = home_dir() {
+        out.push(h.join(".local").join("bin"));
+        out.push(h.join(".bin"));
+        out.push(h.join("AppData").join("Roaming").join("npm"));
+    }
+    out
+}
+
+/// Locate a CLI tool's executable, checking PATH plus common global bin dirs
+/// and known per-tool install locations.
+pub fn find_cli(name: &str) -> Option<PathBuf> {
+    if let Some(p) = which_in_path(name) {
+        return Some(p);
+    }
+    #[cfg(windows)]
+    let exts = ["", ".exe", ".cmd", ".bat"];
+    #[cfg(not(windows))]
+    let exts = [""];
+    for dir in global_bin_dirs() {
+        for ext in exts {
+            let candidate = dir.join(format!("{}{}", name, ext));
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    // Known per-tool install locations (tools often not on PATH).
+    let home = home_dir();
+    #[cfg(windows)]
+    {
+        if name == "opencode"
+            && let Some(la) = local_appdata_dir()
+        {
+            // OpenCode desktop app
+            for ext in exts {
+                let c = la
+                    .join("Programs")
+                    .join("@opencode-aidesktop")
+                    .join(format!("OpenCode{}", ext));
+                if c.is_file() {
+                    return Some(c);
+                }
+            }
+        }
+        if name == "codex"
+            && let Some(la) = local_appdata_dir()
+        {
+            // OpenAI Codex (MSIX/Programs)
+            let codex_dir = la.join("OpenAI").join("Codex");
+            if codex_dir.is_dir() {
+                for ext in exts {
+                    let c = codex_dir.join(format!("codex{}", ext));
+                    if c.is_file() {
+                        return Some(c);
+                    }
+                }
+            }
+        }
+    }
+    if let Some(h) = home {
+        // ~/.opencode/bin/opencode
+        if name == "opencode" {
+            let opencode_bin = h.join(".opencode").join("bin").join("opencode");
+            if opencode_bin.is_file() {
+                return Some(opencode_bin);
+            }
+        }
+        // ~/.claude/local/claude (Claude Code local install)
+        if name == "claude" {
+            let claude_local = h.join(".claude").join("local").join("claude");
+            if claude_local.is_file() {
+                return Some(claude_local);
+            }
+        }
+    }
+    None
+}
+
+/// Check whether a CLI tool is installed (executable-first).
+pub fn cli_installed(name: &str) -> bool {
+    find_cli(name).is_some()
+}
+
+/// A config directory that counts as "installed" when it contains at least
+/// `min_files` entries (a lone orphan file like a stray config.yaml is not a
+/// reliable install signal).
+pub fn config_dir_installed(dir: Option<PathBuf>, min_files: usize) -> bool {
+    let Some(dir) = dir else {
+        return false;
+    };
+    if !dir.is_dir() {
+        return false;
+    }
+    let count = std::fs::read_dir(&dir)
+        .map(|entries| entries.filter_map(Result::ok).count())
+        .unwrap_or(0);
+    count >= min_files
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -248,6 +359,48 @@ mod tests {
             let s = paths[0].to_string_lossy();
             assert!(s.contains("Claude"), "first candidate should mention Claude, got {s}");
             assert!(s.ends_with("claude_desktop_config.json"), "got {s}");
+        }
+    }
+
+    #[test]
+    fn test_config_dir_installed_requires_min_files() {
+        let dir = tempfile::tempdir().unwrap();
+        // Single orphan file → NOT installed
+        std::fs::write(dir.path().join("config.yaml"), "stray").unwrap();
+        assert!(!config_dir_installed(Some(dir.path().to_path_buf()), 2));
+
+        // Add a second file → installed
+        std::fs::write(dir.path().join("another.txt"), "x").unwrap();
+        assert!(config_dir_installed(Some(dir.path().to_path_buf()), 2));
+    }
+
+    #[test]
+    fn test_config_dir_installed_none_path() {
+        assert!(!config_dir_installed(None, 2));
+        assert!(!config_dir_installed(Some(PathBuf::from("definitely_missing_xyz")), 2));
+    }
+
+    #[test]
+    fn test_find_cli_scopes_per_tool_locations() {
+        // The per-tool location checks must not leak across tool names:
+        // looking for "hermes" must never return OpenCode.exe even if it exists.
+        #[cfg(windows)]
+        {
+            let la = local_appdata_dir();
+            let opencode_exe = la
+                .map(|d| d.join("Programs").join("@opencode-aidesktop").join("OpenCode.exe"))
+                .filter(|p| p.exists());
+            if let Some(_exe) = opencode_exe {
+                // This is the regression: "hermes" must NOT resolve to OpenCode.exe.
+                let found = find_cli("hermes");
+                assert!(
+                    found
+                        .as_ref()
+                        .map(|p| !p.to_string_lossy().contains("opencode"))
+                        .unwrap_or(true),
+                    "find_cli(\"hermes\") wrongly returned OpenCode path: {found:?}"
+                );
+            }
         }
     }
 

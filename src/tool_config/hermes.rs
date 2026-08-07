@@ -30,10 +30,11 @@ impl ToolConfigWriter for HermesWriter {
     }
 
     fn is_installed(&self) -> bool {
-        detector::hermes_config_path()
-            .map(|p| p.exists())
-            .unwrap_or(false)
-            || detector::which_in_path("hermes").is_some()
+        detector::cli_installed("hermes")
+            || detector::config_dir_installed(
+                detector::hermes_config_path().and_then(|p| p.parent().map(|d| d.to_path_buf())),
+                2,
+            )
     }
 
     fn config_paths(&self) -> Vec<PathBuf> {

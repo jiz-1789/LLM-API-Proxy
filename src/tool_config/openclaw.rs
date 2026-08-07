@@ -26,10 +26,8 @@ impl ToolConfigWriter for OpenClawWriter {
     }
 
     fn is_installed(&self) -> bool {
-        detector::openclaw_config_path()
-            .map(|p| p.exists())
-            .unwrap_or(false)
-            || detector::which_in_path("openclaw").is_some()
+        detector::cli_installed("openclaw")
+            || detector::config_dir_installed(detector::home_path(".openclaw"), 2)
     }
 
     fn config_paths(&self) -> Vec<PathBuf> {

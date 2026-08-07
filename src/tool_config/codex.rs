@@ -32,14 +32,8 @@ impl ToolConfigWriter for CodexWriter {
     }
 
     fn is_installed(&self) -> bool {
-        detector::codex_auth_path()
-            .map(|p| p.exists())
-            .unwrap_or(false)
-            || detector::codex_config_path()
-                .map(|p| p.exists())
-                .unwrap_or(false)
-            || detector::which_in_path("codex").is_some()
-            || detector::which_in_path("codex.cmd").is_some()
+        detector::cli_installed("codex")
+            || detector::config_dir_installed(detector::home_path(".codex"), 2)
     }
 
     fn config_paths(&self) -> Vec<PathBuf> {

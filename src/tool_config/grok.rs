@@ -26,11 +26,8 @@ impl ToolConfigWriter for GrokWriter {
     }
 
     fn is_installed(&self) -> bool {
-        detector::grok_config_path()
-            .map(|p| p.exists())
-            .unwrap_or(false)
-            || detector::which_in_path("grok").is_some()
-            || detector::which_in_path("grok.cmd").is_some()
+        detector::cli_installed("grok")
+            || detector::config_dir_installed(detector::home_path(".grok"), 2)
     }
 
     fn config_paths(&self) -> Vec<PathBuf> {

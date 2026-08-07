@@ -29,11 +29,11 @@ impl ToolConfigWriter for OpenCodeWriter {
     }
 
     fn is_installed(&self) -> bool {
-        detector::opencode_config_paths()
-            .iter()
-            .any(|p| p.exists() || p.parent().map(|d| d.exists()).unwrap_or(false))
-            || detector::which_in_path("opencode").is_some()
-            || detector::which_in_path("opencode.cmd").is_some()
+        detector::cli_installed("opencode")
+            || detector::opencode_config_paths()
+                .iter()
+                .filter_map(|p| p.parent().map(|d| d.to_path_buf()))
+                .any(|d| detector::config_dir_installed(Some(d), 2))
     }
 
     fn config_paths(&self) -> Vec<PathBuf> {
