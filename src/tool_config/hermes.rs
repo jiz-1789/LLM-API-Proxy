@@ -49,7 +49,7 @@ impl ToolConfigWriter for HermesWriter {
         original_configs: &[BackupEntry],
         proxy_base_url: &str,
         proxy_api_key: &str,
-        _all_pools: &[(String, String)],
+        all_pools: &[(String, String)],
         default_pool_name: &str,
         _default_pool_display_name: &str,
         provider_name: &str,
@@ -72,9 +72,21 @@ impl ToolConfigWriter for HermesWriter {
             provider_name.trim()
         };
 
-        // Append a custom provider section + default model.
+        // Model list: one entry per pool (context_length defaults to 200000,
+        // matching the PLAN template for unknown models).
+        let mut models_yaml = String::new();
+        for (pool_name, _) in all_pools {
+            models_yaml.push_str(&format!("      {pool_name}:\n        context_length: 200000\n"));
+        }
+        if models_yaml.is_empty() {
+            models_yaml.push_str(&format!(
+                "      {default_pool_name}:\n        context_length: 200000\n"
+            ));
+        }
+
+        // Append a custom provider section with the full model list + default model.
         let block = format!(
-            "\ncustom_providers:\n  {PROVIDER_ID}:\n    base_url: \"{proxy_base_url}\"\n    api_key: \"{proxy_api_key}\"\n    name: \"{provider_label}\"\nmodel:\n  default: \"{default_pool_name}\"\n"
+            "\ncustom_providers:\n  {PROVIDER_ID}:\n    base_url: \"{proxy_base_url}\"\n    api_key: \"{proxy_api_key}\"\n    name: \"{provider_label}\"\n    models:\n{models_yaml}model:\n  default: \"{default_pool_name}\"\n"
         );
         yaml.push_str(&block);
 
@@ -105,12 +117,15 @@ mod tests {
         let writer = HermesWriter;
         let original = vec![(cfg.clone(), None)];
         writer
-            .merge_and_write_config(&original, "http://127.0.0.1:47339", "sk-k", &[], "pool-x", "Pool X", "LLM-API-Proxy")
+            .merge_and_write_config(&original, "http://127.0.0.1:47339", "sk-k", &[("pool-x".to_string(), "Pool X".to_string()), ("pool-y".to_string(), "Pool Y".to_string())], "pool-x", "Pool X", "LLM-API-Proxy")
             .unwrap();
         let yaml = std::fs::read_to_string(&cfg).unwrap();
         assert!(yaml.contains("custom_providers:"));
         assert!(yaml.contains("base_url: \"http://127.0.0.1:47339\""));
         assert!(yaml.contains("default: \"pool-x\""));
+        // Full model list: all pools written as models
+        assert!(yaml.contains("pool-x:\n        context_length: 200000"), "got: {yaml}");
+        assert!(yaml.contains("pool-y:\n        context_length: 200000"), "got: {yaml}");
     }
 
     #[test]

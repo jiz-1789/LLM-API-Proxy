@@ -7,7 +7,7 @@ pub mod stream;
 
 use axum::{
     body::Body,
-    extract::State,
+    extract::{Path, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -121,6 +121,9 @@ pub fn create_router(
         .route("/v1/models", get(handle_models))
         .route("/v1/chat/completions", post(handle_chat_completions))
         .route("/v1/responses", post(handle_responses))
+        // Native client-format endpoints
+        .route("/v1/messages", post(handle_messages))
+        .route("/v1beta/models/{*rest}", post(handle_gemini_generate))
         // Health check for monitoring
         .route("/api/health", get(handle_health))
         .layer(middleware::from_fn_with_state(
@@ -244,11 +247,62 @@ async fn handle_responses(
     process_completion(state, headers, body, ResponseFormat::Responses).await
 }
 
+/// POST /v1/messages — Anthropic Messages API endpoint.
+///
+/// Anthropic-format requests (from Claude Code, Claude Desktop, etc.) are
+/// normalized to the internal Chat format, processed, then converted back to
+/// an Anthropic Messages response.
+async fn handle_messages(
+    State(state): State<GatewayState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> impl IntoResponse {
+    process_completion(state, headers, body, ResponseFormat::Anthropic).await
+}
+
+/// POST /v1beta/models/{*rest} — Gemini Native API endpoint.
+///
+/// The path tail is `{model}:generateContent` or `{model}:streamGenerateContent`.
+/// Gemini-format requests are normalized to internal Chat, processed, then
+/// converted back to a Gemini Native response.
+async fn handle_gemini_generate(
+    State(state): State<GatewayState>,
+    headers: HeaderMap,
+    Path(rest): Path<String>,
+    Json(body): Json<Value>,
+) -> Response<Body> {
+    // Parse `{model}:generateContent` (or `:streamGenerateContent`) from the tail.
+    let model = rest
+        .split(':')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if model.is_empty() {
+        return with_request_id(
+            error_response::invalid_request("invalid Gemini model path", "invalid_request"),
+            "gemini-request",
+        );
+    }
+
+    let mut body = body;
+    // Ensure the body carries the model (Gemini may omit it from the body).
+    if let Some(obj) = body.as_object_mut() {
+        obj.insert("model".to_string(), Value::String(model.clone()));
+    }
+
+    process_completion(state, headers, body, ResponseFormat::GeminiNative)
+        .await
+        .into_response()
+}
+
 /// Which response schema the client expects.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum ResponseFormat {
     Chat,
     Responses,
+    Anthropic,
+    GeminiNative,
 }
 
 /// Shared core handler for chat-style completion requests.
@@ -277,17 +331,42 @@ async fn process_completion(
         }
     };
 
-    // Normalize client-facing Responses format to the internal Chat format.
-    if response_format == ResponseFormat::Responses {
-        match convert::normalize_responses_input(&body) {
-            Ok(chat_body) => body = chat_body,
-            Err(e) => {
-                return with_request_id(
-                    error_response::invalid_request(&format!("invalid responses request: {}", e), "invalid_request"),
-                    &trace_id,
-                );
+    // Normalize client-facing native formats to the internal Chat format.
+    match response_format {
+        ResponseFormat::Responses => {
+            match convert::normalize_responses_input(&body) {
+                Ok(chat_body) => body = chat_body,
+                Err(e) => {
+                    return with_request_id(
+                        error_response::invalid_request(&format!("invalid responses request: {}", e), "invalid_request"),
+                        &trace_id,
+                    );
+                }
             }
         }
+        ResponseFormat::Anthropic => {
+            match convert::normalize_anthropic_input(&body) {
+                Ok(chat_body) => body = chat_body,
+                Err(e) => {
+                    return with_request_id(
+                        error_response::invalid_request(&format!("invalid anthropic request: {}", e), "invalid_request"),
+                        &trace_id,
+                    );
+                }
+            }
+        }
+        ResponseFormat::GeminiNative => {
+            match convert::normalize_gemini_input(&body) {
+                Ok(chat_body) => body = chat_body,
+                Err(e) => {
+                    return with_request_id(
+                        error_response::invalid_request(&format!("invalid gemini request: {}", e), "invalid_request"),
+                        &trace_id,
+                    );
+                }
+            }
+        }
+        ResponseFormat::Chat => {}
     }
 
     let model = match body.get("model").and_then(|m| m.as_str()) {
@@ -632,6 +711,8 @@ async fn process_completion(
                         let use_native_converter = convert::needs_request_conversion(&upstream_format);
                         let mut native_converter = convert::NativeStreamConverter::new(&upstream_format);
                         let responses_stream = response_format == ResponseFormat::Responses;
+                        let anthropic_client_stream = response_format == ResponseFormat::Anthropic;
+                        let gemini_client_stream = response_format == ResponseFormat::GeminiNative;
                         let idle_timeout = std::time::Duration::from_secs(DEFAULT_STREAM_IDLE_TIMEOUT_SECS);
 
                         loop {
@@ -677,6 +758,32 @@ async fn process_completion(
                                                 stream_error = Some(msg);
                                             }
                                             outputs.extend(resp_lines);
+                                        } else if anthropic_client_stream {
+                                            // Convert OpenAI Chat chunk -> Anthropic SSE events
+                                            let (anth_lines, usage, error_msg) =
+                                                convert::chat_sse_to_anthropic(trimmed, &display_name);
+                                            if let Some(u) = usage {
+                                                last_usage = Some(u);
+                                            }
+                                            if stream_error.is_none()
+                                                && let Some(msg) = error_msg
+                                            {
+                                                stream_error = Some(msg);
+                                            }
+                                            outputs.extend(anth_lines);
+                                        } else if gemini_client_stream {
+                                            // Convert OpenAI Chat chunk -> Gemini SSE data
+                                            let (gem_lines, usage, error_msg) =
+                                                convert::chat_sse_to_gemini(trimmed, &display_name);
+                                            if let Some(u) = usage {
+                                                last_usage = Some(u);
+                                            }
+                                            if stream_error.is_none()
+                                                && let Some(msg) = error_msg
+                                            {
+                                                stream_error = Some(msg);
+                                            }
+                                            outputs.extend(gem_lines);
                                         } else {
                                             // Single-pass: parse JSON once, replace model,
                                             // extract usage, and detect errors
@@ -885,10 +992,19 @@ async fn process_completion(
                         );
                     }
 
-                    // Convert the OpenAI Chat response to Responses API format
-                    // when the client called `/v1/responses`.
-                    if response_format == ResponseFormat::Responses {
-                        resp_body = convert::normalize_responses_output(&resp_body, &pool.display_name);
+                    // Convert the OpenAI Chat response to the client's native
+                    // format when the client called a native endpoint.
+                    match response_format {
+                        ResponseFormat::Responses => {
+                            resp_body = convert::normalize_responses_output(&resp_body, &pool.display_name);
+                        }
+                        ResponseFormat::Anthropic => {
+                            resp_body = convert::normalize_anthropic_output(&resp_body, &pool.display_name);
+                        }
+                        ResponseFormat::GeminiNative => {
+                            resp_body = convert::normalize_gemini_output(&resp_body, &pool.display_name);
+                        }
+                        ResponseFormat::Chat => {}
                     }
 
                     // Check if the response body contains an error field.

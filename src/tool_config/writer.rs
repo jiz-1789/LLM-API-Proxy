@@ -4,6 +4,11 @@
 //! never be corrupted by a partial write. This module provides:
 //! - `atomic_write`: write a single file via a unique temp file + atomic replace
 //! - `atomic_write_multi`: transactional multi-file write with rollback
+//!
+//! On Windows `std::fs::rename` fails when the target already exists, and a
+//! bare remove-then-rename leaves a non-atomic gap where the target is missing.
+//! We therefore use `ReplaceFileW` (a true atomic replace) when the target
+//! exists, falling back to `rename` only when the target does not exist yet.
 
 use crate::error::AppError;
 use std::path::{Path, PathBuf};
@@ -11,9 +16,8 @@ use std::path::{Path, PathBuf};
 /// Atomically write a single file.
 ///
 /// Strategy: write to a unique temp file in the same directory, then replace
-/// the target. On Windows, `std::fs::rename` fails when the target exists, so
-/// we remove the target first only as a fallback (the temp+rename approach
-/// keeps the window minimal and the parent dir is preserved).
+/// the target atomically (`ReplaceFileW` on Windows when the target exists,
+/// `rename` otherwise). Parent directories are created on demand.
 pub fn atomic_write(path: &Path, content: &[u8]) -> Result<(), AppError> {
     let parent = path
         .parent()
@@ -78,15 +82,61 @@ fn unique_tmp_path(path: &Path) -> Result<PathBuf, AppError> {
     Err(AppError::Config("无法生成唯一临时文件名".to_string()))
 }
 
+/// Atomically replace `path` with the temp file, preserving the original when
+/// the target exists. On Windows this uses `ReplaceFileW`; when the target does
+/// not exist yet it falls back to a plain rename (and finally to a fallback
+/// remove+rename if the target was created concurrently).
 #[cfg(windows)]
 fn replace_atomically(tmp: &Path, path: &Path) -> Result<(), AppError> {
-    // Windows: remove target if exists then rename (best-effort atomic).
-    let _ = std::fs::remove_file(path);
+    use std::os::windows::ffi::OsStrExt;
+
+    // Only attempt ReplaceFileW when the target exists; otherwise it fails
+    // with ERROR_FILE_NOT_FOUND and we fall back to rename.
+    if path.exists() {
+        // SAFETY: both buffers are NUL-terminated and outlive the call.
+        let ok = unsafe {
+            use windows_sys::Win32::Storage::FileSystem::ReplaceFileW;
+            let replaced: Vec<u16> = path
+                .as_os_str()
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+            let replacement: Vec<u16> = tmp
+                .as_os_str()
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+            ReplaceFileW(
+                replaced.as_ptr(),
+                replacement.as_ptr(),
+                std::ptr::null(),
+                0,
+                std::ptr::null(),
+                std::ptr::null(),
+            ) != 0
+        };
+        if ok {
+            return Ok(());
+        }
+    }
+
+    // Target doesn't exist (or ReplaceFileW failed): plain rename.
     match std::fs::rename(tmp, path) {
         Ok(()) => Ok(()),
         Err(e) => {
-            let _ = std::fs::remove_file(tmp);
-            Err(AppError::Config(format!("原子替换失败 {}: {e}", path.display())))
+            // Last resort: the target may have appeared concurrently.
+            let _ = std::fs::remove_file(path);
+            match std::fs::rename(tmp, path) {
+                Ok(()) => Ok(()),
+                Err(e2) => {
+                    let _ = std::fs::remove_file(tmp);
+                    Err(AppError::Config(format!(
+                        "原子替换失败 {}: {} / {e2}",
+                        path.display(),
+                        e
+                    )))
+                }
+            }
         }
     }
 }

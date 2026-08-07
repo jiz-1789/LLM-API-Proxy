@@ -57,8 +57,8 @@ impl ToolConfigWriter for ClaudeDesktopWriter {
         original_configs: &[BackupEntry],
         proxy_base_url: &str,
         proxy_api_key: &str,
-        _all_pools: &[(String, String)],
-        _default_pool_name: &str,
+        all_pools: &[(String, String)],
+        default_pool_name: &str,
         _default_pool_display_name: &str,
         _provider_name: &str,
     ) -> Result<(), AppError> {
@@ -77,6 +77,27 @@ impl ToolConfigWriter for ClaudeDesktopWriter {
             .ok_or_else(|| AppError::Config("配置文件根节点不是对象".to_string()))?;
         obj.insert("baseUrl".to_string(), Value::String(proxy_base_url.to_string()));
         obj.insert("apiKey".to_string(), Value::String(proxy_api_key.to_string()));
+        obj.insert("mode".to_string(), Value::String("proxy".to_string()));
+
+        // Build modelRoutes: default pool maps to the Claude standard model IDs
+        // (sonnet/opus/haiku), every other pool gets a `pool-{name}` route so the
+        // user can switch pools from within Claude Desktop.
+        let mut routes: Vec<Value> = Vec::new();
+        if !default_pool_name.is_empty() {
+            routes.push(json!({ "routeId": "claude-sonnet-5", "upstreamModel": default_pool_name, "supports1m": false }));
+            routes.push(json!({ "routeId": "claude-opus-5", "upstreamModel": default_pool_name, "supports1m": false }));
+            routes.push(json!({ "routeId": "claude-haiku-4-5", "upstreamModel": default_pool_name, "supports1m": false }));
+        }
+        for (pool_name, _) in all_pools {
+            if pool_name != default_pool_name {
+                routes.push(json!({
+                    "routeId": format!("pool-{}", pool_name),
+                    "upstreamModel": pool_name,
+                    "supports1m": false,
+                }));
+            }
+        }
+        obj.insert("modelRoutes".to_string(), Value::Array(routes));
 
         atomic_write(path, serde_json::to_string_pretty(&root).unwrap_or_default().as_bytes())
     }
@@ -111,7 +132,10 @@ mod tests {
         )];
 
         writer
-            .merge_and_write_config(&original, "http://127.0.0.1:47339", "sk-gw", &[], "p", "P", "x")
+            .merge_and_write_config(&original, "http://127.0.0.1:47339", "sk-gw", &[
+                ("claude-sonnet-4-5".to_string(), "Sonnet".to_string()),
+                ("gpt-4o".to_string(), "GPT-4o".to_string()),
+            ], "claude-sonnet-4-5", "Sonnet", "x")
             .unwrap();
 
         let written: Value = serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
@@ -120,6 +144,16 @@ mod tests {
         // Injected
         assert_eq!(written["baseUrl"], "http://127.0.0.1:47339");
         assert_eq!(written["apiKey"], "sk-gw");
+        assert_eq!(written["mode"], "proxy");
+        // modelRoutes: default pool -> standard IDs; other pools -> pool-{name}
+        let routes = written["modelRoutes"].as_array().unwrap();
+        assert_eq!(routes.len(), 4);
+        assert_eq!(routes[0]["routeId"], "claude-sonnet-5");
+        assert_eq!(routes[0]["upstreamModel"], "claude-sonnet-4-5");
+        assert_eq!(routes[1]["routeId"], "claude-opus-5");
+        assert_eq!(routes[2]["routeId"], "claude-haiku-4-5");
+        assert_eq!(routes[3]["routeId"], "pool-gpt-4o");
+        assert_eq!(routes[3]["upstreamModel"], "gpt-4o");
     }
 
     #[test]

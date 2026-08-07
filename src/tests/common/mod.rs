@@ -222,4 +222,66 @@ impl TestEnv {
 
         self.router.clone().oneshot(request).await.unwrap()
     }
+
+    /// Send an Anthropic Messages API request to `/v1/messages`.
+    pub async fn send_anthropic_request(&self, model: &str) -> axum::response::Response {
+        use tower::ServiceExt;
+        let body = serde_json::json!({
+            "model": model,
+            "max_tokens": 100,
+            "system": "Be brief",
+            "messages": [{"role": "user", "content": "hello from anthropic"}]
+        });
+
+        let request = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/messages")
+            .header("x-api-key", TEST_API_KEY)
+            .header("anthropic-version", "2023-06-01")
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+            .unwrap();
+
+        self.router.clone().oneshot(request).await.unwrap()
+    }
+
+    /// Send a Gemini Native API request to `/v1beta/models/{model}:generateContent`.
+    pub async fn send_gemini_request(&self, model: &str) -> axum::response::Response {
+        use tower::ServiceExt;
+        let body = serde_json::json!({
+            "contents": [{"role": "user", "parts": [{"text": "hello from gemini"}]}],
+            "generationConfig": {"temperature": 0.5}
+        });
+
+        let request = axum::http::Request::builder()
+            .method("POST")
+            .uri(&format!("/v1beta/models/{}:generateContent", model))
+            .header("x-goog-api-key", TEST_API_KEY)
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+            .unwrap();
+
+        self.router.clone().oneshot(request).await.unwrap()
+    }
+
+    /// Send a streaming Anthropic Messages API request to `/v1/messages`.
+    pub async fn send_anthropic_stream_request(&self, model: &str) -> axum::response::Response {
+        use tower::ServiceExt;
+        let body = serde_json::json!({
+            "model": model,
+            "max_tokens": 100,
+            "stream": true,
+            "messages": [{"role": "user", "content": "hello"}]
+        });
+
+        let request = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/messages")
+            .header("x-api-key", TEST_API_KEY)
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+            .unwrap();
+
+        self.router.clone().oneshot(request).await.unwrap()
+    }
 }

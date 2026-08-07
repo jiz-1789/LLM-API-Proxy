@@ -77,7 +77,7 @@ impl ToolConfigWriter for OpenClawWriter {
             let providers = mobj.entry("providers").or_insert_with(|| json!({}));
             if let Some(pobj) = providers.as_object_mut() {
                 pobj.insert(
-                    provider_key,
+                    provider_key.clone(),
                     json!({
                         "baseURL": proxy_base_url,
                         "apiKey": proxy_api_key,
@@ -85,12 +85,16 @@ impl ToolConfigWriter for OpenClawWriter {
                 );
             }
         }
-        // agents.defaults.model -> default pool
+        // agents.defaults.model -> "{provider_key}/{default_pool}" so the
+        // agent resolves the pool through the injected provider.
         let agents = obj.entry("agents").or_insert_with(|| json!({}));
         if let Some(aobj) = agents.as_object_mut() {
             let defaults = aobj.entry("defaults").or_insert_with(|| json!({}));
             if let Some(dobj) = defaults.as_object_mut() {
-                dobj.insert("model".to_string(), Value::String(default_pool_name.to_string()));
+                dobj.insert(
+                    "model".to_string(),
+                    Value::String(format!("{}/{}", provider_key, default_pool_name)),
+                );
             }
         }
 
@@ -106,5 +110,45 @@ impl ToolConfigWriter for OpenClawWriter {
             }
             None => Ok(()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_openclaw_writes_provider_and_default_model() {
+        let dir = TempDir::new().unwrap();
+        let cfg = dir.path().join("openclaw.json");
+        let writer = OpenClawWriter;
+        let original = vec![(cfg.clone(), None)];
+        writer
+            .merge_and_write_config(&original, "http://127.0.0.1:47339", "sk-gw", &[], "grok-4.5", "Grok 4.5", "proxy")
+            .unwrap();
+        let written: Value = serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(written["models"]["providers"]["proxy"]["baseURL"], "http://127.0.0.1:47339");
+        assert_eq!(written["models"]["providers"]["proxy"]["apiKey"], "sk-gw");
+        // Default model references the provider key + pool name.
+        assert_eq!(written["agents"]["defaults"]["model"], "proxy/grok-4.5");
+    }
+
+    #[test]
+    fn test_openclaw_preserves_existing() {
+        let dir = TempDir::new().unwrap();
+        let cfg = dir.path().join("openclaw.json");
+        std::fs::write(&cfg, r#"{"agents":{"defaults":{"temperature":0.7}}}"#).unwrap();
+        let writer = OpenClawWriter;
+        let original = vec![(
+            cfg.clone(),
+            Some(r#"{"agents":{"defaults":{"temperature":0.7}}}"#.to_string()),
+        )];
+        writer
+            .merge_and_write_config(&original, "http://x", "k", &[], "pool", "Pool", "proxy")
+            .unwrap();
+        let written: Value = serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(written["agents"]["defaults"]["temperature"], 0.7);
+        assert_eq!(written["agents"]["defaults"]["model"], "proxy/pool");
     }
 }
