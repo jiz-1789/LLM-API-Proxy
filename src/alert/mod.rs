@@ -113,38 +113,31 @@ pub fn start_alert_task(db: Arc<Database>) {
         loop {
             let current_config = load_alert_config(&db);
 
-            if current_config.enabled {
-                if let Some(message) = check_alert_condition(&db, &current_config) {
-                    // Check if we're within the silence period
-                    let last_alert = db
-                        .get_setting("alert_last_triggered_at")
-                        .ok()
-                        .flatten()
-                        .and_then(|v| v.parse::<i64>().ok())
-                        .unwrap_or(0);
+            if current_config.enabled
+                && let Some(message) = check_alert_condition(&db, &current_config)
+            {
+                // Check if we're within the silence period
+                let last_alert = db
+                    .get_setting("alert_last_triggered_at")
+                    .ok()
+                    .flatten()
+                    .and_then(|v| v.parse::<i64>().ok())
+                    .unwrap_or(0);
 
-                    let now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_secs() as i64)
-                        .unwrap_or(0);
-                    let silence_secs = (current_config.silence_minutes as i64) * 60;
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                let silence_secs = (current_config.silence_minutes as i64) * 60;
 
-                    if now - last_alert >= silence_secs {
-                        warn!(message = %message, "Alert threshold exceeded");
+                if now - last_alert >= silence_secs {
+                    warn!(message = %message, "Alert threshold exceeded");
 
-                        // Update last triggered timestamp
-                        let _ = db.save_setting(
-                            "alert_last_triggered_at",
-                            &now.to_string(),
-                        );
+                    // Update last triggered timestamp
+                    let _ = db.save_setting("alert_last_triggered_at", &now.to_string());
 
-                        // Record alert in config_changes for audit trail
-                        let _ = db.insert_config_change(
-                            "alert_triggered",
-                            None,
-                            &message,
-                        );
-                    }
+                    // Record alert in config_changes for audit trail
+                    let _ = db.insert_config_change("alert_triggered", None, &message);
                 }
             }
 

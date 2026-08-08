@@ -614,7 +614,7 @@ mod tests {
 
         // Open and verify contents
         let file = std::fs::File::open(&zip_path).unwrap();
-        let mut archive = zip::ZipArchive::new(file).unwrap();
+        let archive = zip::ZipArchive::new(file).unwrap();
 
         // Verify all expected files are present
         let expected_files = [

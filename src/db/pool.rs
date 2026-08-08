@@ -9,6 +9,7 @@ impl Database {
     // ========================================================================
 
     /// Create a new pool record.
+    #[allow(clippy::too_many_arguments)]
     pub fn create_pool(
         &self,
         id: &str,
@@ -89,6 +90,7 @@ impl Database {
     }
 
     /// Update pool configuration.
+    #[allow(clippy::too_many_arguments)]
     pub fn update_pool(
         &self,
         id: &str,

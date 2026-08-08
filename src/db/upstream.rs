@@ -9,6 +9,7 @@ impl Database {
     // ========================================================================
 
     /// Create a new upstream record.
+    #[allow(clippy::too_many_arguments)]
     pub fn create_upstream(
         &self,
         id: &str,
@@ -88,6 +89,7 @@ impl Database {
     }
 
     /// Update an existing upstream record.
+    #[allow(clippy::too_many_arguments)]
     pub fn update_upstream(
         &self,
         id: &str,

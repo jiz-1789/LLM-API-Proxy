@@ -17,12 +17,6 @@ mod api_key;
 mod tool_config;
 mod token_usage;
 
-pub use migration::*;
-pub use upstream::*;
-pub use pool::*;
-pub use log::*;
-pub use settings::*;
-pub use api_key::*;
 pub use tool_config::*;
 pub use token_usage::*;
 pub use crate::gateway::convert::capabilities::ModelCapabilities;
@@ -303,6 +297,7 @@ pub struct ApiKey {
 /// Uses two connections for read-write separation (P2-17):
 /// - `conn`: write connection (INSERT/UPDATE/DELETE/transactions)
 /// - `read_conn`: read-only connection (SELECT queries)
+///
 /// SQLite WAL mode allows concurrent reads while writing.
 pub struct Database {
     conn: Mutex<Connection>,

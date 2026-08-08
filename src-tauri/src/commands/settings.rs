@@ -101,12 +101,9 @@ pub fn get_settings(state: State<'_, AppState>) -> Result<SettingsVO, String> {
 #[tauri::command]
 pub fn update_settings(req: SettingsVO, state: State<'_, AppState>) -> Result<(), String> {
     // Validate critical configuration before saving (P1-15)
-    let listen_address = llm_api_proxy_lib::config::validate_listen_address(&req.listen_address)
-        .map_err(|e| e)?;
-    let listen_port = llm_api_proxy_lib::config::validate_port(req.listen_port)
-        .map_err(|e| e)?;
-    let api_key = llm_api_proxy_lib::config::validate_api_key(&req.api_key)
-        .map_err(|e| e)?;
+    let listen_address = llm_api_proxy_lib::config::validate_listen_address(&req.listen_address)?;
+    let listen_port = llm_api_proxy_lib::config::validate_port(req.listen_port)?;
+    let api_key = llm_api_proxy_lib::config::validate_api_key(&req.api_key)?;
 
     state.set_minimize_to_tray(req.minimize_to_tray);
     tracing::info!("AtomicBool cache updated: minimize_to_tray={}", req.minimize_to_tray);
@@ -268,10 +265,20 @@ pub fn get_config_changes(
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> Result<Vec<ConfigChangeVO>, String> {
-    let limit = limit.unwrap_or(50).min(500);
-    let offset = offset.unwrap_or(0);
+    let limit = resolve_config_changes_limit(limit);
+    let offset = resolve_config_changes_offset(offset);
     let entries = state.db.get_config_changes(limit, offset).map_err(|e| e.to_string())?;
     Ok(entries.into_iter().map(Into::into).collect())
+}
+
+/// Resolve the page limit: default 50, clamped to 500.
+fn resolve_config_changes_limit(limit: Option<i64>) -> i64 {
+    limit.unwrap_or(50).min(500)
+}
+
+/// Resolve the page offset: default 0.
+fn resolve_config_changes_offset(offset: Option<i64>) -> i64 {
+    offset.unwrap_or(0)
 }
 
 /// Configuration change audit entry for the frontend.
@@ -427,21 +434,15 @@ mod tests {
     #[test]
     fn test_get_config_changes_limit_clamped() {
         // The command clamps limit to 500 max. Verify the logic.
-        let limit: i64 = 1000;
-        let clamped = limit.min(500);
-        assert_eq!(clamped, 500);
+        assert_eq!(resolve_config_changes_limit(Some(1000)), 500);
+        assert_eq!(resolve_config_changes_limit(Some(50)), 50);
+        assert_eq!(resolve_config_changes_limit(Some(10)), 10);
     }
 
     #[test]
-    fn test_get_config_changes_limit_default() {
-        let limit: Option<i64> = None;
-        let result = limit.unwrap_or(50).min(500);
-        assert_eq!(result, 50);
-    }
-
-    #[test]
-    fn test_get_config_changes_offset_default() {
-        let offset: Option<i64> = None;
-        assert_eq!(offset.unwrap_or(0), 0);
+    fn test_get_config_changes_pagination_defaults() {
+        assert_eq!(resolve_config_changes_limit(None), 50);
+        assert_eq!(resolve_config_changes_offset(None), 0);
+        assert_eq!(resolve_config_changes_offset(Some(20)), 20);
     }
 }
