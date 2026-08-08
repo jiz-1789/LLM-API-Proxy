@@ -48,6 +48,7 @@ pub trait ToolConfigWriter: Send + Sync {
     /// Read existing config file contents for backup.
     fn read_original_config(&self) -> Result<Vec<(PathBuf, Option<String>)>, AppError>;
     /// Merge proxy config into the config files (deep merge, preserve other fields).
+    #[allow(clippy::too_many_arguments)]
     fn merge_and_write_config(
         &self,
         original_configs: &[(PathBuf, Option<String>)],
@@ -58,6 +59,33 @@ pub trait ToolConfigWriter: Send + Sync {
         default_pool_display_name: &str,
         provider_name: &str,
     ) -> Result<(), AppError>;
+    /// Merge proxy config with an explicit role→pool model mapping.
+    ///
+    /// `model_roles` is a list of `(role, pool_name)` pairs (e.g. Claude Code's
+    /// Sonnet/Opus/Fable/Haiku/Subagent slots). Tools without role slots ignore
+    /// it via the default implementation.
+    #[allow(clippy::too_many_arguments)]
+    fn merge_and_write_config_with_roles(
+        &self,
+        original_configs: &[(PathBuf, Option<String>)],
+        proxy_base_url: &str,
+        proxy_api_key: &str,
+        all_pools: &[(String, String)],
+        default_pool_name: &str,
+        default_pool_display_name: &str,
+        provider_name: &str,
+        _model_roles: &[(String, String)],
+    ) -> Result<(), AppError> {
+        self.merge_and_write_config(
+            original_configs,
+            proxy_base_url,
+            proxy_api_key,
+            all_pools,
+            default_pool_name,
+            default_pool_display_name,
+            provider_name,
+        )
+    }
     /// Restore original config files from backup.
     fn restore_original_config(
         &self,
@@ -79,6 +107,18 @@ pub enum EnableResult {
     },
 }
 
+/// Canonical display order for the tool tiles (matches registration order).
+const TOOL_DISPLAY_ORDER: [&str; 8] = [
+    "claude",
+    "claude-desktop",
+    "codex",
+    "gemini",
+    "grokbuild",
+    "opencode",
+    "openclaw",
+    "hermes",
+];
+
 /// Tool switch manager: orchestrates backup, write, restore, and DB state.
 pub struct ToolSwitchManager {
     db: Arc<Database>,
@@ -86,6 +126,17 @@ pub struct ToolSwitchManager {
 }
 
 impl ToolSwitchManager {
+    /// Writers in the canonical display order; unknown app ids go last.
+    fn ordered_writers(&self) -> Vec<&dyn ToolConfigWriter> {
+        let mut ws: Vec<&Box<dyn ToolConfigWriter>> = self.writers.values().collect();
+        ws.sort_by_key(|w| {
+            TOOL_DISPLAY_ORDER
+                .iter()
+                .position(|id| *id == w.app_id())
+                .unwrap_or(usize::MAX)
+        });
+        ws.into_iter().map(|w| w.as_ref()).collect()
+    }
     pub fn new(db: Arc<Database>) -> Self {
         let mut writers: HashMap<String, Box<dyn ToolConfigWriter>> = HashMap::new();
         let claude = claude::ClaudeCodeWriter;
@@ -114,8 +165,8 @@ impl ToolSwitchManager {
 
     /// Detect installation status of all registered tools.
     pub fn detect_all_tools(&self) -> Vec<crate::db::ToolDetectionResult> {
-        self.writers
-            .values()
+        self.ordered_writers()
+            .iter()
             .map(|w| crate::db::ToolDetectionResult {
                 app_id: w.app_id().to_string(),
                 display_name: w.display_name().to_string(),
@@ -130,13 +181,25 @@ impl ToolSwitchManager {
     pub fn get_all_switch_status(&self) -> Result<Vec<crate::db::ToolSwitchStatus>, AppError> {
         let configs = self.db.get_all_tool_configs()?;
         let mut out = Vec::new();
-        for w in self.writers.values() {
+        for w in self.ordered_writers() {
             let cfg = configs.iter().find(|c| c.tool_app_id == w.app_id());
             let pool_name = cfg
                 .as_ref()
                 .and_then(|c| c.pool_id.as_deref())
                 .and_then(|pid| self.db.get_pool_by_id(pid).ok().flatten())
                 .map(|p| p.display_name);
+            // Restore the persisted role→pool mapping (if any) from the snapshot.
+            let model_roles: Vec<(String, String)> = cfg
+                .as_ref()
+                .and_then(|c| {
+                    serde_json::from_str::<serde_json::Value>(&c.config_snapshot)
+                        .ok()
+                        .and_then(|v| {
+                            v.get("model_roles")
+                                .and_then(|r| serde_json::from_value(r.clone()).ok())
+                        })
+                })
+                .unwrap_or_default();
             out.push(crate::db::ToolSwitchStatus {
                 app_id: w.app_id().to_string(),
                 display_name: w.display_name().to_string(),
@@ -146,6 +209,7 @@ impl ToolSwitchManager {
                 pool_name,
                 api_key_id: cfg.as_ref().and_then(|c| c.api_key_id.clone()),
                 provider_name: cfg.map(|c| c.provider_name.clone()).unwrap_or_default(),
+                model_roles,
                 last_written_at: cfg.as_ref().and_then(|c| c.last_written_at.clone()),
             });
         }
@@ -153,12 +217,16 @@ impl ToolSwitchManager {
     }
 
     /// Enable a tool: backup original config, write proxy config, persist state.
+    ///
+    /// `model_roles` is an optional `(role, pool_name)` mapping for tools with
+    /// role slots (e.g. Claude Code); empty for tools without them.
     pub fn enable_tool(
         &self,
         app_id: &str,
         pool_id: &str,
         api_key_id: Option<&str>,
         provider_name: &str,
+        model_roles: &[(String, String)],
     ) -> Result<EnableResult, AppError> {
         let writer = self
             .writers
@@ -179,7 +247,7 @@ impl ToolSwitchManager {
 
         // Resolve the gateway API key to write into config.
         let api_key = self.resolve_gateway_api_key(api_key_id)?;
-        let base_url = self.gateway_base_url();
+        let base_url = self.gateway_base_url_for_tool(app_id);
 
         // Gather all pools for multi-model tools.
         let all_pools: Vec<(String, String)> = self
@@ -200,7 +268,7 @@ impl ToolSwitchManager {
             }
         }
 
-        writer.merge_and_write_config(
+        writer.merge_and_write_config_with_roles(
             &original,
             &base_url,
             &api_key,
@@ -208,6 +276,7 @@ impl ToolSwitchManager {
             &pool.name,
             &pool.display_name,
             provider_name,
+            model_roles,
         )?;
 
         let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
@@ -217,6 +286,7 @@ impl ToolSwitchManager {
             "base_url": base_url,
             "default_pool": pool.name,
             "provider_name": provider_name,
+            "model_roles": model_roles,
         })
         .to_string();
 
@@ -336,7 +406,7 @@ impl ToolSwitchManager {
             .and_then(|pid| self.db.get_pool_by_id(pid).ok().flatten())
             .ok_or_else(|| AppError::Config("关联模型池不存在".to_string()))?;
         let api_key = self.resolve_gateway_api_key(config.api_key_id.as_deref())?;
-        let base_url = self.gateway_base_url();
+        let base_url = self.gateway_base_url_for_tool(&config.tool_app_id);
         let all_pools: Vec<(String, String)> = self
             .db
             .get_pools()
@@ -346,7 +416,15 @@ impl ToolSwitchManager {
             .collect();
         let original: Vec<(PathBuf, Option<String>)> =
             serde_json::from_str(&config.original_config).unwrap_or_default();
-        writer.merge_and_write_config(
+        // Restore the role→pool mapping persisted in the snapshot (if any).
+        let model_roles: Vec<(String, String)> = serde_json::from_str(&config.config_snapshot)
+            .ok()
+            .and_then(|v: serde_json::Value| {
+                v.get("model_roles")
+                    .and_then(|r| serde_json::from_value(r.clone()).ok())
+            })
+            .unwrap_or_default();
+        writer.merge_and_write_config_with_roles(
             &original,
             &base_url,
             &api_key,
@@ -354,16 +432,20 @@ impl ToolSwitchManager {
             &pool.name,
             &pool.display_name,
             &config.provider_name,
+            &model_roles,
         )
     }
 
     /// Update a persisted ON tool's pool/api key and rewrite config.
+    ///
+    /// `model_roles` replaces the persisted role→pool mapping when provided.
     pub fn update_tool_config(
         &self,
         app_id: &str,
         pool_id: Option<&str>,
         api_key_id: Option<&str>,
         provider_name: Option<&str>,
+        model_roles: Option<&[(String, String)]>,
     ) -> Result<(), AppError> {
         let mut config = self
             .db
@@ -375,6 +457,17 @@ impl ToolSwitchManager {
         config.api_key_id = api_key_id.map(|s| s.to_string());
         if let Some(p) = provider_name {
             config.provider_name = p.to_string();
+        }
+        if let Some(roles) = model_roles {
+            // Persist the new role mapping into the snapshot so startup
+            // rewrites keep using it.
+            if let Ok(mut snapshot) =
+                serde_json::from_str::<serde_json::Value>(&config.config_snapshot)
+                && let Some(obj) = snapshot.as_object_mut()
+            {
+                obj.insert("model_roles".to_string(), serde_json::json!(roles));
+                config.config_snapshot = snapshot.to_string();
+            }
         }
         config.switch_enabled = true;
         let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
@@ -418,6 +511,22 @@ impl ToolSwitchManager {
             .and_then(|v| v.parse::<u16>().ok())
             .unwrap_or(47339);
         format!("http://{}:{}", addr, port)
+    }
+
+    /// Tool-appropriate gateway base URL.
+    ///
+    /// - Anthropic-family tools (Claude Code / Claude Desktop) get the bare
+    ///   origin: their SDKs append `/v1/messages` themselves.
+    /// - OpenAI-compatible tools (Codex, Grok, OpenCode, OpenClaw, Hermes)
+    ///   get `{origin}/v1`: they append `/responses` or `/chat/completions`.
+    /// - Gemini CLI gets the bare origin: it appends
+    ///   `/v1beta/models/{model}:generateContent` itself.
+    fn gateway_base_url_for_tool(&self, app_id: &str) -> String {
+        let origin = self.gateway_base_url();
+        match app_id {
+            "claude" | "claude-desktop" | "gemini" => origin,
+            _ => format!("{origin}/v1"),
+        }
     }
 }
 
@@ -619,7 +728,7 @@ mod tests {
         let (db, manager, target) = setup_manager_with_temp_tool(&dir);
 
         // Enable
-        let result = manager.enable_tool("test-tool", "pool_v", None, "LLM-API-Proxy").unwrap();
+        let result = manager.enable_tool("test-tool", "pool_v", None, "LLM-API-Proxy", &[]).unwrap();
         assert!(matches!(result, EnableResult::Ok { .. }));
         let written = std::fs::read_to_string(&target).unwrap();
         let v: serde_json::Value = serde_json::from_str(&written).unwrap();
@@ -683,7 +792,7 @@ mod tests {
         let mut manager = ToolSwitchManager::new(db.clone());
         manager.register(Box::new(NotInstalledWriter));
 
-        let result = manager.enable_tool("not-installed", "pool_x", None, "P").unwrap();
+        let result = manager.enable_tool("not-installed", "pool_x", None, "P", &[]).unwrap();
         assert!(matches!(result, EnableResult::NotInstalled { .. }));
     }
 
@@ -716,6 +825,55 @@ mod tests {
     }
 
     #[test]
+    fn test_manager_detect_order_is_stable() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        db.initialize().unwrap();
+        let manager = ToolSwitchManager::new(db.clone());
+
+        let order = TOOL_DISPLAY_ORDER.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let mut runs = Vec::new();
+        for _ in 0..5 {
+            let detections = manager.detect_all_tools();
+            let ids: Vec<String> = detections.iter().map(|d| d.app_id.clone()).collect();
+            runs.push(ids);
+        }
+        for run in &runs {
+            assert_eq!(run, &order, "tool tile order must be stable across runs");
+        }
+    }
+
+    #[test]
+    fn test_gateway_base_url_for_tool_family_split() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        db.initialize().unwrap();
+        db.save_setting("listen_address", "127.0.0.1").unwrap();
+        db.save_setting("listen_port", "47339").unwrap();
+        let manager = ToolSwitchManager::new(db.clone());
+
+        // Anthropic-family tools and Gemini use the bare origin.
+        assert_eq!(
+            manager.gateway_base_url_for_tool("claude"),
+            "http://127.0.0.1:47339"
+        );
+        assert_eq!(
+            manager.gateway_base_url_for_tool("claude-desktop"),
+            "http://127.0.0.1:47339"
+        );
+        assert_eq!(
+            manager.gateway_base_url_for_tool("gemini"),
+            "http://127.0.0.1:47339"
+        );
+        // OpenAI-compatible tools get the /v1 suffix.
+        for id in ["codex", "grokbuild", "opencode", "openclaw", "hermes"] {
+            assert_eq!(
+                manager.gateway_base_url_for_tool(id),
+                "http://127.0.0.1:47339/v1",
+                "tool {id} should get the /v1 base URL"
+            );
+        }
+    }
+
+    #[test]
     fn test_secondary_backup_crash_recovery_restores_original() {
         let dir = tempfile::tempdir().unwrap();
         let target = dir.path().join("tool-config.json");
@@ -724,7 +882,7 @@ mod tests {
 
         // Enable writes secondary backup + injected config.
         let (db, manager, target) = setup_manager_with_temp_tool(&dir);
-        manager.enable_tool("test-tool", "pool_v", None, "LLM-API-Proxy").unwrap();
+        manager.enable_tool("test-tool", "pool_v", None, "LLM-API-Proxy", &[]).unwrap();
         let backup_path = backup::secondary_backup_path(&target);
         assert!(backup_path.exists());
         assert_eq!(std::fs::read_to_string(&backup_path).unwrap(), r#"{"user":true}"#);
@@ -747,7 +905,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (db, manager, target) = setup_manager_with_temp_tool(&dir);
         // Original config did NOT exist.
-        manager.enable_tool("test-tool", "pool_v", None, "LLM-API-Proxy").unwrap();
+        manager.enable_tool("test-tool", "pool_v", None, "LLM-API-Proxy", &[]).unwrap();
         assert!(target.exists());
         let backup_path = backup::secondary_backup_path(&target);
         assert_eq!(
@@ -771,7 +929,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("tool-config.json"), r#"{"user":true}"#).unwrap();
         let (_db, manager, target) = setup_manager_with_temp_tool(&dir);
-        manager.enable_tool("test-tool", "pool_v", None, "LLM-API-Proxy").unwrap();
+        manager.enable_tool("test-tool", "pool_v", None, "LLM-API-Proxy", &[]).unwrap();
         let backup_path = backup::secondary_backup_path(&target);
         assert!(backup_path.exists());
 
@@ -779,5 +937,151 @@ mod tests {
         manager.restore_on_exit().unwrap();
         assert_eq!(std::fs::read_to_string(&target).unwrap(), r#"{"user":true}"#);
         assert!(!backup_path.exists());
+    }
+
+    // A writer that records the role→pool mapping it received, so tests can
+    // assert snapshot persistence without parsing config files.
+    struct RoleCapturingWriter {
+        target: PathBuf,
+        last_roles: std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>,
+    }
+    impl ToolConfigWriter for RoleCapturingWriter {
+        fn app_id(&self) -> &'static str {
+            "role-tool"
+        }
+        fn display_name(&self) -> &'static str {
+            "Role Tool"
+        }
+        fn download_url(&self) -> &'static str {
+            "https://example.com"
+        }
+        fn is_installed(&self) -> bool {
+            true
+        }
+        fn config_paths(&self) -> Vec<PathBuf> {
+            vec![self.target.clone()]
+        }
+        fn read_original_config(&self) -> Result<Vec<BackupEntry>, AppError> {
+            let content = std::fs::read_to_string(&self.target).ok();
+            Ok(vec![(self.target.clone(), content)])
+        }
+        fn merge_and_write_config(
+            &self,
+            _original: &[BackupEntry],
+            _proxy_base_url: &str,
+            _proxy_api_key: &str,
+            _all_pools: &[(String, String)],
+            default_pool_name: &str,
+            _default_display: &str,
+            _provider: &str,
+        ) -> Result<(), AppError> {
+            crate::tool_config::writer::atomic_write(
+                &self.target,
+                format!(r#"{{"model":"{default_pool_name}"}}"#).as_bytes(),
+            )
+        }
+        fn merge_and_write_config_with_roles(
+            &self,
+            original: &[BackupEntry],
+            proxy_base_url: &str,
+            proxy_api_key: &str,
+            all_pools: &[(String, String)],
+            default_pool_name: &str,
+            default_display: &str,
+            provider: &str,
+            model_roles: &[(String, String)],
+        ) -> Result<(), AppError> {
+            *self.last_roles.lock().unwrap() = model_roles.to_vec();
+            self.merge_and_write_config(
+                original,
+                proxy_base_url,
+                proxy_api_key,
+                all_pools,
+                default_pool_name,
+                default_display,
+                provider,
+            )
+        }
+        fn restore_original_config(&self, _original: &[BackupEntry]) -> Result<(), AppError> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_update_tool_config_persists_model_roles() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        db.initialize().unwrap();
+        let crypto = crate::crypto::KeyManager::initialize(&std::env::temp_dir()).unwrap();
+        let enc = crypto.encrypt_api_key("sk-test").unwrap();
+        db.create_upstream("up_a", "OpenAI", "https://a.com", &enc, "gpt-4o", "[]", true, "", "", "openai_chat")
+            .unwrap();
+        db.create_pool("pool_v", "vision-pool", "Vision Pool", 5, false, "off", "", "")
+            .unwrap();
+        db.add_upstream_to_pool("pool_v", "up_a", 0, "gpt-4o").unwrap();
+        db.save_setting("gateway_api_key", "sk-gw-test-key").unwrap();
+        db.save_setting("listen_port", "47339").unwrap();
+
+        let roles = std::sync::Arc::new(std::sync::Mutex::new(Vec::<(String, String)>::new()));
+        let mut manager = ToolSwitchManager::new(db.clone());
+        let writer = RoleCapturingWriter {
+            target: dir.path().join("role-config.json"),
+            last_roles: roles.clone(),
+        };
+        manager.register(Box::new(writer));
+
+        // Enable with a role mapping.
+        manager
+            .enable_tool(
+                "role-tool",
+                "pool_v",
+                None,
+                "LLM-API-Proxy",
+                &[("sonnet".to_string(), "vision-pool".to_string())],
+            )
+            .unwrap();
+        assert_eq!(
+            *roles.lock().unwrap(),
+            vec![("sonnet".to_string(), "vision-pool".to_string())]
+        );
+
+        // Simulate a fresh manager (startup rewrite path): roles must be
+        // restored from the snapshot, not lost.
+        roles.lock().unwrap().clear();
+        let mut manager2 = ToolSwitchManager::new(db.clone());
+        manager2.register(Box::new(RoleCapturingWriter {
+            target: dir.path().join("role-config.json"),
+            last_roles: roles.clone(),
+        }));
+        manager2.restore_on_startup().unwrap();
+        assert_eq!(
+            *roles.lock().unwrap(),
+            vec![("sonnet".to_string(), "vision-pool".to_string())]
+        );
+
+        // update_tool_config with no new roles keeps the persisted mapping.
+        manager2
+            .update_tool_config("role-tool", None, None, None, None)
+            .unwrap();
+        assert_eq!(
+            *roles.lock().unwrap(),
+            vec![("sonnet".to_string(), "vision-pool".to_string())]
+        );
+
+        // update_tool_config with a new mapping replaces it.
+        roles.lock().unwrap().clear();
+        manager2
+            .update_tool_config(
+                "role-tool",
+                None,
+                None,
+                None,
+                Some(&[("opus".to_string(), "vision-pool".to_string())]),
+            )
+            .unwrap();
+        assert_eq!(
+            *roles.lock().unwrap(),
+            vec![("opus".to_string(), "vision-pool".to_string())]
+        );
     }
 }

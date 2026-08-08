@@ -27,6 +27,13 @@ pub fn get_tool_switches(
         .map_err(|e| e.to_string())
 }
 
+/// Role→pool mapping for tools with role slots (e.g. Claude Code).
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ModelRoleMapping {
+    /// (role, pool_name) pairs, e.g. ("sonnet", "deepseek-v4-pro").
+    pub roles: Vec<(String, String)>,
+}
+
 /// Enable a tool switch: backup + write proxy config.
 #[tauri::command]
 pub fn enable_tool_switch(
@@ -35,7 +42,10 @@ pub fn enable_tool_switch(
     pool_id: String,
     api_key_id: Option<String>,
     provider_name: Option<String>,
+    model_roles: Option<ModelRoleMapping>,
 ) -> Result<EnableResult, String> {
+    // Keep the owned mapping alive while passing a slice into the manager.
+    let owned_roles = model_roles.map(|m| m.roles).unwrap_or_default();
     state
         .tool_switch_manager
         .enable_tool(
@@ -43,6 +53,7 @@ pub fn enable_tool_switch(
             &pool_id,
             api_key_id.as_deref(),
             provider_name.as_deref().unwrap_or("LLM-API-Proxy"),
+            owned_roles.as_slice(),
         )
         .map_err(|e| e.to_string())
 }
@@ -64,7 +75,12 @@ pub fn update_tool_config(
     pool_id: Option<String>,
     api_key_id: Option<String>,
     provider_name: Option<String>,
+    model_roles: Option<ModelRoleMapping>,
 ) -> Result<(), String> {
+    // Keep the owned mapping alive while passing a slice into the manager.
+    let role_slice = model_roles
+        .as_ref()
+        .map(|m| m.roles.as_slice());
     state
         .tool_switch_manager
         .update_tool_config(
@@ -72,6 +88,7 @@ pub fn update_tool_config(
             pool_id.as_deref(),
             api_key_id.as_deref(),
             provider_name.as_deref(),
+            role_slice,
         )
         .map_err(|e| e.to_string())
 }

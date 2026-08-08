@@ -54,6 +54,29 @@ impl ToolConfigWriter for ClaudeCodeWriter {
         _default_pool_display_name: &str,
         _provider_name: &str,
     ) -> Result<(), AppError> {
+        self.merge_and_write_config_with_roles(
+            original_configs,
+            proxy_base_url,
+            proxy_api_key,
+            _all_pools,
+            default_pool_name,
+            _default_pool_display_name,
+            _provider_name,
+            &[],
+        )
+    }
+
+    fn merge_and_write_config_with_roles(
+        &self,
+        original_configs: &[BackupEntry],
+        proxy_base_url: &str,
+        proxy_api_key: &str,
+        _all_pools: &[(String, String)],
+        default_pool_name: &str,
+        _default_pool_display_name: &str,
+        _provider_name: &str,
+        model_roles: &[(String, String)],
+    ) -> Result<(), AppError> {
         let (path, original) = original_configs
             .first()
             .ok_or_else(|| AppError::Config("缺少原始配置".to_string()))?;
@@ -76,17 +99,34 @@ impl ToolConfigWriter for ClaudeCodeWriter {
             env_obj.insert("ANTHROPIC_BASE_URL".to_string(), Value::String(proxy_base_url.to_string()));
             env_obj.insert("ANTHROPIC_AUTH_TOKEN".to_string(), Value::String(proxy_api_key.to_string()));
             env_obj.insert("ANTHROPIC_MODEL".to_string(), Value::String(default_pool_name.to_string()));
+            // Role slots: any role without an explicit mapping falls back to
+            // the default pool so /model always offers a working entry.
+            let role_env = |role: &str| -> String {
+                model_roles
+                    .iter()
+                    .find(|(r, _)| r == role)
+                    .map(|(_, m)| m.clone())
+                    .unwrap_or_else(|| default_pool_name.to_string())
+            };
             env_obj.insert(
                 "ANTHROPIC_DEFAULT_HAIKU_MODEL".to_string(),
-                Value::String(default_pool_name.to_string()),
+                Value::String(role_env("haiku")),
             );
             env_obj.insert(
                 "ANTHROPIC_DEFAULT_SONNET_MODEL".to_string(),
-                Value::String(default_pool_name.to_string()),
+                Value::String(role_env("sonnet")),
             );
             env_obj.insert(
                 "ANTHROPIC_DEFAULT_OPUS_MODEL".to_string(),
-                Value::String(default_pool_name.to_string()),
+                Value::String(role_env("opus")),
+            );
+            env_obj.insert(
+                "ANTHROPIC_DEFAULT_FABLE_MODEL".to_string(),
+                Value::String(role_env("fable")),
+            );
+            env_obj.insert(
+                "ANTHROPIC_DEFAULT_SUBAGENT_MODEL".to_string(),
+                Value::String(role_env("subagent")),
             );
         }
 
@@ -152,6 +192,45 @@ mod tests {
         assert_eq!(written["env"]["ANTHROPIC_BASE_URL"], "http://127.0.0.1:47339");
         assert_eq!(written["env"]["ANTHROPIC_AUTH_TOKEN"], "sk-gw-test");
         assert_eq!(written["env"]["ANTHROPIC_MODEL"], "gpt-4");
+    }
+
+    #[test]
+    fn test_claude_writes_role_model_mapping() {
+        let dir = TempDir::new().unwrap();
+        let settings = dir.path().join("settings.json");
+
+        let writer = make_writer_with_home(&dir);
+        let original = vec![(settings.clone(), None)];
+
+        writer
+            .merge_and_write_config_with_roles(
+                &original,
+                "http://127.0.0.1:47339",
+                "sk-gw-test",
+                &[
+                    ("deepseek-v4-pro".to_string(), "DeepSeek V4 Pro".to_string()),
+                    ("deepseek-v4-flash".to_string(), "DeepSeek V4 Flash".to_string()),
+                ],
+                "deepseek-v4-pro",
+                "DeepSeek V4 Pro",
+                "LLM-API-Proxy",
+                &[
+                    ("sonnet".to_string(), "deepseek-v4-pro".to_string()),
+                    ("opus".to_string(), "deepseek-v4-pro".to_string()),
+                    ("haiku".to_string(), "deepseek-v4-flash".to_string()),
+                ],
+            )
+            .unwrap();
+
+        let written: Value = serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
+        let env = &written["env"];
+        assert_eq!(env["ANTHROPIC_MODEL"], "deepseek-v4-pro");
+        assert_eq!(env["ANTHROPIC_DEFAULT_SONNET_MODEL"], "deepseek-v4-pro");
+        assert_eq!(env["ANTHROPIC_DEFAULT_OPUS_MODEL"], "deepseek-v4-pro");
+        assert_eq!(env["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "deepseek-v4-flash");
+        // Roles without explicit mapping fall back to the default pool.
+        assert_eq!(env["ANTHROPIC_DEFAULT_FABLE_MODEL"], "deepseek-v4-pro");
+        assert_eq!(env["ANTHROPIC_DEFAULT_SUBAGENT_MODEL"], "deepseek-v4-pro");
     }
 
     #[test]

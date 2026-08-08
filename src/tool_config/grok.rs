@@ -45,9 +45,9 @@ impl ToolConfigWriter for GrokWriter {
         original_configs: &[BackupEntry],
         proxy_base_url: &str,
         _proxy_api_key: &str,
-        _all_pools: &[(String, String)],
+        all_pools: &[(String, String)],
         default_pool_name: &str,
-        _default_pool_display_name: &str,
+        default_pool_display_name: &str,
         provider_name: &str,
     ) -> Result<(), AppError> {
         let (path, original) = original_configs
@@ -92,6 +92,26 @@ impl ToolConfigWriter for GrokWriter {
         provider["wire_api"] = toml_edit::value("responses");
         provider["requires_openai_auth"] = toml_edit::value(true);
 
+        // Register every pool as a switchable model under this provider so
+        // Grok can switch between all proxy pools (not just the default one).
+        if !provider.contains_key("models") {
+            provider.insert("models", toml_edit::table());
+        }
+        let models = provider
+            .get_mut("models")
+            .and_then(toml_edit::Item::as_table_mut)
+            .ok_or_else(|| AppError::Config(format!("model_providers.{provider_key}.models 必须是 TOML 表")))?;
+        for (name, display) in all_pools {
+            let mut desc = toml_edit::Table::new();
+            desc.insert("name", toml_edit::value(display.clone()));
+            models.insert(name.as_str(), toml_edit::Item::Table(desc));
+        }
+        if all_pools.is_empty() {
+            let mut desc = toml_edit::Table::new();
+            desc.insert("name", toml_edit::value(default_pool_display_name.to_string()));
+            models.insert(default_pool_name, toml_edit::Item::Table(desc));
+        }
+
         atomic_write(path, doc.to_string().as_bytes())
     }
 
@@ -133,6 +153,40 @@ mod tests {
         assert!(toml.contains("model_provider = \"LLM-API-Proxy\""));
         assert!(toml.contains("model = \"grok-pool\""));
         assert!(toml.contains("base_url = \"http://127.0.0.1:47339\""));
+    }
+
+    #[test]
+    fn test_grok_writes_all_pool_models_for_switching() {
+        let dir = TempDir::new().unwrap();
+        let cfg = dir.path().join("config.toml");
+        let writer = GrokWriter;
+        let original = vec![(cfg.clone(), None)];
+        writer
+            .merge_and_write_config(
+                &original,
+                "http://127.0.0.1:47339/v1",
+                "sk-k",
+                &[
+                    ("deepseek-v4-pro".to_string(), "DeepSeek V4 Pro".to_string()),
+                    ("deepseek-v4-flash".to_string(), "DeepSeek V4 Flash".to_string()),
+                ],
+                "deepseek-v4-pro",
+                "DeepSeek V4 Pro",
+                "LLM-API-Proxy",
+            )
+            .unwrap();
+        let toml = std::fs::read_to_string(&cfg).unwrap();
+        let parsed = toml.parse::<toml_edit::DocumentMut>().unwrap();
+        let models = parsed
+            .get("model_providers")
+            .and_then(|p| p.get("LLM-API-Proxy"))
+            .and_then(|p| p.get("models"))
+            .and_then(toml_edit::Item::as_table)
+            .expect("model_providers.LLM-API-Proxy.models must exist");
+        assert_eq!(models.len(), 2);
+        assert_eq!(models["deepseek-v4-pro"]["name"].as_str().unwrap(), "DeepSeek V4 Pro");
+        assert_eq!(models["deepseek-v4-flash"]["name"].as_str().unwrap(), "DeepSeek V4 Flash");
+        assert_eq!(parsed["model"].as_str().unwrap(), "deepseek-v4-pro");
     }
 
     #[test]

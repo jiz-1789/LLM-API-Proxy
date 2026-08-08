@@ -43,6 +43,9 @@ pub struct ToolSwitchStatus {
     pub pool_name: Option<String>,
     pub api_key_id: Option<String>,
     pub provider_name: String,
+    /// Persisted role→pool mapping (from config_snapshot), if any.
+    #[serde(default)]
+    pub model_roles: Vec<(String, String)>,
     pub last_written_at: Option<String>,
 }
 
