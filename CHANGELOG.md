@@ -5,18 +5,26 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [0.4.0] - 2026-08-08
 
 ### 新增
 - 新增 Anthropic 原生客户端端点 `POST /v1/messages` 与 Gemini 原生端点 `POST /v1beta/models/{model}:generateContent`，Claude Code / Gemini CLI 等原生工具可直接接入（支持非流式与流式双向转换，认证兼容 `x-api-key` / `x-goog-api-key`）
 - 号池详情新增逐上游思考强度覆盖：可为池内每个上游单独设置思考强度（跟随池级/关闭/低/中/高/最大/自定义），覆盖池级配置
-- 工具配置页新增系统环境变量冲突检测：当检测到 `ANTHROPIC_*`、`OPENAI_*` 等系统环境变量会覆盖注入的代理配置时，页面给出警告并支持一键清理（清理前自动备份，可恢复）
+- 工具配置页新增系统环境变量冲突检测：当检测到 `ANTHROPIC_*`、`OPENAI_*`、`CLAUDE_CODE_*`、`GROK_*` 等系统环境变量会覆盖注入的代理配置时，页面给出警告并支持一键清理（清理前自动备份，可恢复）
 - 工具配置新增异常退出恢复机制：若上次因进程被强制结束（kill）未能恢复原始配置，下次启动时自动从二级备份恢复
+- 工具配置改用独立的工具网关 Token（自动生成并持久化），不再把默认 Gateway API Key 写入工具配置文件，主密钥更加安全
+- Claude Desktop 支持按池真实上下文窗口声明 1M 能力：`pool-{name}` 路由与模型列表会依据池的推断窗口自动标记 `supports1m`
+- Claude Desktop 写入前校验模型名合法性，形似 `claude-*` 但非法定模型的池名自动改写为代理路由，避免客户端拒收
 
 ### 变更
 - 工具配置写入改用 Windows `ReplaceFileW` 原子替换（原为删除后重命名），消除非原子窗口；Claude Desktop / Hermes 按 PLAN 全量写入所有模型池
 - 设置页日志保留默认值提高为 30 天 / 20000 条（与独立 Token 统计一致）
 - 使用教程页新增「工具配置」「多格式 API 转换」章节，并同步更新上游服务、模型池、接入客户端示例章节
+- Grok 配置补写认证令牌（`experimental_bearer_token`），清理系统 `XAI_*`/`GROK_*` 环境变量后仍可正常认证
+- Gemini 配置补写默认模型（`GEMINI_MODEL`），并修正接口地址变量名为 CLI 实际识别的 `GOOGLE_GEMINI_BASE_URL`
+- OpenClaw 配置改为全量写入所有模型池（含各池上下文窗口）与 `openai-completions` 协议声明，默认模型结构对齐客户端格式
+- Hermes 配置改为按区块合并而非简单追加，用户已有的 `custom_providers`/`model` 配置不会再产生重复键
+- Claude Code 配置接管认证时自动移除残留的 `ANTHROPIC_API_KEY`，避免与 `ANTHROPIC_AUTH_TOKEN` 并存触发客户端警告
 
 ## [0.3.4] - 2026-08-07
 
