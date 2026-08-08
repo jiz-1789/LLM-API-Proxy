@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "llm-api-proxy-app"
 version = "0.4.1"
 edition = "2021"
