@@ -43,7 +43,8 @@ Most aggregation solutions on the market look like this:
 ## ✨ Core Features
 
 - **Unified entry point** — Exposes a single OpenAI-compatible URL and API key, compatible with ChatGPT, Claude Desktop, LibreChat, FastGPT, and other mainstream clients
-- **One-click tool injection** — Supports 8 AI coding tools including Claude Code, Codex CLI, Gemini CLI, etc. Injects proxy address into config files with one click
+- **One-click tool injection** — Supports 8 AI coding tools: Claude Code, Claude Desktop, Codex CLI, Gemini CLI, Grok, OpenCode, OpenClaw, Hermes. Injects the proxy address into config files with one click. Uses a dedicated tool gateway token so the primary API key never lands in a tool's config file
+- **1M context declaration** — Automatically declares 1M context capability to Claude Code / Claude Desktop / Codex / Hermes / OpenCode based on each pool's real context window, so long-context models work out of the box
 - **Multi-level thinking intensity** — Six levels (off/low/medium/high/max/custom), auto-mapped to provider-specific parameters
 - **Multi-format API conversion** — Supports OpenAI Chat, Anthropic Messages, Gemini Native, and OpenAI Responses formats with automatic bidirectional conversion
 - **Model capability tagging** — Auto-detects and labels model capabilities (text/image/audio input, function calling, context window, etc.)
@@ -242,11 +243,13 @@ That's it. Requests are automatically distributed across upstreams in the pool, 
 
 Go to the "Tool Config" page to inject the proxy address into installed AI coding tools:
 
-1. The page auto-detects installed tools (Claude Code, Codex CLI, etc. — 8 tools supported)
-2. Toggle a tool's switch, select a default pool and API Key in the dialog
+1. The page auto-detects installed tools (8 tools: Claude Code, Claude Desktop, Codex CLI, Gemini CLI, Grok, OpenCode, OpenClaw, Hermes)
+2. Toggle a tool's switch, select a default pool and API Key in the dialog; Claude-family tools also support role→pool mapping and 1M context declaration
 3. Confirm to write the config file — the tool can now use the proxy directly
 
-> Original configs are automatically backed up; toggling off or exiting the app restores the original.
+> Original configs are automatically backed up; toggling off or exiting the app restores the original. Abnormal exits are also auto-recovered on next launch.
+> Tool configs use a dedicated tool gateway token (auto-generated) — the primary Gateway API Key is never written into a tool's config file.
+> Note: Parts of the tool config feature are still being verified. If you run into issues, join our QQ group (below) to report them.
 
 ### 6. Minimize to Tray
 

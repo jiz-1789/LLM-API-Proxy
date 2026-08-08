@@ -43,7 +43,8 @@
 ## ✨ 核心特性
 
 - **统一入口** — 对外暴露一个 OpenAI 兼容的 URL 和 API Key，兼容 ChatGPT、Claude Desktop、LibreChat、FastGPT 等主流客户端
-- **工具一键注入** — 支持 Claude Code、Codex CLI、Gemini CLI 等 8 种 AI 编码工具，一键将代理地址写入配置文件，无需手动编辑
+- **工具一键注入** — 支持 Claude Code、Claude Desktop、Codex CLI、Gemini CLI、Grok、OpenCode、OpenClaw、Hermes 共 8 种 AI 编码工具，一键将代理地址写入配置文件，无需手动编辑；配置写入使用独立工具网关 Token，主 API Key 不落入工具配置文件
+- **1M 上下文声明** — 按池的真实上下文窗口自动向 Claude Code / Claude Desktop / Codex / Hermes / OpenCode 等工具声明 1M 上下文能力，长上下文模型开箱即用
 - **多级思考强度** — 支持关闭/低/中/高/最大/自定义六级思考强度，按厂商自动映射对应参数
 - **多格式 API 转换** — 同时支持 OpenAI Chat、Anthropic Messages、Gemini Native、OpenAI Responses 四种 API 格式，自动双向转换
 - **模型能力标记** — 自动识别并标注模型支持的输入模态（文本/图片/音频）、函数调用、上下文窗口等能力
@@ -242,11 +243,13 @@ API Key:  sk-gw-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 进入「工具配置」页面，将代理地址一键注入已安装的 AI 编码工具：
 
-1. 页面自动检测系统已安装的工具（Claude Code、Codex CLI 等 8 种）
-2. 点击工具开关，在弹窗中选择默认模型池和 API Key
+1. 页面自动检测系统已安装的工具（Claude Code、Claude Desktop、Codex CLI、Gemini CLI、Grok、OpenCode、OpenClaw、Hermes 共 8 种）
+2. 点击工具开关，在弹窗中选择默认模型池和 API Key，Claude 系列工具还可配置角色→模型池映射与 1M 上下文声明
 3. 确认后自动写入配置文件，工具即可直接使用代理地址
 
-> 支持的工具会自动备份原始配置，关闭开关或软件退出时自动恢复。
+> 支持的工具会自动备份原始配置，关闭开关或软件退出时自动恢复；异常退出时下次启动也会自动恢复。
+> 工具配置写入使用独立的工具网关 Token（自动生成），主 Gateway API Key 不会写入工具配置文件，更安全。
+> 注：工具配置功能部分场景待验证，使用中如遇问题可加入下方 QQ 群反馈。
 
 ### 6. 最小化到托盘
 

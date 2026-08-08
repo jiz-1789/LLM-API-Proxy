@@ -7,6 +7,8 @@
 
 ## [0.4.0] - 2026-08-08
 
+> ⚠️ 工具配置中部分需要待验证，我们在加紧完善，如有问题请加入 QQ 群反馈。
+
 ### 新增
 - 新增 Anthropic 原生客户端端点 `POST /v1/messages` 与 Gemini 原生端点 `POST /v1beta/models/{model}:generateContent`，Claude Code / Gemini CLI 等原生工具可直接接入（支持非流式与流式双向转换，认证兼容 `x-api-key` / `x-goog-api-key`）
 - 号池详情新增逐上游思考强度覆盖：可为池内每个上游单独设置思考强度（跟随池级/关闭/低/中/高/最大/自定义），覆盖池级配置
