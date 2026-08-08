@@ -671,25 +671,54 @@ gap: 8px;
 
         /* === Tool config page === */
         .page-hint { font-size: 12px; color: var(--text-muted); margin-bottom: 16px; }
-        .tool-config-list { display: flex; flex-direction: column; gap: 12px; }
-        .tool-config-card {
+        .tool-config-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
+            gap: 12px;
+        }
+        .tool-config-tile {
             display: flex;
+            flex-direction: column;
             align-items: center;
-            gap: 16px;
-            padding: 16px;
+            gap: 8px;
+            padding: 16px 10px 12px;
             border: 1px solid var(--border);
             border-radius: var(--radius-sm);
             background: var(--bg-primary);
-            transition: border-color 0.15s;
+            cursor: pointer;
+            text-align: center;
+            transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
         }
-        .tool-config-card:hover { border-color: var(--border-hover); }
-        .tool-config-name { font-weight: 600; color: var(--text-primary); }
-        .tool-config-meta { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
-        .tool-config-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+        .tool-config-tile:hover { border-color: var(--border-hover); box-shadow: var(--shadow-sm); transform: translateY(-1px); }
+        .tool-config-icon { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; }
+        .tool-config-icon img, .tool-config-icon svg { width: 34px; height: 34px; object-fit: contain; }
+        body[data-theme="dark"] .tool-config-icon.tc-mono img, body[data-theme="dark"] .tool-config-modal-icon.tc-mono img { filter: invert(1); }
+        body[data-theme="light"] .tool-config-icon.tc-oc img, body[data-theme="light"] .tool-config-modal-icon.tc-oc img { filter: invert(1); }
+        .tool-config-tile.tc-off { opacity: 0.85; }
+        .tool-config-tile.tc-off .tool-config-icon img { opacity: 0.45; }
+        .tool-config-tile.tc-off:not(.tc-mono) .tool-config-icon img { filter: grayscale(1); }
+        .tool-config-name { font-weight: 600; font-size: 13px; color: var(--text-primary); }
+        .tool-config-badges { display: flex; gap: 4px; flex-wrap: wrap; justify-content: center; }
+        .tool-config-meta { font-size: 12px; color: var(--text-secondary); margin-top: 4px; line-height: 1.6; }
         .tool-config-badge-installed { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: rgba(34,197,94,0.12); color: rgb(34,197,94); }
         .tool-config-badge-missing { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: rgba(120,120,128,0.15); color: var(--text-secondary); }
         .tool-config-badge-on { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: rgba(34,197,94,0.12); color: rgb(34,197,94); }
         .tool-config-badge-off { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--bg-hover); color: var(--text-muted); }
+        .tool-config-download-panel {
+            padding: 16px;
+            border: 1px dashed var(--border);
+            border-radius: var(--radius-sm);
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        .tool-config-modal-icon { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .tool-config-modal-icon img { width: 34px; height: 34px; object-fit: contain; }
+        .tool-config-modal-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+        .tool-config-modal-head .tool-config-badges { justify-content: flex-start; margin-top: 6px; }
+        .tool-config-paths { margin-bottom: 14px; }
+        .tool-config-paths-label { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
 
         /* Env conflict warning banner */
         .tool-warning {
@@ -1476,7 +1505,7 @@ gap: 8px;
                 </div>
                 <p class="page-hint" data-i18n="tool_config_desc">将代理地址一键注入到已安装的 AI 编码工具中</p>
                 <div id="env-conflict-banner" class="tool-warning" style="display:none;margin-bottom:12px;"></div>
-                <div id="tool-config-list" class="tool-config-list">
+                <div id="tool-config-list" class="tool-config-grid">
                     <div class="empty-state" data-i18n="dash_loading">加载中...</div>
                 </div>
             </div>
@@ -2327,23 +2356,40 @@ print(response.choices[0].message.content)</code></pre>
 
     <!-- ==================== Tool Pool Picker Modal ==================== -->
     <div class="modal-overlay" id="tool-pool-picker">
-        <div class="modal" style="width:440px;">
+        <div class="modal" style="width:460px;">
             <div class="modal-title" id="tool-pool-picker-title" data-i18n="tool_config_default_pool">默认模型池</div>
             <input type="hidden" id="tool-pool-edit-mode" value="enable">
-            <div class="form-group">
-                <label class="form-label" data-i18n="tool_config_default_pool">默认模型池</label>
-                <select class="form-input" id="tool-pool-select"></select>
+            <div class="tool-config-modal-head">
+                <div class="tool-config-modal-icon" id="tool-pool-modal-icon"></div>
+                <div style="flex:1;min-width:0;">
+                    <div style="font-weight:600;color:var(--text-primary);font-size:14px;" id="tool-pool-modal-name"></div>
+                    <div class="tool-config-badges" id="tool-pool-modal-badges"></div>
+                </div>
             </div>
-            <div class="form-group">
-                <label class="form-label" data-i18n="tool_config_api_key">API Key</label>
-                <select class="form-input" id="tool-api-key-select"></select>
-                <div class="form-hint" data-i18n="tool_config_api_key_hint">留空使用默认 Gateway API Key</div>
-            </div>
-            <div class="form-group">
-                <label class="form-label" data-i18n="tool_config_provider_name">供应商标签名</label>
-                <input class="form-input" id="tool-provider-name" value="LLM-API-Proxy" data-i18n-ph="tool_config_provider_name_ph">
+            <div class="tool-config-paths" id="tool-pool-modal-paths" style="display:none;"></div>
+            <div style="display:none;" id="tool-pool-modal-uninstalled"></div>
+            <div id="tool-pool-modal-form">
+                <div class="form-group">
+                    <label class="form-label" data-i18n="tool_config_default_pool">默认模型池</label>
+                    <select class="form-input" id="tool-pool-select"></select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" data-i18n="tool_config_api_key">API Key</label>
+                    <select class="form-input" id="tool-api-key-select"></select>
+                    <div class="form-hint" data-i18n="tool_config_api_key_hint">留空使用默认 Gateway API Key</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" data-i18n="tool_config_provider_name">供应商标签名</label>
+                    <input class="form-input" id="tool-provider-name" value="LLM-API-Proxy" data-i18n-ph="tool_config_provider_name_ph">
+                </div>
+                <div class="form-group" id="tool-role-map" style="display:none;">
+                    <label class="form-label" data-i18n="tool_config_roles_title">模型角色映射</label>
+                    <div class="form-hint" data-i18n="tool_config_roles_hint">为 Claude Code 的各个角色指定模型池，/model 菜单中可查看并切换；未指定的角色自动沿用默认模型池</div>
+                    <div id="tool-role-rows" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;"></div>
+                </div>
             </div>
             <div class="form-actions">
+                <button class="btn btn-danger" id="tool-pool-disable" style="display:none;" onclick="confirmDisableToolFromModal()" data-i18n="tool_config_confirm_disable">关闭</button>
                 <button class="btn btn-ghost" onclick="closeToolPoolPicker()" data-i18n="modal_cancel">取消</button>
                 <button class="btn btn-primary" id="tool-pool-save" onclick="confirmToolPoolSelection()" data-i18n="modal_save">保存</button>
             </div>
@@ -2363,6 +2409,18 @@ print(response.choices[0].message.content)</code></pre>
         </div>
     </div>
 
+    <!-- ==================== Generic Confirm Modal ==================== -->
+    <div class="modal-overlay" id="app-confirm-modal">
+        <div class="modal" style="width:380px;">
+            <div class="modal-title" id="app-confirm-title" data-i18n="confirm_title">确认操作</div>
+            <p id="app-confirm-body" style="color:var(--text-secondary);font-size:13px;margin-bottom:18px;line-height:1.6;"></p>
+            <div class="form-actions">
+                <button class="btn btn-ghost" onclick="closeAppConfirm()" data-i18n="modal_cancel">取消</button>
+                <button class="btn btn-danger" id="app-confirm-ok" onclick="confirmAppConfirm()">确认</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ==================== Pool Create/Edit Modal ==================== -->
     <div class="modal-overlay" id="pool-modal">
         <div class="modal">
@@ -2373,6 +2431,7 @@ print(response.choices[0].message.content)</code></pre>
                     <label class="form-label" data-i18n="modal_pool_name">模型名称 *</label>
                     <input class="form-input" id="pf-name" data-i18n-ph="modal_pool_name_ph" placeholder="例如：gpt-4o" autocomplete="off">
                     <div class="form-hint" data-i18n="modal_pool_name_hint">客户端请求时使用的模型名</div>
+                    <div class="form-hint" id="pf-name-duplicate" style="display:none;color:var(--danger);"></div>
                 </div>
                 <div class="form-group">
                     <label class="form-label" data-i18n="modal_pool_display">显示名称</label>
@@ -2640,8 +2699,8 @@ logs_token_by_pool: { zh: '按模型池', en: 'By Pool' },
 logs_token_by_upstream: { zh: '按上游', en: 'By Upstream' },
         logs_token_today: { zh: '今日 Token', en: 'Today Tokens' },
         logs_token_clear: { zh: '清理统计', en: 'Clear Stats' },
-        logs_token_clear_confirm: { zh: '确定要清空所有 Token 用量统计吗？此操作不可撤销。', en: 'Clear all token usage statistics? This cannot be undone.' },
-        logs_token_cleared: { zh: 'Token 统计已清空', en: 'Token statistics cleared' },
+        logs_token_clear_confirm: { zh: '确定要清空所有统计吗（仪表盘今日数据与 Token 用量）？此操作不可撤销，请求日志记录不受影响。', en: 'Clear all statistics (dashboard today counts and token usage)? This cannot be undone. Request logs are kept.' },
+        logs_token_cleared: { zh: '统计已清空（仪表盘与 Token 用量）', en: 'Statistics cleared (dashboard & token usage)' },
 logs_token_total: { zh: '累计 Token', en: 'Total Tokens' },
 logs_token_today_req: { zh: '今日请求', en: 'Today Requests' },
         logs_token_total_req: { zh: '累计请求', en: 'Total Requests' },
@@ -2827,6 +2886,8 @@ settings_import_full: { zh: '全量导入', en: 'Import (Full)' },
         modal_avail_models_hint: { zh: '从服务商拉取的模型列表，勾选后可在模型池中选择', en: 'Models fetched from provider. Select to use in pools.' },
         modal_cancel: { zh: '取消', en: 'Cancel' },
         modal_save: { zh: '保存', en: 'Save' },
+        modal_ok: { zh: '确认', en: 'OK' },
+        confirm_title: { zh: '确认操作', en: 'Confirm' },
 
         // ── Modal: Pool ──
         modal_add_pool: { zh: '新增模型池', en: 'Add Model Pool' },
@@ -2887,6 +2948,8 @@ settings_import_full: { zh: '全量导入', en: 'Import (Full)' },
         tool_config_switch_on: { zh: '已开启', en: 'ON' },
         tool_config_switch_off: { zh: '已关闭', en: 'OFF' },
         tool_config_default_pool: { zh: '默认模型池', en: 'Default Pool' },
+        tool_config_paths_label: { zh: '配置文件位置', en: 'Config File Locations' },
+        tool_config_not_installed_hint: { zh: '该工具尚未安装，请先下载安装后再进行配置', en: 'This tool is not installed yet. Download and install it first, then configure.' },
         tool_config_api_key: { zh: 'API Key', en: 'API Key' },
         tool_config_api_key_hint: { zh: '留空使用默认 Gateway API Key', en: 'Leave empty to use the default Gateway API Key' },
         tool_config_provider_name: { zh: '供应商标签名', en: 'Provider Label' },
@@ -2898,6 +2961,14 @@ settings_import_full: { zh: '全量导入', en: 'Import (Full)' },
         tool_config_disable_warning: { zh: '关闭后将恢复 {tool} 的原始配置文件。确定继续？', en: 'This will restore {tool}\'s original config file. Continue?' },
         tool_config_rewrite: { zh: '重新写入', en: 'Rewrite' },
         tool_config_default_key: { zh: '(默认 Gateway Key)', en: '(Default Gateway Key)' },
+        tool_config_roles_title: { zh: '模型角色映射', en: 'Model Role Mapping' },
+        tool_config_roles_hint: { zh: '为 Claude Code 的各个角色指定模型池，/model 菜单中可查看并切换；未指定的角色自动沿用默认模型池', en: 'Assign a pool to each Claude Code role. Visible and switchable in the /model menu; roles left unset fall back to the default pool.' },
+        tool_config_role_sonnet: { zh: 'Sonnet', en: 'Sonnet' },
+        tool_config_role_opus: { zh: 'Opus', en: 'Opus' },
+        tool_config_role_fable: { zh: 'Fable', en: 'Fable' },
+        tool_config_role_haiku: { zh: 'Haiku', en: 'Haiku' },
+        tool_config_role_subagent: { zh: 'Subagent', en: 'Subagent' },
+        tool_config_roles_default: { zh: '(跟随默认模型池)', en: '(follow default pool)' },
         env_conflict_warn: { zh: '检测到 {count} 个系统环境变量会覆盖注入的代理配置，可能导致配置不生效', en: '{count} system environment variable(s) will override the injected proxy config' },
         env_conflict_cleanup: { zh: '一键清理', en: 'Clean Up' },
         env_conflict_cleanup_done: { zh: '已清理冲突环境变量，备份已保存', en: 'Conflicting env vars cleaned, backup saved' },
@@ -3097,6 +3168,7 @@ test_chat_ok: { zh: '✓ 连接成功 · 模型 {model} · {ms}ms', en: '✓ Con
         toast_no_models_for_upstream: { zh: '该上游暂无可用模型', en: 'No available models for this upstream' },
         toast_load_upstream_list_fail: { zh: '加载上游列表失败', en: 'Failed to load upstream list' },
         toast_health_check_fail: { zh: '检测失败: ', en: 'Health check failed: ' },
+        toast_pool_name_duplicate: { zh: '模型名称已存在，请更换', en: 'Model name already exists' },
         toast_update_found_toast: { zh: '发现新版本 v{v}，请前往「设置」页面下载', en: 'New version v{v} available. Go to Settings to download.' },
 
         // ── Context menu (input) ──
@@ -3918,6 +3990,32 @@ if (page === 'settings' && lastUpdateInfo) {
     }
 
     // ================================================================
+    // Generic Confirm Dialog
+    // ================================================================
+    let appConfirmCallback = null;
+
+    function showAppConfirm(message, onConfirm, opts = {}) {
+        document.getElementById('app-confirm-title').textContent = opts.title || t('confirm_title');
+        document.getElementById('app-confirm-body').textContent = message;
+        const okBtn = document.getElementById('app-confirm-ok');
+        okBtn.textContent = opts.okText || t('modal_ok');
+        okBtn.className = opts.danger ? 'btn btn-danger' : 'btn btn-primary';
+        appConfirmCallback = onConfirm;
+        document.getElementById('app-confirm-modal').classList.add('open');
+    }
+
+    function closeAppConfirm() {
+        appConfirmCallback = null;
+        document.getElementById('app-confirm-modal').classList.remove('open');
+    }
+
+    async function confirmAppConfirm() {
+        const cb = appConfirmCallback;
+        closeAppConfirm();
+        if (cb) await cb();
+    }
+
+    // ================================================================
     // Delete
     // ================================================================
     function openDeleteModal(id) {
@@ -4316,6 +4414,7 @@ if (page === 'settings' && lastUpdateInfo) {
         document.getElementById('pool-edit-id').value = '';
         document.getElementById('pf-name').value = '';
         document.getElementById('pf-name').disabled = false;
+        document.getElementById('pf-name-duplicate').style.display = 'none';
         document.getElementById('pf-display').value = '';
         document.getElementById('pf-concurrency').value = '5';
         setThinkingLevel('off');
@@ -4339,6 +4438,20 @@ if (page === 'settings' && lastUpdateInfo) {
     function getThinkingLevel() {
         return document.getElementById('pf-thinking').value || 'off';
     }
+
+    function checkPoolNameDuplicate() {
+        const input = document.getElementById('pf-name');
+        const hint = document.getElementById('pf-name-duplicate');
+        const name = input.value.trim();
+        const dup = !input.disabled && poolsCache.some(p => p.name === name);
+        hint.textContent = dup ? t('toast_pool_name_duplicate') : '';
+        hint.style.display = dup ? 'block' : 'none';
+        return !dup;
+    }
+
+    document.addEventListener('input', function (e) {
+        if (e.target && e.target.id === 'pf-name') checkPoolNameDuplicate();
+    });
 
     function thinkingLevelLabel(level) {
         const key = 'thinking_level_' + (level || 'off');
@@ -4459,9 +4572,25 @@ if (page === 'settings' && lastUpdateInfo) {
         toast(t('cap_inferred'), 'success');
     }
 
-    // ================================================================
+// ================================================================
     // Tool Config (P4)
     // ================================================================
+
+        // Tool brand icons embedded as data URIs.
+    const TOOL_ICONS = {
+        'claude': 'data:image/svg+xml;base64,PHN2ZyBoZWlnaHQ9IjFlbSIgc3R5bGU9ImZsZXg6bm9uZTtsaW5lLWhlaWdodDoxIiB2aWV3Qm94PSIwIDAgMjQgMjQiIHdpZHRoPSIxZW0iIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHRpdGxlPkNsYXVkZTwvdGl0bGU+PHBhdGggZD0iTTQuNzA5IDE1Ljk1NWw0LjcyLTIuNjQ3LjA4LS4yMy0uMDgtLjEyOEg5LjJsLS43OS0uMDQ4LTIuNjk4LS4wNzMtMi4zMzktLjA5Ny0yLjI2Ni0uMTIyLS41NzEtLjEyMUwwIDExLjc4NGwuMDU1LS4zNTIuNDgtLjMyMS42ODYuMDYgMS41Mi4xMDMgMi4yNzguMTU4IDEuNjUyLjA5NyAyLjQ0OS4yNTVoLjM4OWwuMDU1LS4xNTctLjEzNC0uMDk4LS4xMDMtLjA5Ny0yLjM1OC0xLjU5Ni0yLjU1Mi0xLjY4OC0xLjMzNi0uOTcyLS43MjQtLjQ5MS0uMzY0LS40NjItLjE1OC0xLjAwOC42NTYtLjcyMi44ODEuMDYuMjI1LjA2MS44OTMuNjg2IDEuOTA4IDEuNDc2IDIuNDkxIDEuODMzLjM2NS4zMDQuMTQ1LS4xMDMuMDE5LS4wNzMtLjE2NC0uMjc0LTEuMzU1LTIuNDQ2LTEuNDQ2LTIuNDktLjY0NC0xLjAzMi0uMTctLjYxOWEyLjk3IDIuOTcgMCAwMS0uMTA0LS43MjlMNi4yODMuMTM0IDYuNjk2IDBsLjk5Ni4xMzQuNDIuMzY0LjYyIDEuNDE0IDEuMDAyIDIuMjI5IDEuNTU1IDMuMDMuNDU2Ljg5OC4yNDMuODMyLjA5MS4yNTVoLjE1OFY5LjAxbC4xMjgtMS43MDYuMjM3LTIuMDk1LjIzLTIuNjk1LjA4LS43Ni4zNzYtLjkxLjc0Ny0uNDkyLjU4NC4yOC40OC42ODUtLjA2Ny40NDQtLjI4NiAxLjg1MS0uNTU5IDIuOTAzLS4zNjQgMS45NDJoLjIxMmwuMjQzLS4yNDIuOTg1LTEuMzA2IDEuNjUyLTIuMDY0LjczLS44Mi44NS0uOTA0LjU0Ny0uNDMxaDEuMDMzbC43NiAxLjEyOS0uMzQgMS4xNjYtMS4wNjQgMS4zNDctLjg4MSAxLjE0Mi0xLjI2NCAxLjctLjc5IDEuMzYuMDczLjExLjE4OC0uMDIgMi44NTYtLjYwNiAxLjU0My0uMjggMS44NDEtLjMxNS44MzMuMzg4LjA5MS4zOTUtLjMyOC44MDctMS45NjkuNDg2LTIuMzA5LjQ2Mi0zLjQzOS44MTMtLjA0Mi4wMy4wNDkuMDYxIDEuNTQ5LjE0Ni42NjIuMDM2aDEuNjIybDMuMDIuMjI1Ljc5LjUyMi40NzQuNjM4LS4wNzkuNDg1LTEuMjE1LjYyLTEuNjQtLjM4OS0zLjgyOS0uOTEtMS4zMTItLjMyOWgtLjE4MnYuMTFsMS4wOTMgMS4wNjggMi4wMDYgMS44MSAyLjUwOSAyLjMzLjEyNy41NzgtLjMyMi40NTUtLjM0LS4wNDktMi4yMDUtMS42NTctLjg1MS0uNzQ3LTEuOTI2LTEuNjJoLS4xMjh2LjE3bC40NDQuNjQ5IDIuMzQ1IDMuNTIxLjEyMiAxLjA4LS4xNy4zNTMtLjYwOC4yMTMtLjY2OC0uMTIyLTEuMzc0LTEuOTI1LTEuNDE1LTIuMTY3LTEuMTQzLTEuOTQzLS4xNC4wOC0uNjc0IDcuMjU0LS4zMTYuMzctLjcyOS4yOC0uNjA3LS40NjEtLjMyMi0uNzQ3LjMyMi0xLjQ3Ni4zODktMS45MjQuMzE1LTEuNTMuMjg2LTEuOS4xNy0uNjMyLS4wMTItLjA0Mi0uMTQuMDE4LTEuNDM0IDEuOTY3LTIuMTggMi45NDUtMS43MjYgMS44NDUtLjQxNC4xNjQtLjcxNy0uMzcuMDY3LS42NjIuNDAxLS41ODkgMi4zODgtMy4wMzYgMS40NC0xLjg4Mi45My0xLjA4Ni0uMDA2LS4xNThoLS4wNTVMNC4xMzIgMTguNTZsLTEuMTMuMTQ2LS40ODctLjQ1Ni4wNjEtLjc0Ni4yMzEtLjI0MyAxLjkwOC0xLjMxMi0uMDA2LjAwNnoiIGZpbGw9IiNEOTc3NTciIGZpbGwtcnVsZT0ibm9uemVybyI+PC9wYXRoPjwvc3ZnPg==',
+        'claude-desktop': 'data:image/svg+xml;base64,PHN2ZyBoZWlnaHQ9IjFlbSIgc3R5bGU9ImZsZXg6bm9uZTtsaW5lLWhlaWdodDoxIiB2aWV3Qm94PSIwIDAgMjQgMjQiIHdpZHRoPSIxZW0iIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHRpdGxlPkNsYXVkZTwvdGl0bGU+PHBhdGggZD0iTTQuNzA5IDE1Ljk1NWw0LjcyLTIuNjQ3LjA4LS4yMy0uMDgtLjEyOEg5LjJsLS43OS0uMDQ4LTIuNjk4LS4wNzMtMi4zMzktLjA5Ny0yLjI2Ni0uMTIyLS41NzEtLjEyMUwwIDExLjc4NGwuMDU1LS4zNTIuNDgtLjMyMS42ODYuMDYgMS41Mi4xMDMgMi4yNzguMTU4IDEuNjUyLjA5NyAyLjQ0OS4yNTVoLjM4OWwuMDU1LS4xNTctLjEzNC0uMDk4LS4xMDMtLjA5Ny0yLjM1OC0xLjU5Ni0yLjU1Mi0xLjY4OC0xLjMzNi0uOTcyLS43MjQtLjQ5MS0uMzY0LS40NjItLjE1OC0xLjAwOC42NTYtLjcyMi44ODEuMDYuMjI1LjA2MS44OTMuNjg2IDEuOTA4IDEuNDc2IDIuNDkxIDEuODMzLjM2NS4zMDQuMTQ1LS4xMDMuMDE5LS4wNzMtLjE2NC0uMjc0LTEuMzU1LTIuNDQ2LTEuNDQ2LTIuNDktLjY0NC0xLjAzMi0uMTctLjYxOWEyLjk3IDIuOTcgMCAwMS0uMTA0LS43MjlMNi4yODMuMTM0IDYuNjk2IDBsLjk5Ni4xMzQuNDIuMzY0LjYyIDEuNDE0IDEuMDAyIDIuMjI5IDEuNTU1IDMuMDMuNDU2Ljg5OC4yNDMuODMyLjA5MS4yNTVoLjE1OFY5LjAxbC4xMjgtMS43MDYuMjM3LTIuMDk1LjIzLTIuNjk1LjA4LS43Ni4zNzYtLjkxLjc0Ny0uNDkyLjU4NC4yOC40OC42ODUtLjA2Ny40NDQtLjI4NiAxLjg1MS0uNTU5IDIuOTAzLS4zNjQgMS45NDJoLjIxMmwuMjQzLS4yNDIuOTg1LTEuMzA2IDEuNjUyLTIuMDY0LjczLS44Mi44NS0uOTA0LjU0Ny0uNDMxaDEuMDMzbC43NiAxLjEyOS0uMzQgMS4xNjYtMS4wNjQgMS4zNDctLjg4MSAxLjE0Mi0xLjI2NCAxLjctLjc5IDEuMzYuMDczLjExLjE4OC0uMDIgMi44NTYtLjYwNiAxLjU0My0uMjggMS44NDEtLjMxNS44MzMuMzg4LjA5MS4zOTUtLjMyOC44MDctMS45NjkuNDg2LTIuMzA5LjQ2Mi0zLjQzOS44MTMtLjA0Mi4wMy4wNDkuMDYxIDEuNTQ5LjE0Ni42NjIuMDM2aDEuNjIybDMuMDIuMjI1Ljc5LjUyMi40NzQuNjM4LS4wNzkuNDg1LTEuMjE1LjYyLTEuNjQtLjM4OS0zLjgyOS0uOTEtMS4zMTItLjMyOWgtLjE4MnYuMTFsMS4wOTMgMS4wNjggMi4wMDYgMS44MSAyLjUwOSAyLjMzLjEyNy41NzgtLjMyMi40NTUtLjM0LS4wNDktMi4yMDUtMS42NTctLjg1MS0uNzQ3LTEuOTI2LTEuNjJoLS4xMjh2LjE3bC40NDQuNjQ5IDIuMzQ1IDMuNTIxLjEyMiAxLjA4LS4xNy4zNTMtLjYwOC4yMTMtLjY2OC0uMTIyLTEuMzc0LTEuOTI1LTEuNDE1LTIuMTY3LTEuMTQzLTEuOTQzLS4xNC4wOC0uNjc0IDcuMjU0LS4zMTYuMzctLjcyOS4yOC0uNjA3LS40NjEtLjMyMi0uNzQ3LjMyMi0xLjQ3Ni4zODktMS45MjQuMzE1LTEuNTMuMjg2LTEuOS4xNy0uNjMyLS4wMTItLjA0Mi0uMTQuMDE4LTEuNDM0IDEuOTY3LTIuMTggMi45NDUtMS43MjYgMS44NDUtLjQxNC4xNjQtLjcxNy0uMzcuMDY3LS42NjIuNDAxLS41ODkgMi4zODgtMy4wMzYgMS40NC0xLjg4Mi45My0xLjA4Ni0uMDA2LS4xNThoLS4wNTVMNC4xMzIgMTguNTZsLTEuMTMuMTQ2LS40ODctLjQ1Ni4wNjEtLjc0Ni4yMzEtLjI0MyAxLjkwOC0xLjMxMi0uMDA2LjAwNnoiIGZpbGw9IiNEOTc3NTciIGZpbGwtcnVsZT0ibm9uemVybyI+PC9wYXRoPjwvc3ZnPg==',
+        'codex': 'data:image/svg+xml;base64,PHN2ZyBmaWxsPSJjdXJyZW50Q29sb3IiIGZpbGwtcnVsZT0iZXZlbm9kZCIgaGVpZ2h0PSIxZW0iIHN0eWxlPSJmbGV4Om5vbmU7bGluZS1oZWlnaHQ6MSIgdmlld0JveD0iMCAwIDI0IDI0IiB3aWR0aD0iMWVtIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjx0aXRsZT5PcGVuQUk8L3RpdGxlPjxwYXRoIGQ9Ik0yMS41NSAxMC4wMDRhNS40MTYgNS40MTYgMCAwMC0uNDc4LTQuNTAxYy0xLjIxNy0yLjA5LTMuNjYyLTMuMTY2LTYuMDUtMi42NkE1LjU5IDUuNTkgMCAwMDEwLjgzMSAxQzguMzkuOTk1IDYuMjI0IDIuNTQ2IDUuNDczIDQuODM4QTUuNTUzIDUuNTUzIDAgMDAxLjc2IDcuNDk2YTUuNDg3IDUuNDg3IDAgMDAuNjkxIDYuNSA1LjQxNiA1LjQxNiAwIDAwLjQ3NyA0LjUwMmMxLjIxNyAyLjA5IDMuNjYyIDMuMTY1IDYuMDUgMi42NkE1LjU4NiA1LjU4NiAwIDAwMTMuMTY4IDIzYzIuNDQzLjAwNiA0LjYxLTEuNTQ2IDUuMzYxLTMuODRhNS41NTMgNS41NTMgMCAwMDMuNzE1LTIuNjYgNS40ODggNS40ODggMCAwMC0uNjkzLTYuNDk3di4wMDF6bS04LjM4MSAxMS41NThhNC4xOTkgNC4xOTkgMCAwMS0yLjY3NS0uOTU0Yy4wMzQtLjAxOC4wOTMtLjA1LjEzMi0uMDc0bDQuNDQtMi41M2EuNzEuNzEgMCAwMC4zNjQtLjYyM3YtNi4xNzZsMS44NzcgMS4wNjljLjAyLjAxLjAzMy4wMjkuMDM2LjA1djUuMTE1Yy0uMDAzIDIuMjc0LTEuODcgNC4xMTgtNC4xNzQgNC4xMjN6TTQuMTkyIDE3Ljc4YTQuMDU5IDQuMDU5IDAgMDEtLjQ5OC0yLjc2M2MuMDMyLjAyLjA5LjA1NS4xMzEuMDc4bDQuNDQgMi41M2MuMjI1LjEzLjUwNC4xMy43MyAwbDUuNDItMy4wODh2Mi4xMzhhLjA2OC4wNjggMCAwMS0uMDI3LjA1N0w5LjkgMTkuMjg4Yy0xLjk5OSAxLjEzNi00LjU1Mi40Ni01LjcwNy0xLjUxaC0uMDAxek0zLjAyMyA4LjIxNkE0LjE1IDQuMTUgMCAwMTUuMTk4IDYuNDFsLS4wMDIuMTUxdjUuMDZhLjcxMS43MTEgMCAwMC4zNjQuNjI0bDUuNDIgMy4wODctMS44NzYgMS4wN2EuMDY3LjA2NyAwIDAxLS4wNjMuMDA1bC00LjQ4OS0yLjU1OWMtMS45OTUtMS4xNC0yLjY3OS0zLjY1OC0xLjUzLTUuNjNoLjAwMXptMTUuNDE3IDMuNTRsLTUuNDItMy4wODhMMTQuODk2IDcuNmEuMDY3LjA2NyAwIDAxLjA2My0uMDA2bDQuNDg5IDIuNTU3YzEuOTk4IDEuMTQgMi42ODMgMy42NjIgMS41MjkgNS42MzNhNC4xNjMgNC4xNjMgMCAwMS0yLjE3NCAxLjgwN1YxMi4zOGEuNzEuNzEgMCAwMC0uMzYzLS42MjN6bTEuODY3LTIuNzczYTYuMDQgNi4wNCAwIDAwLS4xMzItLjA3OGwtNC40NC0yLjUzYS43MzEuNzMxIDAgMDAtLjcyOSAwbC01LjQyIDMuMDg4VjcuMzI1YS4wNjguMDY4IDAgMDEuMDI3LS4wNTdMMTQuMSA0LjcxM2MyLTEuMTM3IDQuNTU1LS40NiA1LjcwNyAxLjUxMy40ODcuODMzLjY2NCAxLjgwOS40OTkgMi43NTdoLjAwMXptLTExLjc0MSAzLjgxbC0xLjg3Ny0xLjA2OGEuMDY1LjA2NSAwIDAxLS4wMzYtLjA1MVY2LjU1OWMuMDAxLTIuMjc3IDEuODczLTQuMTIyIDQuMTgxLTQuMTIuOTc2IDAgMS45Mi4zMzggMi42NzEuOTU0LS4wMzQuMDE4LS4wOTIuMDUtLjEzMS4wNzNsLTQuNDQgMi41M2EuNzEuNzEgMCAwMC0uMzY1LjYyM2wtLjAwMyA2LjE3M3YuMDAyem0xLjAyLTIuMTY4TDEyIDkuMjVsMi40MTQgMS4zNzV2Mi43NUwxMiAxNC43NWwtMi40MTUtMS4zNzV2LTIuNzV6Ij48L3BhdGg+PC9zdmc+',
+        'gemini': 'data:image/svg+xml;base64,PHN2ZyBoZWlnaHQ9IjFlbSIgc3R5bGU9ImZsZXg6bm9uZTtsaW5lLWhlaWdodDoxIiB2aWV3Qm94PSIwIDAgMjQgMjQiIHdpZHRoPSIxZW0iIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHRpdGxlPkdlbWluaTwvdGl0bGU+PHBhdGggZD0iTTIwLjYxNiAxMC44MzVhMTQuMTQ3IDE0LjE0NyAwIDAxLTQuNDUtMy4wMDEgMTQuMTExIDE0LjExMSAwIDAxLTMuNjc4LTYuNDUyLjUwMy41MDMgMCAwMC0uOTc1IDAgMTQuMTM0IDE0LjEzNCAwIDAxLTMuNjc5IDYuNDUyIDE0LjE1NSAxNC4xNTUgMCAwMS00LjQ1IDMuMDAxYy0uNjUuMjgtMS4zMTguNTA1LTIuMDAyLjY3OGEuNTAyLjUwMiAwIDAwMCAuOTc1Yy42ODQuMTcyIDEuMzUuMzk3IDIuMDAyLjY3N2ExNC4xNDcgMTQuMTQ3IDAgMDE0LjQ1IDMuMDAxIDE0LjExMiAxNC4xMTIgMCAwMTMuNjc5IDYuNDUzLjUwMi41MDIgMCAwMC45NzUgMGMuMTcyLS42ODUuMzk3LTEuMzUxLjY3Ny0yLjAwM2ExNC4xNDUgMTQuMTQ1IDAgMDEzLjAwMS00LjQ1IDE0LjExMyAxNC4xMTMgMCAwMTYuNDUzLTMuNjc4LjUwMy41MDMgMCAwMDAtLjk3NSAxMy4yNDUgMTMuMjQ1IDAgMDEtMi4wMDMtLjY3OHoiIGZpbGw9IiMzMTg2RkYiPjwvcGF0aD48cGF0aCBkPSJNMjAuNjE2IDEwLjgzNWExNC4xNDcgMTQuMTQ3IDAgMDEtNC40NS0zLjAwMSAxNC4xMTEgMTQuMTExIDAgMDEtMy42NzgtNi40NTIuNTAzLjUwMyAwIDAwLS45NzUgMCAxNC4xMzQgMTQuMTM0IDAgMDEtMy42NzkgNi40NTIgMTQuMTU1IDE0LjE1NSAwIDAxLTQuNDUgMy4wMDFjLS42NS4yOC0xLjMxOC41MDUtMi4wMDIuNjc4YS41MDIuNTAyIDAgMDAwIC45NzVjLjY4NC4xNzIgMS4zNS4zOTcgMi4wMDIuNjc3YTE0LjE0NyAxNC4xNDcgMCAwMTQuNDUgMy4wMDEgMTQuMTEyIDE0LjExMiAwIDAxMy42NzkgNi40NTMuNTAyLjUwMiAwIDAwLjk3NSAwYy4xNzItLjY4NS4zOTctMS4zNTEuNjc3LTIuMDAzYTE0LjE0NSAxNC4xNDUgMCAwMTMuMDAxLTQuNDUgMTQuMTEzIDE0LjExMyAwIDAxNi40NTMtMy42NzguNTAzLjUwMyAwIDAwMC0uOTc1IDEzLjI0NSAxMy4yNDUgMCAwMS0yLjAwMy0uNjc4eiIgZmlsbD0idXJsKCNsb2JlLWljb25zLWdlbWluaS1maWxsLTApIj48L3BhdGg+PHBhdGggZD0iTTIwLjYxNiAxMC44MzVhMTQuMTQ3IDE0LjE0NyAwIDAxLTQuNDUtMy4wMDEgMTQuMTExIDE0LjExMSAwIDAxLTMuNjc4LTYuNDUyLjUwMy41MDMgMCAwMC0uOTc1IDAgMTQuMTM0IDE0LjEzNCAwIDAxLTMuNjc5IDYuNDUyIDE0LjE1NSAxNC4xNTUgMCAwMS00LjQ1IDMuMDAxYy0uNjUuMjgtMS4zMTguNTA1LTIuMDAyLjY3OGEuNTAyLjUwMiAwIDAwMCAuOTc1Yy42ODQuMTcyIDEuMzUuMzk3IDIuMDAyLjY3N2ExNC4xNDcgMTQuMTQ3IDAgMDE0LjQ1IDMuMDAxIDE0LjExMiAxNC4xMTIgMCAwMTMuNjc5IDYuNDUzLjUwMi41MDIgMCAwMC45NzUgMGMuMTcyLS42ODUuMzk3LTEuMzUxLjY3Ny0yLjAwM2ExNC4xNDUgMTQuMTQ1IDAgMDEzLjAwMS00LjQ1IDE0LjExMyAxNC4xMTMgMCAwMTYuNDUzLTMuNjc4LjUwMy41MDMgMCAwMDAtLjk3NSAxMy4yNDUgMTMuMjQ1IDAgMDEtMi4wMDMtLjY3OHoiIGZpbGw9InVybCgjbG9iZS1pY29ucy1nZW1pbmktZmlsbC0xKSI+PC9wYXRoPjxwYXRoIGQ9Ik0yMC42MTYgMTAuODM1YTE0LjE0NyAxNC4xNDcgMCAwMS00LjQ1LTMuMDAxIDE0LjExMSAxNC4xMTEgMCAwMS0zLjY3OC02LjQ1Mi41MDMuNTAzIDAgMDAtLjk3NSAwIDE0LjEzNCAxNC4xMzQgMCAwMS0zLjY3OSA2LjQ1MiAxNC4xNTUgMTQuMTU1IDAgMDEtNC40NSAzLjAwMWMtLjY1LjI4LTEuMzE4LjUwNS0yLjAwMi42NzhhLjUwMi41MDIgMCAwMDAgLjk3NWMuNjg0LjE3MiAxLjM1LjM5NyAyLjAwMi42NzdhMTQuMTQ3IDE0LjE0NyAwIDAxNC40NSAzLjAwMSAxNC4xMTIgMTQuMTEyIDAgMDEzLjY3OSA2LjQ1My41MDIuNTAyIDAgMDAuOTc1IDBjLjE3Mi0uNjg1LjM5Ny0xLjM1MS42NzctMi4wMDNhMTQuMTQ1IDE0LjE0NSAwIDAxMy4wMDEtNC40NSAxNC4xMTMgMTQuMTEzIDAgMDE2LjQ1My0zLjY3OC41MDMuNTAzIDAgMDAwLS45NzUgMTMuMjQ1IDEzLjI0NSAwIDAxLTIuMDAzLS42Nzh6IiBmaWxsPSJ1cmwoI2xvYmUtaWNvbnMtZ2VtaW5pLWZpbGwtMikiPjwvcGF0aD48ZGVmcz48bGluZWFyR3JhZGllbnQgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiIGlkPSJsb2JlLWljb25zLWdlbWluaS1maWxsLTAiIHgxPSI3IiB4Mj0iMTEiIHkxPSIxNS41IiB5Mj0iMTIiPjxzdG9wIHN0b3AtY29sb3I9IiMwOEI5NjIiPjwvc3RvcD48c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiMwOEI5NjIiIHN0b3Atb3BhY2l0eT0iMCI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIiBpZD0ibG9iZS1pY29ucy1nZW1pbmktZmlsbC0xIiB4MT0iOCIgeDI9IjExLjUiIHkxPSI1LjUiIHkyPSIxMSI+PHN0b3Agc3RvcC1jb2xvcj0iI0Y5NDU0MyI+PC9zdG9wPjxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iI0Y5NDU0MyIgc3RvcC1vcGFjaXR5PSIwIj48L3N0b3A+PC9saW5lYXJHcmFkaWVudD48bGluZWFyR3JhZGllbnQgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiIGlkPSJsb2JlLWljb25zLWdlbWluaS1maWxsLTIiIHgxPSIzLjUiIHgyPSIxNy41IiB5MT0iMTMuNSIgeTI9IjEyIj48c3RvcCBzdG9wLWNvbG9yPSIjRkFCQzEyIj48L3N0b3A+PHN0b3Agb2Zmc2V0PSIuNDYiIHN0b3AtY29sb3I9IiNGQUJDMTIiIHN0b3Atb3BhY2l0eT0iMCI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjwvc3ZnPg==',
+        'grokbuild': 'data:image/svg+xml;base64,PHN2ZyBmaWxsPSJjdXJyZW50Q29sb3IiIGZpbGwtcnVsZT0iZXZlbm9kZCIgaGVpZ2h0PSIxZW0iIHN0eWxlPSJmbGV4Om5vbmU7bGluZS1oZWlnaHQ6MSIgdmlld0JveD0iMCAwIDI0IDI0IiB3aWR0aD0iMWVtIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjx0aXRsZT5Hcm9rPC90aXRsZT48cGF0aCBkPSJNOS4yNyAxNS4yOWw3Ljk3OC01Ljg5N2MuMzkxLS4yOS45NS0uMTc3IDEuMTM3LjI3Mi45OCAyLjM2OS41NDIgNS4yMTUtMS40MSA3LjE2OS0xLjk1MSAxLjk1NC00LjY2NyAyLjM4Mi03LjE0OSAxLjQwNmwtMi43MTEgMS4yNTdjMy44ODkgMi42NjEgOC42MTEgMi4wMDMgMTEuNTYyLS45NTMgMi4zNDEtMi4zNDQgMy4wNjYtNS41MzkgMi4zODgtOC40MmwuMDA2LjAwN2MtLjk4My00LjIzMi4yNDItNS45MjQgMi43NS05LjM4My4wNi0uMDgyLjEyLS4xNjQuMTc5LS4yNDhsLTMuMzAxIDMuMzA1di0uMDFMOS4yNjcgMTUuMjkyTTcuNjIzIDE2LjcyM2MtMi43OTItMi42Ny0yLjMxLTYuODAxLjA3MS05LjE4NCAxLjc2MS0xLjc2MyA0LjY0Ny0yLjQ4MyA3LjE2Ni0xLjQyNWwyLjcwNS0xLjI1YTcuODA4IDcuODA4IDAgMDAtMS44MjktMUE4Ljk3NSA4Ljk3NSAwIDAwNS45ODQgNS44M2MtMi41MzMgMi41MzYtMy4zMyA2LjQzNi0xLjk2MiA5Ljc2NCAxLjAyMiAyLjQ4Ny0uNjUzIDQuMjQ2LTIuMzQgNi4wMjItLjU5OS42My0xLjE5OSAxLjI1OS0xLjY4MiAxLjkyNWw3LjYyLTYuODE1Ij48L3BhdGg+PC9zdmc+',
+        'opencode': 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0nMjQwJyBoZWlnaHQ9JzMwMCcgdmlld0JveD0nMCAwIDI0MCAzMDAnIGZpbGw9J25vbmUnIHhtbG5zPSdodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2Zyc+PGcgY2xpcC1wYXRoPSd1cmwoI2NsaXAwXzE0MDFfODYyNzQpJz48bWFzayBpZD0nbWFzazBfMTQwMV84NjI3NCcgc3R5bGU9J21hc2stdHlwZTpsdW1pbmFuY2UnIG1hc2tVbml0cz0ndXNlclNwYWNlT25Vc2UnIHg9JzAnIHk9JzAnIHdpZHRoPScyNDAnIGhlaWdodD0nMzAwJz48cGF0aCBkPSdNMjQwIDBIMFYzMDBIMjQwVjBaJyBmaWxsPSd3aGl0ZScvPjwvbWFzaz48ZyBtYXNrPSd1cmwoI21hc2swXzE0MDFfODYyNzQpJz48cGF0aCBkPSdNMTgwIDI0MEg2MFYxMjBIMTgwVjI0MFonIGZpbGw9JyNDRkNFQ0QnLz48cGF0aCBkPSdNMTgwIDYwSDYwVjI0MEgxODBWNjBaTTI0MCAzMDBIMFYwSDI0MFYzMDBaJyBmaWxsPScjMjExRTFFJy8+PC9nPjwvZz48ZGVmcz48Y2xpcFBhdGggaWQ9J2NsaXAwXzE0MDFfODYyNzQnPjxyZWN0IHdpZHRoPScyNDAnIGhlaWdodD0nMzAwJyBmaWxsPSd3aGl0ZScvPjwvY2xpcFBhdGg+PC9kZWZzPjwvc3ZnPg==',
+        'openclaw': 'data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgMTIwIDEyMCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8ZGVmcz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0ibG9ic3Rlci1ncmFkaWVudCIgeDE9IjAlIiB5MT0iMCUiIHgyPSIxMDAlIiB5Mj0iMTAwJSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiNmZjRkNGQiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjOTkxYjFiIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogIDwvZGVmcz4KICA8IS0tIEJvZHkgLS0+CiAgPHBhdGggZD0iTTYwIDEwIEMzMCAxMCAxNSAzNSAxNSA1NSBDMTUgNzUgMzAgOTUgNDUgMTAwIEw0NSAxMTAgTDU1IDExMCBMNTUgMTAwIEM1NSAxMDAgNjAgMTAyIDY1IDEwMCBMNjUgMTEwIEw3NSAxMTAgTDc1IDEwMCBDOTAgOTUgMTA1IDc1IDEwNSA1NSBDMTA1IDM1IDkwIDEwIDYwIDEwWiIgZmlsbD0idXJsKCNsb2JzdGVyLWdyYWRpZW50KSIvPgogIDwhLS0gTGVmdCBDbGF3IC0tPgogIDxwYXRoIGQ9Ik0yMCA0NSBDNSA0MCAwIDUwIDUgNjAgQzEwIDcwIDIwIDY1IDI1IDU1IEMyOCA0OCAyNSA0NSAyMCA0NVoiIGZpbGw9InVybCgjbG9ic3Rlci1ncmFkaWVudCkiLz4KICA8IS0tIFJpZ2h0IENsYXcgLS0+CiAgPHBhdGggZD0iTTEwMCA0NSBDMTE1IDQwIDEyMCA1MCAxMTUgNjAgQzExMCA3MCAxMDAgNjUgOTUgNTUgQzkyIDQ4IDk1IDQ1IDEwMCA0NVoiIGZpbGw9InVybCgjbG9ic3Rlci1ncmFkaWVudCkiLz4KICA8IS0tIEFudGVubmEgLS0+CiAgPHBhdGggZD0iTTQ1IDE1IFEzNSA1IDMwIDgiIHN0cm9rZT0iI2ZmNGQ0ZCIgc3Ryb2tlLXdpZHRoPSIzIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8cGF0aCBkPSJNNzUgMTUgUTg1IDUgOTAgOCIgc3Ryb2tlPSIjZmY0ZDRkIiBzdHJva2Utd2lkdGg9IjMiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDwhLS0gRXllcyAtLT4KICA8Y2lyY2xlIGN4PSI0NSIgY3k9IjM1IiByPSI2IiBmaWxsPSIjMDUwODEwIi8+CiAgPGNpcmNsZSBjeD0iNzUiIGN5PSIzNSIgcj0iNiIgZmlsbD0iIzA1MDgxMCIvPgogIDxjaXJjbGUgY3g9IjQ2IiBjeT0iMzQiIHI9IjIuNSIgZmlsbD0iIzAwZTVjYyIvPgogIDxjaXJjbGUgY3g9Ijc2IiBjeT0iMzQiIHI9IjIuNSIgZmlsbD0iIzAwZTVjYyIvPgo8L3N2Zz4K',
+        'hermes': 'data:image/png;base64,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',
+    };
+
+const TOOL_MONO_ICONS = new Set(['codex', 'grokbuild']);
+    const TOOL_OC_ICONS = new Set(['opencode']);
+
 
     async function loadToolConfig(showToast) {
         const listEl = document.getElementById('tool-config-list');
@@ -4472,7 +4601,8 @@ if (page === 'settings' && lastUpdateInfo) {
                 cmd('get_tool_switches') || [],
                 cmd('list_pools') || []
             ]);
-            listEl.innerHTML = detections.map(d => {                const sw = (switches || []).find(s => s.app_id === d.app_id) || {};
+            listEl.innerHTML = detections.map(d => {
+                const sw = (switches || []).find(s => s.app_id === d.app_id) || {};
                 const isOn = !!sw.switch_enabled;
                 const installedBadge = d.installed
                     ? '<span class="tool-config-badge-installed">' + t('tool_config_installed') + '</span>'
@@ -4480,35 +4610,18 @@ if (page === 'settings' && lastUpdateInfo) {
                 const switchBadge = isOn
                     ? '<span class="tool-config-badge-on">' + t('tool_config_switch_on') + '</span>'
                     : '<span class="tool-config-badge-off">' + t('tool_config_switch_off') + '</span>';
-
-                let meta = '';
-                if (d.installed && d.config_paths && d.config_paths.length) {
-                    meta = '<div class="tool-config-meta">' + d.config_paths.join('<br>') + '</div>';
-                }
-                if (isOn) {
-                    meta += '<div class="tool-config-meta">' + t('tool_config_default_pool') + ': ' + esc(sw.pool_name || '-') + '</div>';
-                }
-
-                let actions = '';
-                if (!d.installed) {
-                    actions = '<a class="btn btn-ghost btn-sm" href="' + esc(d.download_url) + '" target="_blank" rel="noopener">' + t('tool_config_download') + '</a>';
-                } else if (isOn) {
-                    actions = '<button class="btn btn-ghost btn-sm" onclick="openToolPoolPicker(\'' + jsEsc(d.app_id) + '\')">' + t('tool_config_default_pool') + '</button>';
-                    actions += '<button class="btn btn-ghost btn-sm" onclick="confirmDisableTool(\'' + jsEsc(d.app_id) + '\', \'' + jsEsc(d.display_name) + '\')">' + t('tool_config_confirm_disable') + '</button>';
-                } else {
-                    actions = '<button class="btn btn-primary btn-sm" onclick="openToolPoolPicker(\'' + jsEsc(d.app_id) + '\')">' + t('tool_config_confirm_enable') + '</button>';
-                }
+                const iconUri = TOOL_ICONS[d.app_id] || TOOL_ICONS.claude;
+                const mono = TOOL_MONO_ICONS.has(d.app_id) ? ' tc-mono' : '';
+                const oc = TOOL_OC_ICONS.has(d.app_id) ? ' tc-oc' : '';
+                const off = d.installed ? '' : ' tc-off';
 
                 return `
-                    <div class="tool-config-card">
-                        <div style="flex:1;">
-                            <div style="display:flex;align-items:center;gap:8px;">
-                                <span class="tool-config-name">${esc(d.display_name)}</span>
-                                ${installedBadge} ${switchBadge}
-                            </div>
-                            ${meta}
-                        </div>
-                        <div class="tool-config-actions">${actions}</div>
+                    <div class="tool-config-tile${off}" role="button" tabindex="0"
+                         onclick="openToolPoolPicker('${jsEsc(d.app_id)}')"
+                         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openToolPoolPicker('${jsEsc(d.app_id)}')}">
+                        <div class="tool-config-icon${mono}${oc}"><img src="${iconUri}" alt="${esc(d.display_name)}"></div>
+                        <div class="tool-config-name">${esc(d.display_name)}</div>
+                        <div class="tool-config-badges">${installedBadge} ${switchBadge}</div>
                     </div>`;
             }).join('');
             if (showToast) toast(t('toast_tool_config_refreshed'), 'success');
@@ -4520,22 +4633,125 @@ if (page === 'settings' && lastUpdateInfo) {
 
     // Cache of pools for the pool picker.
     let toolPoolPickerTarget = null;
-    let toolPoolPickerCandidates = [];
+    let toolConfigTargetName = '';
 
     async function openToolPoolPicker(appId) {
         toolPoolPickerTarget = appId;
-        const pools = await (cmd('list_pools') || []);
-        toolPoolPickerCandidates = pools;
         const picker = document.getElementById('tool-pool-picker');
         const sel = document.getElementById('tool-pool-select');
-        const isEnable = !((await (cmd('get_tool_switches') || [])).find(s => s.app_id === appId) || {}).switch_enabled;
-        document.getElementById('tool-pool-picker-title').textContent = isEnable
-            ? t('tool_config_confirm_enable')
-            : t('tool_config_default_pool');
+        const [pools, switches, detections] = await Promise.all([
+            cmd('list_pools') || [],
+            cmd('get_tool_switches') || [],
+            cmd('detect_all_tools') || []
+        ]);
+        const det = (detections || []).find(x => x.app_id === appId) || {};
+        toolConfigTargetName = det.display_name || appId;
+        const sw = (switches || []).find(s => s.app_id === appId) || {};
+        const isOn = !!sw.switch_enabled;
+        const installed = !!det.installed;
+        const iconUri = TOOL_ICONS[appId] || TOOL_ICONS.claude;
+        const mono = TOOL_MONO_ICONS.has(appId) ? ' tc-mono' : '';
+        const oc = TOOL_OC_ICONS.has(appId) ? ' tc-oc' : '';
+
+        document.getElementById('tool-pool-modal-icon').className = 'tool-config-modal-icon' + mono + oc;
+        document.getElementById('tool-pool-modal-icon').innerHTML = '<img src="' + iconUri + '" alt="' + esc(toolConfigTargetName) + '">';
+        document.getElementById('tool-pool-modal-name').textContent = toolConfigTargetName;
+        document.getElementById('tool-pool-modal-badges').innerHTML =
+            (installed
+                ? '<span class="tool-config-badge-installed">' + t('tool_config_installed') + '</span>'
+                : '<span class="tool-config-badge-missing">' + t('tool_config_not_installed') + '</span>')
+            + (isOn
+                ? '<span class="tool-config-badge-on">' + t('tool_config_switch_on') + '</span>'
+                : '<span class="tool-config-badge-off">' + t('tool_config_switch_off') + '</span>');
+
+        const pathsWrap = document.getElementById('tool-pool-modal-paths');
+        if (installed && det.config_paths && det.config_paths.length) {
+            pathsWrap.style.display = '';
+            pathsWrap.innerHTML = '<div class="tool-config-paths-label">' + t('tool_config_paths_label') + '</div>'
+                + det.config_paths.map(p => '<div class="tool-config-meta" style="word-break:break-all;">' + esc(p) + '</div>').join('');
+        } else {
+            pathsWrap.style.display = 'none';
+        }
+
+        const uninstalledWrap = document.getElementById('tool-pool-modal-uninstalled');
+        const formWrap = document.getElementById('tool-pool-modal-form');
+        const disableBtn = document.getElementById('tool-pool-disable');
+        const saveBtn = document.getElementById('tool-pool-save');
+        if (!installed) {
+            uninstalledWrap.style.display = '';
+            uninstalledWrap.innerHTML = '<div class="tool-config-download-panel">'
+                + t('tool_config_not_installed_hint') + '<br>'
+                + '<a class="btn btn-primary btn-sm" style="margin-top:10px;" href="' + esc(det.download_url || '#') + '" target="_blank" rel="noopener">' + t('tool_config_download') + '</a>'
+                + '</div>';
+            formWrap.style.display = 'none';
+            disableBtn.style.display = 'none';
+            saveBtn.style.display = 'none';
+            document.getElementById('tool-pool-picker-title').textContent = toolConfigTargetName;
+            picker.classList.add('open');
+            return;
+        }
+
+        uninstalledWrap.style.display = 'none';
+        formWrap.style.display = '';
+        disableBtn.style.display = isOn ? '' : 'none';
+        saveBtn.style.display = '';
+        document.getElementById('tool-pool-picker-title').textContent = isOn
+            ? t('tool_config_default_pool')
+            : t('tool_config_confirm_enable');
+        document.getElementById('tool-pool-edit-mode').value = isOn ? 'update' : 'enable';
         sel.innerHTML = pools.map(p => '<option value="' + jsEsc(p.id) + '">' + esc(p.display_name) + ' (' + esc(p.name) + ')</option>').join('') || '<option value="">-</option>';
-        document.getElementById('tool-pool-save').textContent = isEnable ? t('modal_save') : t('tool_config_rewrite');
-        document.getElementById('tool-pool-edit-mode').value = isEnable ? 'enable' : 'update';
-        await loadToolApiKeys();
+        if (sw.pool_id) sel.value = sw.pool_id;
+        saveBtn.textContent = isOn ? t('tool_config_rewrite') : t('modal_save');
+
+        // Role mapping table (only Claude Code has role slots).
+        const roleMapWrap = document.getElementById('tool-role-map');
+        const roleRowsWrap = document.getElementById('tool-role-rows');
+        if (appId === 'claude') {
+            const roles = [
+                ['sonnet', t('tool_config_role_sonnet')],
+                ['opus', t('tool_config_role_opus')],
+                ['fable', t('tool_config_role_fable')],
+                ['haiku', t('tool_config_role_haiku')],
+                ['subagent', t('tool_config_role_subagent')]
+            ];
+            // Persisted mapping from a previous write (restored from snapshot).
+            const savedRoles = (sw && sw.model_roles) || [];
+            const poolOptions = pools.map(p => '<option value="' + jsEsc(p.id) + '">' + esc(p.display_name) + ' (' + esc(p.name) + ')</option>').join('');
+            roleRowsWrap.innerHTML = roles.map(([key, label]) => {
+                // Map saved role→pool by pool name so edits round-trip.
+                const savedPool = savedRoles.find(r => r[0] === key);
+                const savedPoolId = savedPool ? (pools.find(p => p.name === savedPool[1]) || {}).id || '' : '';
+                return '<div style="display:flex;align-items:center;gap:8px;">'
+                    + '<span style="width:84px;flex-shrink:0;font-size:13px;color:var(--text-secondary);">' + esc(label) + '</span>'
+                    + '<select class="form-input" data-role="' + jsEsc(key) + '" style="flex:1;">'
+                    + '<option value="">' + t('tool_config_roles_default') + '</option>'
+                    + poolOptions
+                    + '</select>'
+                    + '</div>';
+            }).join('');
+            // Pre-select persisted pool ids.
+            roleRowsWrap.querySelectorAll('select').forEach((selEl) => {
+                const savedPool = savedRoles.find(r => r[0] === selEl.dataset.role);
+                if (savedPool) {
+                    const pid = (pools.find(p => p.name === savedPool[1]) || {}).id;
+                    if (pid) selEl.value = pid;
+                }
+            });
+            roleMapWrap.style.display = '';
+        } else {
+            roleMapWrap.style.display = 'none';
+            roleRowsWrap.innerHTML = '';
+        }
+
+        const apiKeySel = document.getElementById('tool-api-key-select');
+        apiKeySel.innerHTML = '<option value="">' + t('tool_config_default_key') + '</option>';
+        try {
+            const keys = await (cmd('list_api_keys') || []);
+            apiKeySel.innerHTML = '<option value="">' + t('tool_config_default_key') + '</option>' +
+                keys.map(k => '<option value="' + jsEsc(k.id) + '">' + esc(k.name || k.id) + '</option>').join('');
+        } catch (e) { /* ignore */ }
+        if (sw.api_key_id) apiKeySel.value = sw.api_key_id;
+        document.getElementById('tool-provider-name').value = sw.provider_name || 'LLM-API-Proxy';
         picker.classList.add('open');
     }
 
@@ -4547,11 +4763,23 @@ if (page === 'settings' && lastUpdateInfo) {
         const providerName = document.getElementById('tool-provider-name').value.trim() || 'LLM-API-Proxy';
         const poolId = sel.value;
         if (!poolId) { toast(t('toast_select_pool'), 'error'); return; }
+        // Collect role→pool mapping for Claude Code (only non-default selections).
+        const modelRoles = [];
+        if (toolPoolPickerTarget === 'claude') {
+            const roleRows = document.querySelectorAll('#tool-role-rows select[data-role]');
+            const pools = await (cmd('list_pools') || []);
+            roleRows.forEach((rowEl) => {
+                const pid = rowEl.value;
+                if (!pid) return; // follows default pool
+                const pool = pools.find(p => p.id === pid);
+                if (pool) modelRoles.push([rowEl.dataset.role, pool.name]);
+            });
+        }
         try {
             if (mode === 'enable') {
-                await cmd('enable_tool_switch', { appId: toolPoolPickerTarget, poolId, apiKeyId, providerName });
+                await cmd('enable_tool_switch', { appId: toolPoolPickerTarget, poolId, apiKeyId, providerName, modelRoles: { roles: modelRoles } });
             } else {
-                await cmd('update_tool_config', { appId: toolPoolPickerTarget, poolId, apiKeyId, providerName });
+                await cmd('update_tool_config', { appId: toolPoolPickerTarget, poolId, apiKeyId, providerName, modelRoles: { roles: modelRoles } });
             }
             closeToolPoolPicker();
             toast(t('toast_tool_config_written'), 'success');
@@ -4561,25 +4789,14 @@ if (page === 'settings' && lastUpdateInfo) {
         }
     }
 
-    async function loadToolApiKeys() {
-        const apiKeySel = document.getElementById('tool-api-key-select');
-        if (!apiKeySel) return;
-        try {
-            const keys = await (cmd('list_api_keys') || []);
-            apiKeySel.innerHTML = '<option value="">' + t('tool_config_default_key') + '</option>' +
-                keys.map(k => '<option value="' + jsEsc(k.id) + '">' + esc(k.name || k.id) + '</option>').join('');
-        } catch (e) { /* ignore */ }
-    }
-
     function closeToolPoolPicker() {
         document.getElementById('tool-pool-picker').classList.remove('open');
     }
 
-    async function confirmDisableTool(appId, displayName) {
-        const ok = confirm(t('tool_config_disable_warning').replace('{tool}', displayName));
-        if (!ok) return;
+    async function confirmDisableToolFromModal() {
         try {
-            await cmd('disable_tool_switch', { appId });
+            await cmd('disable_tool_switch', { appId: toolPoolPickerTarget });
+            closeToolPoolPicker();
             toast(t('toast_tool_config_restored'), 'success');
             loadToolConfig();
         } catch (e) {
@@ -4892,6 +5109,10 @@ if (page === 'settings' && lastUpdateInfo) {
         });
 
         if (!name) { toast(t('toast_pool_name_required'), 'error'); return; }
+        if (!id && poolsCache.some(p => p.name === name)) {
+            toast(t('toast_pool_name_duplicate'), 'error');
+            return;
+        }
         if (!id && upstreams.length === 0) { toast(t('pool_validate_no_upstream'), 'error'); return; }
         if (thinking_level === 'custom') {
             try {
@@ -5252,14 +5473,16 @@ loadLogs(false);
     // Token Usage Overview (P2-6)
     // ================================================================
     async function clearTokenUsage() {
-        if (!confirm(t('logs_token_clear_confirm'))) return;
-        try {
-            await cmd('clear_all_token_usage');
-            toast(t('logs_token_cleared'), 'success');
-            loadTokenOverview();
-        } catch (e) {
-            toast(t('toast_save_fail') + e, 'error');
-        }
+        showAppConfirm(t('logs_token_clear_confirm'), async () => {
+            try {
+                await cmd('clear_all_token_usage');
+                toast(t('logs_token_cleared'), 'success');
+                loadTokenOverview();
+                refreshDashboard();
+            } catch (e) {
+                toast(t('toast_save_fail') + e, 'error');
+            }
+        }, { title: t('logs_token_clear'), danger: true });
     }
 
     async function loadTokenOverview() {

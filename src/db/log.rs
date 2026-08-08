@@ -14,6 +14,7 @@ impl Database {
     /// Insert a request log entry.
     /// Automatically triggers periodic cleanup every 100 inserts to prevent
     /// unbounded database growth.
+    #[allow(clippy::too_many_arguments)]
     pub fn insert_request_log(
         &self,
         id: &str,
@@ -42,9 +43,21 @@ impl Database {
             ],
         )?;
 
+        // Mirror into the standalone request_stats table (one row per request,
+        // never truncated by log cleanup) so dashboard counts stay accurate
+        // and "clear stats" can reset them.
+        if let Err(e) = self.get_conn()?.execute(
+            "INSERT INTO request_stats (id, request_id, pool_name, upstream_id, model,
+             status_code, response_time_ms, is_streaming, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, datetime('now', 'localtime'))",
+            params![id, request_id, pool_name, upstream_id, model, status_code, response_time_ms, is_streaming],
+        ) {
+            warn!("Failed to record request stat: {}", e);
+        }
+
         // Periodic cleanup: every 100 inserts, remove old logs
         let count = self.log_insert_counter.fetch_add(1, Ordering::Relaxed) + 1;
-        if count % 100 == 0 {
+        if count.is_multiple_of(100) {
             let retention = crate::config::LogRetentionSettings::load(self);
             if let Err(e) = self.cleanup_old_logs(retention.retention_days, retention.max_entries) {
                 warn!("Periodic log cleanup failed: {}", e);
@@ -444,16 +457,18 @@ impl Database {
         let active_upstream_count = self.count_active_upstreams()?;
         let pool_count = self.count_pools()?;
 
+        // Dashboard counts come from the standalone request_stats table so log
+        // cleanup / cap truncation never distorts them.
         let today_request_count: i64 = self.get_read_conn()?.query_row(
-            "SELECT COUNT(*) FROM request_logs WHERE date(created_at) = date('now', 'localtime')",
+            "SELECT COUNT(*) FROM request_stats WHERE date(created_at) = date('now', 'localtime')",
             [], |row| row.get(0),
         )?;
         let today_success_count: i64 = self.get_read_conn()?.query_row(
-            "SELECT COUNT(*) FROM request_logs WHERE date(created_at) = date('now', 'localtime') AND status_code >= 200 AND status_code < 300",
+            "SELECT COUNT(*) FROM request_stats WHERE date(created_at) = date('now', 'localtime') AND status_code >= 200 AND status_code < 300",
             [], |row| row.get(0),
         )?;
         let today_error_count: i64 = self.get_read_conn()?.query_row(
-            "SELECT COUNT(*) FROM request_logs WHERE date(created_at) = date('now', 'localtime') AND status_code >= 400",
+            "SELECT COUNT(*) FROM request_stats WHERE date(created_at) = date('now', 'localtime') AND status_code >= 400",
             [], |row| row.get(0),
         )?;
 
@@ -465,6 +480,12 @@ impl Database {
             today_success_count,
             today_error_count,
         })
+    }
+
+    /// Clear all request statistics (dashboard counters). Returns the number of deleted rows.
+    pub fn clear_request_stats(&self) -> Result<i64, AppError> {
+        let rows = self.get_conn()?.execute("DELETE FROM request_stats", [])?;
+        Ok(rows as i64)
     }
 
     /// Get aggregated request statistics grouped by upstream + model.
@@ -838,5 +859,93 @@ mod tests {
         assert_eq!(percentile(&values, 95), 50);
         // p=99: ceil(0.99 * 5) = ceil(4.95) = 5 → idx 4 → 50
         assert_eq!(percentile(&values, 99), 50);
+    }
+
+    fn test_db() -> Database {
+        let db = Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+        db
+    }
+
+    fn insert_sample_log(db: &Database, id: &str, status_code: i32) {
+        db.insert_request_log(
+            id,
+            &format!("req_{id}"),
+            Some("pool_a"),
+            Some("up_1"),
+            Some("m1"),
+            "[]",
+            "POST",
+            "/v1/chat/completions",
+            status_code,
+            10,
+            false,
+            1,
+            2,
+            3,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_insert_request_log_mirrors_request_stats() {
+        let db = test_db();
+        insert_sample_log(&db, "log_ok", 200);
+        insert_sample_log(&db, "log_err", 500);
+
+        let conn = db.get_read_conn().unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM request_stats", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 2, "each request log must be mirrored into request_stats");
+        let status: i32 = conn
+            .query_row(
+                "SELECT status_code FROM request_stats WHERE id = 'log_err'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(status, 500);
+    }
+
+    #[test]
+    fn test_get_stats_reads_request_stats_and_clear_resets_it() {
+        let db = test_db();
+        insert_sample_log(&db, "log_1", 200);
+        insert_sample_log(&db, "log_2", 200);
+        insert_sample_log(&db, "log_3", 500);
+        insert_sample_log(&db, "log_4", 404);
+
+        let stats = db.get_stats().unwrap();
+        assert_eq!(stats.today_request_count, 4);
+        assert_eq!(stats.today_success_count, 2);
+        assert_eq!(stats.today_error_count, 2);
+
+        // Clear request stats: dashboard counts reset to zero.
+        let deleted = db.clear_request_stats().unwrap();
+        assert_eq!(deleted, 4);
+        let stats = db.get_stats().unwrap();
+        assert_eq!(stats.today_request_count, 0);
+        assert_eq!(stats.today_success_count, 0);
+        assert_eq!(stats.today_error_count, 0);
+
+        // Request logs are preserved.
+        let filter = super::LogFilter {
+            limit: 50,
+            ..Default::default()
+        };
+        let logs = db.get_recent_logs(&filter).unwrap();
+        assert_eq!(logs.len(), 4);
+    }
+
+    #[test]
+    fn test_clear_logs_does_not_clear_request_stats() {
+        let db = test_db();
+        insert_sample_log(&db, "log_1", 200);
+        insert_sample_log(&db, "log_2", 503);
+
+        db.clear_logs().unwrap();
+        let stats = db.get_stats().unwrap();
+        assert_eq!(stats.today_request_count, 2, "log cleanup must not touch request_stats");
     }
 }

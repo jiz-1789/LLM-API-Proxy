@@ -154,13 +154,20 @@ pub fn get_upstream_model_detail(
     Ok(ModelDetailResponse { today, total, daily, hourly })
 }
 
-/// Clear all token usage statistics (manual cleanup, does NOT touch request logs).
+/// Clear all usage statistics (token usage + dashboard request counters).
+/// Does NOT touch request logs, so the log history is preserved.
 #[tauri::command]
 pub fn clear_all_token_usage(state: State<'_, AppState>) -> Result<i64, String> {
-    state
+    let mut cleared = 0;
+    cleared += state
         .db
         .clear_token_usage()
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    cleared += state
+        .db
+        .clear_request_stats()
+        .map_err(|e| e.to_string())?;
+    Ok(cleared)
 }
 
 /// Get aggregate statistics for the dashboard.

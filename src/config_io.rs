@@ -736,7 +736,7 @@ mod tests {
         let crypto = KeyManager::initialize(temp_dir.path()).unwrap();
 
         let export = export_config(&db, &crypto).unwrap();
-        assert_eq!(export.schema_version, 15);
+        assert_eq!(export.schema_version, 16);
         assert!(export.settings.contains_key("test_key"));
         assert!(export.upstreams.is_empty());
         assert!(export.pools.is_empty());

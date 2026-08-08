@@ -380,6 +380,45 @@ impl Database {
             info!("Database migrated to version 15");
         }
 
+        // v16 migration: standalone request_stats table (one row per request,
+        // decoupled from request_logs). Dashboard today counts read from here so
+        // log cleanup / cap truncation never distorts them, and "clear stats"
+        // can reset them independently of the log history.
+        if current < 16 {
+            let conn = self.get_conn()?;
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS request_stats (
+                    id TEXT PRIMARY KEY,
+                    request_id TEXT NOT NULL,
+                    pool_name TEXT,
+                    upstream_id TEXT,
+                    model TEXT,
+                    status_code INTEGER NOT NULL DEFAULT 0,
+                    response_time_ms INTEGER NOT NULL DEFAULT 0,
+                    is_streaming INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+                );
+                CREATE INDEX IF NOT EXISTS idx_request_stats_created_at ON request_stats(created_at);
+                CREATE INDEX IF NOT EXISTS idx_request_stats_status_code ON request_stats(status_code);",
+            )?;
+            // Backfill historical counts from existing logs so today's numbers
+            // survive the upgrade.
+            conn.execute(
+                "INSERT INTO request_stats (id, request_id, pool_name, upstream_id, model,
+                    status_code, response_time_ms, is_streaming, created_at)
+                 SELECT id, request_id, pool_name, upstream_id, model,
+                        status_code, response_time_ms, is_streaming, created_at
+                 FROM request_logs
+                 WHERE id NOT IN (SELECT id FROM request_stats)",
+                [],
+            )?;
+            conn.execute(
+                "UPDATE schema_version SET version = ?1",
+                params![16],
+            )?;
+            info!("Database migrated to version 16");
+        }
+
         Ok(())
     }
 
@@ -422,7 +461,7 @@ impl Database {
         column: &str,
     ) -> Result<bool, AppError> {
         let mut stmt = conn.prepare(&format!("PRAGMA table_info({})", table))?;
-        let rows = stmt.query_map([], |row| Ok(row.get::<_, String>(1)?))?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
         for name in rows {
             if name? == column {
                 return Ok(true);
@@ -484,7 +523,52 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         db.initialize().unwrap();
         let version = db.get_schema_version().unwrap();
-        assert_eq!(version, 15);
+        assert_eq!(version, 16);
+    }
+
+    #[test]
+    fn test_request_stats_table_created_and_backfilled() {
+        // Simulate a v15 database: base schema without the request_stats table,
+        // with existing logs, then upgrade through v16.
+        let db = Database::open_in_memory().unwrap();
+        db.create_schema().unwrap();
+        {
+            let conn = db.get_conn().unwrap();
+            // Add the v2/v3 columns that a real v15 database would have.
+            conn.execute_batch(
+                "ALTER TABLE request_logs ADD COLUMN model TEXT;
+                 ALTER TABLE request_logs ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0;
+                 ALTER TABLE request_logs ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0;
+                 ALTER TABLE request_logs ADD COLUMN total_tokens INTEGER NOT NULL DEFAULT 0;
+                 INSERT INTO schema_version (version) VALUES (15);",
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO request_logs (id, request_id, pool_name, upstream_id, model,
+                    failed_upstreams, method, endpoint, status_code, response_time_ms,
+                    is_streaming, prompt_tokens, completion_tokens, total_tokens, created_at)
+                 VALUES ('log_1', 'req_1', 'pool_a', 'up_1', 'm1', '[]', 'POST',
+                    '/v1/chat/completions', 200, 10, 0, 1, 2, 3, datetime('now', 'localtime'))",
+                [],
+            )
+            .unwrap();
+        } // release the connection lock before running migrations
+
+        db.run_migrations().unwrap();
+
+        let version = db.get_schema_version().unwrap();
+        assert_eq!(version, 16);
+        let conn = db.get_conn().unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM request_stats", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1, "backfill should copy existing logs into request_stats");
+        let status: i32 = conn
+            .query_row("SELECT status_code FROM request_stats WHERE id = 'log_1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(status, 200);
+        assert!(index_exists(&conn, "request_stats", "idx_request_stats_created_at"));
+        assert!(index_exists(&conn, "request_stats", "idx_request_stats_status_code"));
     }
 
     #[test]
