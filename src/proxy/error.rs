@@ -62,6 +62,18 @@ pub enum UpstreamError {
         body: Option<Value>,
     },
 
+    /// 上游限流（HTTP 429）。
+    ///
+    /// 与其他 4xx 不同，限流是**上游自身状态**而非请求本身的问题：
+    /// A 上游限流时 B 上游可能仍可用，因此应触发故障转移。全部上游
+    /// 都失败时仍作为 4xx 原样透传给客户端（保留退避语义）。
+    RateLimited {
+        status: u16,
+        detail: String,
+        /// 上游原始响应体（用于 4xx 原样透传给客户端）
+        body: Option<Value>,
+    },
+
     /// 上游服务端错误（500 / 502 / 503 等）
     ServerError {
         status: u16,
@@ -97,6 +109,8 @@ impl UpstreamError {
             // 4xx 客户端错误：请求本身的问题，不故障转移
             UpstreamError::ClientError { .. } => false,
             UpstreamError::ResponseFormatError { .. } => false,
+            // 429 限流是上游自身状态，A 限流时 B 可能可用 → 触发故障转移
+            UpstreamError::RateLimited { .. } => true,
             // 其余全部故障转移
             UpstreamError::ConnectionFailed { .. } => true,
             UpstreamError::Timeout { .. } => true,
@@ -115,7 +129,9 @@ impl UpstreamError {
     pub fn is_client_error(&self) -> bool {
         matches!(
             self,
-            UpstreamError::AuthFailed { .. } | UpstreamError::ClientError { .. }
+            UpstreamError::AuthFailed { .. }
+                | UpstreamError::ClientError { .. }
+                | UpstreamError::RateLimited { .. }
         )
     }
 
@@ -126,7 +142,8 @@ impl UpstreamError {
     pub fn passthrough_response(&self) -> Option<(u16, &Value)> {
         match self {
             UpstreamError::AuthFailed { status, body, .. }
-            | UpstreamError::ClientError { status, body, .. } => {
+            | UpstreamError::ClientError { status, body, .. }
+            | UpstreamError::RateLimited { status, body, .. } => {
                 body.as_ref().map(|b| (*status, b))
             }
             _ => None,
@@ -147,6 +164,9 @@ impl UpstreamError {
             }
             UpstreamError::ClientError { status, detail, .. } => {
                 format!("client error ({}): {}", status, detail)
+            }
+            UpstreamError::RateLimited { status, detail, .. } => {
+                format!("rate limited ({}): {}", status, detail)
             }
             UpstreamError::ServerError { status, detail } => {
                 format!("server error ({}): {}", status, detail)
@@ -193,6 +213,11 @@ impl UpstreamError {
 
         match status {
             401 | 403 => UpstreamError::AuthFailed {
+                status,
+                detail,
+                body: raw_body,
+            },
+            429 => UpstreamError::RateLimited {
                 status,
                 detail,
                 body: raw_body,
@@ -369,6 +394,18 @@ mod tests {
         let (status, body) = err.passthrough_response().expect("4xx should be passthrough");
         assert_eq!(status, 429);
         assert_eq!(body, &raw);
+    }
+
+    #[test]
+    fn test_429_classified_as_rate_limited_and_failovers() {
+        let err = UpstreamError::from_http_status(429, "rate limited");
+        // 429 is an upstream-side state, not a request problem: it must
+        // trigger failover (a different upstream may not be rate-limited).
+        assert!(err.should_failover());
+        // But it still counts as a 4xx client error so the real 429 is passed
+        // through when every upstream is exhausted.
+        assert!(err.is_client_error());
+        assert!(matches!(err, UpstreamError::RateLimited { status: 429, .. }));
     }
 
     #[test]

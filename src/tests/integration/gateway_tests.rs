@@ -330,6 +330,53 @@ async fn test_4xx_does_not_trigger_failover() {
     assert_eq!(resp.status(), 502);
 }
 
+#[tokio::test]
+async fn test_429_triggers_failover_and_passes_through_when_all_limited() {
+    let bad_server = MockServer::start().await;
+    let good_server = MockServer::start().await;
+
+    // First upstream returns 429 (rate limit) — this is upstream state, so
+    // the request must fail over to the next upstream.
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(429).set_body_json(serde_json::json!({
+            "error": {"message": "rate limited", "type": "rate_limit_error"}
+        })))
+        .mount(&bad_server)
+        .await;
+
+    // Second upstream succeeds.
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "model": "test-model",
+            "choices": [{"message": {"content": "ok from good upstream"}}]
+        })))
+        .mount(&good_server)
+        .await;
+
+    let env = TestEnv::new().await;
+    let bad_id = env.create_upstream("Bad", &bad_server.uri());
+    let good_id = env.create_upstream("Good", &good_server.uri());
+    env.create_pool("ratelimit-failover-model", "RL Pool", &[bad_id, good_id]);
+
+    let resp = env.send_chat_request("ratelimit-failover-model", false).await;
+
+    // Failover happened: the good upstream served the request.
+    assert_eq!(resp.status(), 200);
+
+    // ── All upstreams rate-limited → real 429 passed through ─────────
+    let env2 = TestEnv::new().await;
+    let bad1 = env2.create_upstream("Bad1", &bad_server.uri());
+    let bad2 = env2.create_upstream("Bad2", &bad_server.uri());
+    env2.create_pool("all-limited-model", "All Limited", &[bad1, bad2]);
+
+    let resp2 = env2.send_chat_request("all-limited-model", false).await;
+    assert_eq!(resp2.status(), 429);
+    let body = read_json(resp2).await;
+    assert!(body["error"]["message"].as_str().unwrap_or_default().contains("rate limited"));
+}
+
 // ── Request logging test ─────────────────────────────────────
 
 #[tokio::test]
