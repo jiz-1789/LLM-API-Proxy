@@ -59,7 +59,10 @@ impl AuthResult {
 /// Validate the Gateway API Key from request headers.
 ///
 /// Authentication flow (P2-8 multi-key support):
-/// 1. Extract Bearer token from `Authorization` header
+/// 1. Extract the provided key from one of:
+///    - `Authorization: Bearer <key>` (OpenAI style)
+///    - `x-api-key: <key>` (Anthropic style)
+///    - `x-goog-api-key: <key>` (Gemini style)
 /// 2. Look up the key in the `api_keys` table
 /// 3. If found: check enabled status, check expiration, return AuthResult with pool access
 /// 4. If not found in `api_keys`: fall back to legacy `gateway_api_key` setting (all pools)
@@ -76,16 +79,10 @@ pub fn validate_api_key(
     headers: &HeaderMap,
     db: &Arc<Database>,
 ) -> Result<AuthResult, serde_json::Value> {
-    let auth_header = headers
-        .get("Authorization")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-
-    if !auth_header.starts_with("Bearer ") {
+    let provided_key = extract_api_key(headers);
+    let Some(provided_key) = provided_key else {
         return Err(json!({ "error": "missing or invalid authorization header" }));
-    }
-
-    let provided_key = &auth_header[7..];
+    };
 
     // ── Multi-key lookup (P2-8) ──────────────────────────────────────
     // First, check the api_keys table for fine-grained access control.
@@ -99,10 +96,10 @@ pub fn validate_api_key(
         }
 
         // Check if key has expired
-        if let Some(ref expires_at) = api_key.expires_at {
-            if is_expired(expires_at) {
-                return Err(json!({ "error": "API key has expired" }));
-            }
+        if let Some(ref expires_at) = api_key.expires_at
+            && is_expired(expires_at)
+        {
+            return Err(json!({ "error": "API key has expired" }));
         }
 
         // Parse allowed pools from JSON
@@ -138,8 +135,51 @@ pub fn validate_api_key(
             allowed_pools: Vec::new(),
         })
     } else {
-        Err(json!({ "error": "invalid API key" }))
+        // ── Tool gateway token ────────────────────────────────────────
+        // Tool configs write a dedicated token (generated on first tool
+        // enable) instead of the primary gateway key, so the primary key is
+        // never embedded in a tool's config file. Accept it here.
+        let tool_token = db
+            .get_setting(crate::tool_config::gateway::TOOL_TOKEN_SETTING_KEY)
+            .map_err(|e| json!({ "error": format!("failed to load tool token: {}", e) }))?
+            .unwrap_or_default();
+        if !tool_token.is_empty()
+            && constant_time_eq(provided_key.as_bytes(), tool_token.as_bytes())
+        {
+            Ok(AuthResult {
+                key: provided_key.to_string(),
+                all_pools_allowed: true,
+                allowed_pools: Vec::new(),
+            })
+        } else {
+            Err(json!({ "error": "invalid API key" }))
+        }
     }
+}
+
+/// Extract the provided API key from request headers.
+///
+/// Supports three authentication conventions so native clients can talk to
+/// the proxy directly:
+/// - `Authorization: Bearer <key>` (OpenAI Chat / Responses)
+/// - `x-api-key: <key>` (Anthropic Messages)
+/// - `x-goog-api-key: <key>` (Gemini Native)
+fn extract_api_key(headers: &HeaderMap) -> Option<&str> {
+    // 1. Authorization: Bearer
+    if let Some(auth) = headers.get("Authorization").and_then(|v| v.to_str().ok())
+        && let Some(key) = auth.strip_prefix("Bearer ")
+    {
+        return Some(key.trim());
+    }
+    // 2. x-api-key (Anthropic)
+    if let Some(key) = headers.get("x-api-key").and_then(|v| v.to_str().ok()) {
+        return Some(key.trim());
+    }
+    // 3. x-goog-api-key (Gemini)
+    if let Some(key) = headers.get("x-goog-api-key").and_then(|v| v.to_str().ok()) {
+        return Some(key.trim());
+    }
+    None
 }
 
 /// Check if an expiration timestamp has passed.
@@ -291,6 +331,35 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_api_key_tool_token_success() {
+        let db = Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+        let token = crate::tool_config::gateway::get_or_create_tool_token(&db).unwrap();
+        let db = Arc::new(db);
+
+        let mut headers = HeaderMap::new();
+        headers.insert("Authorization", format!("Bearer {token}").parse().unwrap());
+        let result = validate_api_key(&headers, &db);
+        assert!(result.is_ok());
+        assert!(result.unwrap().all_pools_allowed);
+    }
+
+    #[test]
+    fn test_validate_api_key_tool_token_wrong() {
+        let db = Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+        // A random non-matching token must be rejected even if the tool token
+        // setting exists.
+        db.save_setting(crate::tool_config::gateway::TOOL_TOKEN_SETTING_KEY, "llm-proxy-abc").unwrap();
+        let db = Arc::new(db);
+
+        let mut headers = HeaderMap::new();
+        headers.insert("Authorization", "Bearer llm-proxy-xyz".parse().unwrap());
+        let result = validate_api_key(&headers, &db);
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_validate_api_key_legacy_key_invalid() {
         let db = Database::open_in_memory().unwrap();
         db.initialize().unwrap();
@@ -301,6 +370,40 @@ mod tests {
         headers.insert("Authorization", "Bearer sk-wrong".parse().unwrap());
         let result = validate_api_key(&headers, &db);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_api_key_x_api_key_header() {
+        let db = Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+        db.save_setting("gateway_api_key", "sk-native-test").unwrap();
+        let db = Arc::new(db);
+
+        let mut headers = HeaderMap::new();
+        headers.insert("x-api-key", "sk-native-test".parse().unwrap());
+        let result = validate_api_key(&headers, &db);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_api_key_x_goog_api_key_header() {
+        let db = Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+        db.save_setting("gateway_api_key", "sk-gemini-test").unwrap();
+        let db = Arc::new(db);
+
+        let mut headers = HeaderMap::new();
+        headers.insert("x-goog-api-key", "sk-gemini-test".parse().unwrap());
+        let result = validate_api_key(&headers, &db);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_extract_api_key_prefers_bearer() {
+        let mut headers = HeaderMap::new();
+        headers.insert("Authorization", "Bearer sk-bearer".parse().unwrap());
+        headers.insert("x-api-key", "sk-xapi".parse().unwrap());
+        assert_eq!(extract_api_key(&headers), Some("sk-bearer"));
     }
 
     #[test]

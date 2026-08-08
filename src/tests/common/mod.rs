@@ -80,6 +80,8 @@ impl TestEnv {
                 r#"["test-model"]"#,
                 true,
                 "",
+                "",
+                "openai_chat",
             )
             .unwrap();
         id
@@ -99,6 +101,8 @@ impl TestEnv {
                 r#"["test-model"]"#,
                 false,
                 "",
+                "",
+                "openai_chat",
             )
             .unwrap();
         id
@@ -108,21 +112,7 @@ impl TestEnv {
     pub fn create_pool(&self, name: &str, display_name: &str, upstream_ids: &[String]) {
         let pool_id = format!("pool_test_{}", uuid::Uuid::new_v4().simple());
         self.db
-            .create_pool(&pool_id, name, display_name, 5, false)
-            .unwrap();
-
-        for (i, uid) in upstream_ids.iter().enumerate() {
-            self.db
-                .add_upstream_to_pool(&pool_id, uid, i as i32, "")
-                .unwrap();
-        }
-    }
-
-    /// Create a pool with failover disabled.
-    pub fn create_pool_no_failover(&self, name: &str, display_name: &str, upstream_ids: &[String]) {
-        let pool_id = format!("pool_test_{}", uuid::Uuid::new_v4().simple());
-        self.db
-            .create_pool(&pool_id, name, display_name, 5, false)
+            .create_pool(&pool_id, name, display_name, 5, false, "off", "", "")
             .unwrap();
 
         for (i, uid) in upstream_ids.iter().enumerate() {
@@ -192,6 +182,88 @@ impl TestEnv {
             .method("POST")
             .uri("/v1/chat/completions")
             .header("Authorization", format!("Bearer {}", TEST_API_KEY))
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+            .unwrap();
+
+        self.router.clone().oneshot(request).await.unwrap()
+    }
+
+    /// Send an OpenAI Responses API request to `/v1/responses`.
+    pub async fn send_responses_request(&self, model: &str) -> axum::response::Response {
+        use tower::ServiceExt;
+        let body = serde_json::json!({
+            "model": model,
+            "input": "hello from responses",
+            "instructions": "Be brief"
+        });
+
+        let request = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/responses")
+            .header("Authorization", format!("Bearer {}", TEST_API_KEY))
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+            .unwrap();
+
+        self.router.clone().oneshot(request).await.unwrap()
+    }
+
+    /// Send an Anthropic Messages API request to `/v1/messages`.
+    pub async fn send_anthropic_request(&self, model: &str) -> axum::response::Response {
+        use tower::ServiceExt;
+        let body = serde_json::json!({
+            "model": model,
+            "max_tokens": 100,
+            "system": "Be brief",
+            "messages": [{"role": "user", "content": "hello from anthropic"}]
+        });
+
+        let request = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/messages")
+            .header("x-api-key", TEST_API_KEY)
+            .header("anthropic-version", "2023-06-01")
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+            .unwrap();
+
+        self.router.clone().oneshot(request).await.unwrap()
+    }
+
+    /// Send a Gemini Native API request to `/v1beta/models/{model}:generateContent`.
+    pub async fn send_gemini_request(&self, model: &str) -> axum::response::Response {
+        use tower::ServiceExt;
+        let body = serde_json::json!({
+            "contents": [{"role": "user", "parts": [{"text": "hello from gemini"}]}],
+            "generationConfig": {"temperature": 0.5}
+        });
+
+        let request = axum::http::Request::builder()
+            .method("POST")
+            .uri(format!("/v1beta/models/{}:generateContent", model))
+            .header("x-goog-api-key", TEST_API_KEY)
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+            .unwrap();
+
+        self.router.clone().oneshot(request).await.unwrap()
+    }
+
+    /// Send a streaming Anthropic Messages API request to `/v1/messages`.
+    pub async fn send_anthropic_stream_request(&self, model: &str) -> axum::response::Response {
+        use tower::ServiceExt;
+        let body = serde_json::json!({
+            "model": model,
+            "max_tokens": 100,
+            "stream": true,
+            "messages": [{"role": "user", "content": "hello"}]
+        });
+
+        let request = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/messages")
+            .header("x-api-key", TEST_API_KEY)
             .header("Content-Type", "application/json")
             .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
             .unwrap();

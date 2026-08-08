@@ -39,6 +39,8 @@ impl Database {
                 timeout_seconds INTEGER NOT NULL DEFAULT 30,
                 max_concurrency INTEGER NOT NULL DEFAULT 5,
                 thinking_enabled INTEGER NOT NULL DEFAULT 0,
+                thinking_level TEXT NOT NULL DEFAULT 'off',
+                thinking_custom_params TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
             );
@@ -48,6 +50,7 @@ impl Database {
                 upstream_id TEXT NOT NULL REFERENCES upstreams(id) ON DELETE CASCADE,
                 sort_order INTEGER NOT NULL DEFAULT 0,
                 model TEXT NOT NULL DEFAULT '',
+                thinking_level_override TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (pool_id, upstream_id)
             );
 
@@ -242,6 +245,180 @@ impl Database {
             info!("Database migrated to version 10");
         }
 
+        // v11 migration: create tool_configs table for tool config switch system (idempotent)
+        if current < 11 {
+            self.get_conn()?.execute_batch(
+                "CREATE TABLE IF NOT EXISTS tool_configs (
+                    id TEXT PRIMARY KEY,
+                    tool_app_id TEXT NOT NULL UNIQUE,
+                    pool_id TEXT,
+                    api_key_id TEXT,
+                    provider_name TEXT NOT NULL DEFAULT '',
+                    switch_enabled INTEGER NOT NULL DEFAULT 0,
+                    original_config TEXT NOT NULL DEFAULT '',
+                    config_snapshot TEXT NOT NULL DEFAULT '{}',
+                    last_written_at TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+                );",
+            )?;
+            self.get_conn()?.execute(
+                "UPDATE schema_version SET version = ?1",
+                params![11],
+            )?;
+            info!("Database migrated to version 11");
+        }
+
+        // v12 migration: upstream api_format column (idempotent)
+        if current < 12 {
+            let conn = self.get_conn()?;
+            if !Self::column_exists_on_conn(&conn, "upstreams", "api_format")? {
+                conn.execute(
+                    "ALTER TABLE upstreams ADD COLUMN api_format TEXT NOT NULL DEFAULT 'openai_chat'",
+                    [],
+                )?;
+            }
+            conn.execute(
+                "UPDATE schema_version SET version = ?1",
+                params![12],
+            )?;
+            info!("Database migrated to version 12");
+        }
+
+        // v13 migration: multi-level thinking intensity (idempotent)
+        // Adds pools.thinking_level, pools.thinking_custom_params,
+        // pool_upstreams.thinking_level_override. Old thinking_enabled
+        // column is kept for backward compatibility.
+        if current < 13 {
+            let conn = self.get_conn()?;
+            if !Self::column_exists_on_conn(&conn, "pools", "thinking_level")? {
+                conn.execute(
+                    "ALTER TABLE pools ADD COLUMN thinking_level TEXT NOT NULL DEFAULT 'off'",
+                    [],
+                )?;
+            }
+            if !Self::column_exists_on_conn(&conn, "pools", "thinking_custom_params")? {
+                conn.execute(
+                    "ALTER TABLE pools ADD COLUMN thinking_custom_params TEXT NOT NULL DEFAULT ''",
+                    [],
+                )?;
+            }
+            if !Self::column_exists_on_conn(&conn, "pool_upstreams", "thinking_level_override")? {
+                conn.execute(
+                    "ALTER TABLE pool_upstreams ADD COLUMN thinking_level_override TEXT NOT NULL DEFAULT ''",
+                    [],
+                )?;
+            }
+            // Data backfill: legacy thinking_enabled=true → thinking_level='high'
+            conn.execute(
+                "UPDATE pools SET thinking_level = 'high' WHERE thinking_enabled = 1 AND thinking_level = 'off'",
+                [],
+            )?;
+            conn.execute(
+                "UPDATE schema_version SET version = ?1",
+                params![13],
+            )?;
+            info!("Database migrated to version 13");
+        }
+
+        // v14 migration: model capabilities columns (idempotent)
+        // upstreams.capabilities, pools.capabilities, pool_upstreams.capabilities
+        // store JSON-serialized ModelCapabilities; empty means unknown.
+        if current < 14 {
+            let conn = self.get_conn()?;
+            if !Self::column_exists_on_conn(&conn, "upstreams", "capabilities")? {
+                conn.execute(
+                    "ALTER TABLE upstreams ADD COLUMN capabilities TEXT NOT NULL DEFAULT ''",
+                    [],
+                )?;
+            }
+            if !Self::column_exists_on_conn(&conn, "pools", "capabilities")? {
+                conn.execute(
+                    "ALTER TABLE pools ADD COLUMN capabilities TEXT NOT NULL DEFAULT ''",
+                    [],
+                )?;
+            }
+            if !Self::column_exists_on_conn(&conn, "pool_upstreams", "capabilities")? {
+                conn.execute(
+                    "ALTER TABLE pool_upstreams ADD COLUMN capabilities TEXT NOT NULL DEFAULT ''",
+                    [],
+                )?;
+            }
+            conn.execute(
+                "UPDATE schema_version SET version = ?1",
+                params![14],
+            )?;
+            info!("Database migrated to version 14");
+        }
+
+        // v15 migration: standalone token usage table (decoupled from request_logs).
+        // Token statistics are recorded per-request here so that log cleanup
+        // (which truncates request_logs) never distorts dashboard / 30-day /
+        // hourly token statistics. Stats can be manually cleared.
+        if current < 15 {
+            self.get_conn()?.execute_batch(
+                "CREATE TABLE IF NOT EXISTS token_usage (
+                    id TEXT PRIMARY KEY,
+                    request_id TEXT NOT NULL,
+                    pool_name TEXT,
+                    upstream_id TEXT,
+                    model TEXT,
+                    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                    completion_tokens INTEGER NOT NULL DEFAULT 0,
+                    total_tokens INTEGER NOT NULL DEFAULT 0,
+                    status_code INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+                );
+                CREATE INDEX IF NOT EXISTS idx_token_usage_created_at ON token_usage(created_at);
+                CREATE INDEX IF NOT EXISTS idx_token_usage_upstream ON token_usage(upstream_id);
+                CREATE INDEX IF NOT EXISTS idx_token_usage_pool ON token_usage(pool_name);",
+            )?;
+            self.get_conn()?.execute(
+                "UPDATE schema_version SET version = ?1",
+                params![15],
+            )?;
+            info!("Database migrated to version 15");
+        }
+
+        // v16 migration: standalone request_stats table (one row per request,
+        // decoupled from request_logs). Dashboard today counts read from here so
+        // log cleanup / cap truncation never distorts them, and "clear stats"
+        // can reset them independently of the log history.
+        if current < 16 {
+            let conn = self.get_conn()?;
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS request_stats (
+                    id TEXT PRIMARY KEY,
+                    request_id TEXT NOT NULL,
+                    pool_name TEXT,
+                    upstream_id TEXT,
+                    model TEXT,
+                    status_code INTEGER NOT NULL DEFAULT 0,
+                    response_time_ms INTEGER NOT NULL DEFAULT 0,
+                    is_streaming INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+                );
+                CREATE INDEX IF NOT EXISTS idx_request_stats_created_at ON request_stats(created_at);
+                CREATE INDEX IF NOT EXISTS idx_request_stats_status_code ON request_stats(status_code);",
+            )?;
+            // Backfill historical counts from existing logs so today's numbers
+            // survive the upgrade.
+            conn.execute(
+                "INSERT INTO request_stats (id, request_id, pool_name, upstream_id, model,
+                    status_code, response_time_ms, is_streaming, created_at)
+                 SELECT id, request_id, pool_name, upstream_id, model,
+                        status_code, response_time_ms, is_streaming, created_at
+                 FROM request_logs
+                 WHERE id NOT IN (SELECT id FROM request_stats)",
+                [],
+            )?;
+            conn.execute(
+                "UPDATE schema_version SET version = ?1",
+                params![16],
+            )?;
+            info!("Database migrated to version 16");
+        }
+
         Ok(())
     }
 
@@ -284,7 +461,7 @@ impl Database {
         column: &str,
     ) -> Result<bool, AppError> {
         let mut stmt = conn.prepare(&format!("PRAGMA table_info({})", table))?;
-        let rows = stmt.query_map([], |row| Ok(row.get::<_, String>(1)?))?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
         for name in rows {
             if name? == column {
                 return Ok(true);
@@ -327,11 +504,90 @@ mod tests {
     }
 
     #[test]
+    fn test_token_usage_table_created() {
+        let db = Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+        let conn = db.get_conn().unwrap();
+        // Table exists and is queryable
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM token_usage", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+        assert!(index_exists(&conn, "token_usage", "idx_token_usage_created_at"));
+        assert!(index_exists(&conn, "token_usage", "idx_token_usage_upstream"));
+        assert!(index_exists(&conn, "token_usage", "idx_token_usage_pool"));
+    }
+
+    #[test]
     fn test_schema_version_is_v10_after_migration() {
         let db = Database::open_in_memory().unwrap();
         db.initialize().unwrap();
         let version = db.get_schema_version().unwrap();
-        assert_eq!(version, 10);
+        assert_eq!(version, 16);
+    }
+
+    #[test]
+    fn test_request_stats_table_created_and_backfilled() {
+        // Simulate a v15 database: base schema without the request_stats table,
+        // with existing logs, then upgrade through v16.
+        let db = Database::open_in_memory().unwrap();
+        db.create_schema().unwrap();
+        {
+            let conn = db.get_conn().unwrap();
+            // Add the v2/v3 columns that a real v15 database would have.
+            conn.execute_batch(
+                "ALTER TABLE request_logs ADD COLUMN model TEXT;
+                 ALTER TABLE request_logs ADD COLUMN prompt_tokens INTEGER NOT NULL DEFAULT 0;
+                 ALTER TABLE request_logs ADD COLUMN completion_tokens INTEGER NOT NULL DEFAULT 0;
+                 ALTER TABLE request_logs ADD COLUMN total_tokens INTEGER NOT NULL DEFAULT 0;
+                 INSERT INTO schema_version (version) VALUES (15);",
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO request_logs (id, request_id, pool_name, upstream_id, model,
+                    failed_upstreams, method, endpoint, status_code, response_time_ms,
+                    is_streaming, prompt_tokens, completion_tokens, total_tokens, created_at)
+                 VALUES ('log_1', 'req_1', 'pool_a', 'up_1', 'm1', '[]', 'POST',
+                    '/v1/chat/completions', 200, 10, 0, 1, 2, 3, datetime('now', 'localtime'))",
+                [],
+            )
+            .unwrap();
+        } // release the connection lock before running migrations
+
+        db.run_migrations().unwrap();
+
+        let version = db.get_schema_version().unwrap();
+        assert_eq!(version, 16);
+        let conn = db.get_conn().unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM request_stats", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1, "backfill should copy existing logs into request_stats");
+        let status: i32 = conn
+            .query_row("SELECT status_code FROM request_stats WHERE id = 'log_1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(status, 200);
+        assert!(index_exists(&conn, "request_stats", "idx_request_stats_created_at"));
+        assert!(index_exists(&conn, "request_stats", "idx_request_stats_status_code"));
+    }
+
+    #[test]
+    fn test_thinking_columns_present_after_migration() {
+        let db = Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+        assert!(db.column_exists("pools", "thinking_level").unwrap());
+        assert!(db.column_exists("pools", "thinking_custom_params").unwrap());
+        assert!(db.column_exists("pool_upstreams", "thinking_level_override").unwrap());
+        assert!(db.column_exists("pools", "thinking_enabled").unwrap());
+    }
+
+    #[test]
+    fn test_capabilities_columns_present_after_migration() {
+        let db = Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+        assert!(db.column_exists("upstreams", "capabilities").unwrap());
+        assert!(db.column_exists("pools", "capabilities").unwrap());
+        assert!(db.column_exists("pool_upstreams", "capabilities").unwrap());
     }
 
     #[test]

@@ -595,6 +595,147 @@ gap: 8px;
         tr { transition: background var(--transition); }
         tbody tr:hover td { background: var(--bg-hover); }
 
+        /* === Thinking level selector === */
+        .thinking-level-selector {
+            display: flex;
+            gap: 0;
+            border-radius: var(--radius-sm);
+            overflow: hidden;
+            border: 1px solid var(--border);
+            margin-top: 8px;
+            flex-wrap: wrap;
+        }
+        .thinking-level-btn {
+            flex: 1;
+            min-width: 44px;
+            padding: 8px 10px;
+            text-align: center;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            border-right: 1px solid var(--border);
+            transition: all var(--transition);
+            border-radius: 0;
+        }
+        .thinking-level-btn:last-child { border-right: none; }
+        .thinking-level-btn:hover { background: var(--bg-hover); }
+        .thinking-level-btn.active { background: var(--accent); color: white; }
+        .thinking-custom-box textarea.form-input { resize: vertical; }
+
+        /* === Model capability tags & editor === */
+        .capability-tags { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+        .capability-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 500;
+            background: var(--bg-hover);
+            color: var(--text-secondary);
+        }
+        .capability-tag.image { background: rgba(59, 130, 246, 0.12); color: rgb(59, 130, 246); }
+        .capability-tag.audio { background: rgba(168, 85, 247, 0.12); color: rgb(168, 85, 247); }
+        .capability-tag.video { background: rgba(236, 72, 153, 0.12); color: rgb(236, 72, 153); }
+        .capability-tag.function { background: rgba(34, 197, 94, 0.12); color: rgb(34, 197, 94); }
+        .capability-tag.context { background: rgba(245, 158, 11, 0.12); color: rgb(245, 158, 11); }
+        .capability-editor {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 12px;
+            background: var(--bg-secondary);
+        }
+        .capability-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px 16px;
+        }
+        .capability-check {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            cursor: pointer;
+        }
+        .capability-check input { accent-color: var(--accent); cursor: pointer; }
+        .capability-nums {
+            display: flex;
+            gap: 16px;
+            margin-top: 10px;
+        }
+        .capability-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+
+        /* === Tool config page === */
+        .page-hint { font-size: 12px; color: var(--text-muted); margin-bottom: 16px; }
+        .tool-config-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
+            gap: 12px;
+        }
+        .tool-config-tile {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            padding: 16px 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            background: var(--bg-primary);
+            cursor: pointer;
+            text-align: center;
+            transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+        }
+        .tool-config-tile:hover { border-color: var(--border-hover); box-shadow: var(--shadow-sm); transform: translateY(-1px); }
+        .tool-config-icon { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; }
+        .tool-config-icon img, .tool-config-icon svg { width: 34px; height: 34px; object-fit: contain; }
+        body[data-theme="dark"] .tool-config-icon.tc-mono img, body[data-theme="dark"] .tool-config-modal-icon.tc-mono img { filter: invert(1); }
+        body[data-theme="light"] .tool-config-icon.tc-oc img, body[data-theme="light"] .tool-config-modal-icon.tc-oc img { filter: invert(1); }
+        .tool-config-tile.tc-off { opacity: 0.85; }
+        .tool-config-tile.tc-off .tool-config-icon img { opacity: 0.45; }
+        .tool-config-tile.tc-off:not(.tc-mono) .tool-config-icon img { filter: grayscale(1); }
+        .tool-config-name { font-weight: 600; font-size: 13px; color: var(--text-primary); }
+        .tool-config-badges { display: flex; gap: 4px; flex-wrap: wrap; justify-content: center; }
+        .tool-config-meta { font-size: 12px; color: var(--text-secondary); margin-top: 4px; line-height: 1.6; }
+        .tool-config-badge-installed { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: rgba(34,197,94,0.12); color: rgb(34,197,94); }
+        .tool-config-badge-missing { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: rgba(120,120,128,0.15); color: var(--text-secondary); }
+        .tool-config-badge-on { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: rgba(34,197,94,0.12); color: rgb(34,197,94); }
+        .tool-config-badge-off { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--bg-hover); color: var(--text-muted); }
+        .tool-config-download-panel {
+            padding: 16px;
+            border: 1px dashed var(--border);
+            border-radius: var(--radius-sm);
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        .tool-config-modal-icon { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .tool-config-modal-icon img { width: 34px; height: 34px; object-fit: contain; }
+        .tool-config-modal-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+        .tool-config-modal-head .tool-config-badges { justify-content: flex-start; margin-top: 6px; }
+        .tool-config-paths { margin-bottom: 14px; }
+        .tool-config-paths-label { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+
+        /* Env conflict warning banner */
+        .tool-warning {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 10px 14px;
+            border-radius: var(--radius-sm);
+            background: rgba(234, 179, 8, 0.08);
+            border: 1px solid rgba(234, 179, 8, 0.25);
+            color: rgb(161, 98, 7);
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        body[data-theme="dark"] .tool-warning { color: rgb(234, 179, 8); }
+
         /* === Toggle switch === */
         .toggle { position: relative; width: 44px; height: 26px; display: inline-block; flex-shrink: 0; }
         .toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
@@ -1224,6 +1365,7 @@ gap: 8px;
             <div class="nav-item active" data-page="dashboard" data-i18n="nav_dashboard">仪表盘</div>
             <div class="nav-item" data-page="upstreams" data-i18n="nav_upstreams">上游服务</div>
             <div class="nav-item" data-page="pools" data-i18n="nav_pools">模型池</div>
+            <div class="nav-item" data-page="tool-config" data-i18n="nav_tool_config">工具配置</div>
             <div class="nav-item" data-page="logs" data-i18n="nav_logs">请求日志</div>
             <div class="nav-item" data-page="settings" data-i18n="nav_settings">设置</div>
             <div class="nav-item" data-page="health" data-i18n="nav_health">健康检查</div>
@@ -1344,13 +1486,27 @@ gap: 8px;
                                 <th data-i18n="pools_upstream_count">上游数</th>
                                 <th data-i18n="pools_max_concurrency">最大并发</th>
                                 <th data-i18n="modal_pool_thinking">思考模式</th>
+                                <th data-i18n="thinking_level_column">思考强度</th>
                                 <th data-i18n="upstreams_actions">操作</th>
                             </tr>
                         </thead>
                         <tbody id="pool-tbody">
-                            <tr><td colspan="6" class="empty-state" data-i18n="empty_loading">加载中...</td></tr>
+                            <tr><td colspan="7" class="empty-state" data-i18n="empty_loading">加载中...</td></tr>
                         </tbody>
                     </table>
+                </div>
+            </div>
+
+            <!-- ==================== Tool Config ==================== -->
+            <div class="page" id="page-tool-config">
+                <div class="section-title">
+                    <span data-i18n="tool_config_title">工具配置</span>
+                    <button class="btn btn-ghost btn-sm" onclick="loadToolConfig(true)" data-i18n="tool_config_redetect">重新检测</button>
+                </div>
+                <p class="page-hint" data-i18n="tool_config_desc">将代理地址一键注入到已安装的 AI 编码工具中</p>
+                <div id="env-conflict-banner" class="tool-warning" style="display:none;margin-bottom:12px;"></div>
+                <div id="tool-config-list" class="tool-config-grid">
+                    <div class="empty-state" data-i18n="dash_loading">加载中...</div>
                 </div>
             </div>
 
@@ -1423,6 +1579,7 @@ gap: 8px;
                             <span data-i18n="logs_token_overview_title">Token 用量统计</span>
                         </div>
                         <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); loadTokenOverview()" data-i18n="logs_refresh">刷新</button>
+                        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); clearTokenUsage()" data-i18n="logs_token_clear">清理统计</button>
                     </div>
                     <div class="collapse-body collapsed">
                         <div style="display:flex;gap:20px;flex-wrap:wrap;">
@@ -1630,11 +1787,11 @@ gap: 8px;
                         <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="settings_log_retention_desc">控制请求日志的保留时间和最大条数，超出后自动清理旧日志。</p>
                         <div class="settings-row">
                             <label data-i18n="settings_log_retention_days">保留天数</label>
-                            <input class="form-input" id="set-log-retention-days" type="number" min="1" max="365" value="5" style="max-width:120px;">
+                            <input class="form-input" id="set-log-retention-days" type="number" min="1" max="365" value="30" style="max-width:120px;">
                         </div>
                         <div class="settings-row">
                             <label data-i18n="settings_log_max_entries">最大条数</label>
-                            <input class="form-input" id="set-log-max-entries" type="number" min="10" max="100000" value="200" style="max-width:120px;">
+                            <input class="form-input" id="set-log-max-entries" type="number" min="10" max="100000" value="20000" style="max-width:120px;">
                         </div>
                     </div>
                     <div class="settings-section">
@@ -1737,7 +1894,7 @@ gap: 8px;
 
                 <div class="help-section">
                     <h3><span class="help-icon">1</span><span data-i18n="help_quick_start">快速开始</span></h3>
-                    <p data-i18n="help_quick_start_desc">从零到跑通只需五步：</p>
+                    <p data-i18n="help_quick_start_desc">从零到跑通只需六步：</p>
                     <div class="help-flow">
                         <div class="help-step">
                             <span class="step-num">1</span>
@@ -1768,6 +1925,12 @@ gap: 8px;
                             <div class="step-title" data-i18n="help_step_connect">接入客户端</div>
                             <div class="step-desc" data-i18n="help_step_connect_desc">将地址和密钥填入任意 OpenAI 兼容客户端即可</div>
                         </div>
+                        <div class="help-arrow">→</div>
+                        <div class="help-step">
+                            <span class="step-num">6</span>
+                            <div class="step-title" data-i18n="help_step_tool_config">配置工具（可选）</div>
+                            <div class="step-desc" data-i18n="help_step_tool_config_desc">在「工具配置」页一键将代理地址注入已安装的 AI 编码工具，无需手动填写地址和密钥</div>
+                        </div>
                     </div>
                 </div>
 
@@ -1787,11 +1950,14 @@ gap: 8px;
                     <h3><span class="help-icon">🔌</span><span data-i18n="help_upstreams">上游服务</span></h3>
                     <p data-i18n="help_upstreams_desc">上游服务指你实际订阅的 AI 服务商（如 OpenAI、Anthropic、DeepSeek 等）。每个上游包含：</p>
                     <ul>
-                        <li data-i18n-html="help_upstreams_item_1"><strong>供应商名称</strong>：用于识别服务商，也决定思考模式注入的参数类型</li>
+                        <li data-i18n-html="help_upstreams_item_1"><strong>供应商名称</strong>：用于识别服务商，也决定 **API 格式适配**和思考参数注入类型</li>
                         <li data-i18n-html="help_upstreams_item_2"><strong>Base URL</strong>：服务商的 API 地址，如 <code>https://api.openai.com</code></li>
                         <li data-i18n-html="help_upstreams_item_3"><strong>API Key</strong>：你在服务商处获取的密钥，加密存储</li>
                         <li data-i18n-html="help_upstreams_item_4"><strong>模型</strong>：该上游使用的模型名，如 <code>gpt-4o</code></li>
                         <li data-i18n-html="help_upstreams_item_5"><strong>可用模型</strong>：点击「获取模型列表」按钮自动从服务商拉取支持的模型列表</li>
+                        <li data-i18n-html="help_upstreams_item_6"><strong>API 格式</strong>：选择上游的原生 API 格式（OpenAI Chat / Anthropic Messages / Gemini），网关自动做格式转换</li>
+                        <li data-i18n-html="help_upstreams_item_7"><strong>模型能力</strong>：标识该模型支持的输入/输出模态（文本、图片、音频）、是否支持函数调用、上下文窗口大小等。留空时系统根据模型名自动推断</li>
+                        <li data-i18n-html="help_upstreams_item_8">点击「自动推断」按钮可根据模型名自动填充能力标记</li>
                     </ul>
                     <p data-i18n-html="help_upstreams_ops"><strong>操作方式：</strong></p>
                     <ul>
@@ -1814,7 +1980,10 @@ gap: 8px;
                         <li data-i18n-html="help_pools_item_3"><strong>关联上游</strong>：勾选要加入该池的上游，并为每个上游选择对应模型</li>
                         <li data-i18n-html="help_pools_item_4"><strong>多模型选择</strong>：按住 Ctrl（或 Shift）可为一个上游选择多个模型，网关会在这些模型之间轮询负载均衡</li>
                         <li data-i18n-html="help_pools_item_5"><strong>最大并发</strong>：该池允许的最大并发请求数</li>
-                        <li data-i18n-html="help_pools_item_6"><strong>思考模式</strong>：开启后自动为支持的上游注入推理参数（如 OpenAI 的 <code>reasoning_effort</code>、Claude 的 <code>thinking</code>）</li>
+                        <li data-i18n-html="help_pools_item_6"><strong>思考强度</strong>：支持关闭/低/中/高/最大/自定义六级，自动为不同厂商的上游注入对应的推理参数（如 OpenAI 的 <code>reasoning_effort</code>、Claude 的 <code>thinking</code>）</li>
+                        <li data-i18n-html="help_pools_item_7"><strong>逐上游思考覆盖</strong>：在号池详情中可为每个上游单独设置思考强度，覆盖池级配置</li>
+                        <li data-i18n-html="help_pools_item_8"><strong>模型能力标签</strong>：展示池内所有上游能力的并集，包括文本/图片/音频输入、函数调用、上下文窗口等</li>
+                        <li data-i18n-html="help_pools_item_9"><strong>自定义思考参数</strong>：选择「自定义」时可直接输入 JSON 参数，注入到请求体中</li>
                     </ul>
                     <p data-i18n-html="help_pools_lb"><strong>负载均衡机制（两层轮询）：</strong></p>
                     <ul>
@@ -1828,6 +1997,29 @@ gap: 8px;
                         <li data-i18n-html="help_pools_detail_3"><strong>拖拽排序</strong>：在详情弹窗中拖拽行可调整上游顺序，保存后立即生效</li>
                     </ul>
                     <div class="help-tip" data-i18n="help_pools_tip">请求转发逻辑：轮询选择上游 → 跳过已禁用的上游 → 失败时若开启故障转移则自动尝试下一个上游 → 全部失败则返回错误。右键删除模型池直接执行，无需二次确认。日志自动保留策略可在设置中配置。</div>
+                </div>
+
+                <div class="help-section">
+                    <h3><span class="help-icon">🔧</span><span data-i18n="help_tool_config">工具配置</span></h3>
+                    <p data-i18n="help_tool_config_desc">
+                        工具配置页支持将代理地址一键注入到已安装的 AI 编码工具中，无需手动编辑配置文件。
+                    </p>
+                    <p data-i18n-html="help_tool_config_supported_title"><strong>支持的工具：</strong></p>
+                    <p data-i18n="help_tool_config_supported_desc">支持 Claude Code、Claude Desktop、Codex CLI、Gemini CLI、Grok CLI、OpenCode、OpenClaw、Hermes 共 8 种工具</p>
+                    <p data-i18n-html="help_tool_config_detect_title"><strong>自动检测：</strong></p>
+                    <p data-i18n="help_tool_config_detect_desc">页面会自动检测系统已安装的工具，未安装的工具显示下载链接</p>
+                    <p data-i18n-html="help_tool_config_switch_title"><strong>开关机制：</strong></p>
+                    <p data-i18n="help_tool_config_switch_desc">每个工具独立开关：开启时自动写入配置并备份原始文件，关闭时自动恢复原始配置。软件退出时自动还原配置，下次启动时重新注入</p>
+                    <p data-i18n-html="help_tool_config_modal_title"><strong>配置弹窗：</strong></p>
+                    <p data-i18n="help_tool_config_modal_desc">开启开关时弹出配置弹窗，选择默认模型池、API Key 和供应商标签名</p>
+                    <p data-i18n-html="help_tool_config_strategies_title"><strong>模型写入策略：</strong></p>
+                    <ul>
+                        <li data-i18n="help_tool_config_strategy_full"><strong>全量写入</strong>：将所有模型池写入配置文件，适用于支持多模型声明的工具</li>
+                        <li data-i18n="help_tool_config_strategy_auto"><strong>默认+自动发现</strong>：写入默认池，工具运行时通过 /v1/models 自动发现其他池</li>
+                    </ul>
+                    <p data-i18n-html="help_tool_config_backup_title"><strong>备份与恢复：</strong></p>
+                    <p data-i18n="help_tool_config_backup_desc">写入前自动备份原始配置文件，关闭开关或软件退出时自动恢复</p>
+                    <div class="help-tip" data-i18n="help_tool_config_tip">提示：开关状态会持久化保存，软件重启后自动恢复上次的状态并重新写入配置。若检测到系统环境变量（ANTHROPIC_*、OPENAI_* 等）与注入配置冲突，页面会提示并可一键清理。</div>
                 </div>
 
                 <div class="help-section">
@@ -1975,6 +2167,27 @@ gap: 8px;
                 </div>
 
                 <div class="help-section">
+                    <h3><span class="help-icon">🔄</span><span data-i18n="help_api_convert">多格式 API 转换</span></h3>
+                    <p data-i18n="help_api_convert_desc">
+                        网关支持多种原生 API 格式的端点，自动将请求转换为上游所需的格式，响应也自动转回客户端期望的格式。
+                    </p>
+                    <p data-i18n-html="help_api_convert_endpoints_title"><strong>支持的端点：</strong></p>
+                    <ul>
+                        <li data-i18n="help_api_convert_endpoint_1">OpenAI Chat：POST /v1/chat/completions（默认，兼容所有 OpenAI 客户端）</li>
+                        <li data-i18n="help_api_convert_endpoint_2">Anthropic Messages：POST /v1/messages（兼容 Claude 原生客户端）</li>
+                        <li data-i18n="help_api_convert_endpoint_3">Gemini Native：POST /v1beta/models/{model}:generateContent（兼容 Gemini 原生客户端）</li>
+                        <li data-i18n="help_api_convert_endpoint_4">OpenAI Responses：POST /v1/responses（兼容 Codex CLI 等工具）</li>
+                    </ul>
+                    <p data-i18n-html="help_api_convert_detect_title"><strong>格式检测：</strong></p>
+                    <p data-i18n="help_api_convert_detect_desc">网关根据请求路径自动识别格式，无需额外配置</p>
+                    <p data-i18n-html="help_api_convert_upstream_title"><strong>上游格式适配：</strong></p>
+                    <p data-i18n="help_api_convert_upstream_desc">在上游编辑中可设置该上游的原生 API 格式，网关会自动将客户端请求转换为上游格式，响应再转回客户端格式</p>
+                    <p data-i18n-html="help_api_convert_stream_title"><strong>流式转换：</strong></p>
+                    <p data-i18n="help_api_convert_stream_desc">SSE 流式响应也支持格式转换，实时将上游的流式格式转换为客户端期望的流式格式</p>
+                    <div class="help-tip" data-i18n="help_api_convert_tip">提示：即使上游是 Anthropic 原生格式，使用 OpenAI 兼容客户端接入也能正常工作，网关会自动做双向转换。</div>
+                </div>
+
+                <div class="help-section">
                     <h3><span class="help-icon">🔐</span><span data-i18n="help_security">安全与加密</span></h3>
                     <ul>
                         <li data-i18n-html="help_security_1"><strong>API Key 加密</strong>：所有上游 API Key 使用 AES-256-GCM 加密存储，明文绝不出现在数据库或日志中</li>
@@ -2020,7 +2233,25 @@ print(response.choices[0].message.content)</code></pre>
     "model": "gpt-4o",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'</code></pre>
+                    <p data-i18n="help_client_anthropic_desc" style="margin-top:12px;">使用 Anthropic Messages API 格式：</p>
+                    <pre style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;font-size:12px;font-family:'SF Mono','Cascadia Code',monospace;overflow-x:auto;color:var(--text-primary);"><code>curl http://127.0.0.1:47339/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: sk-gw-your-key-here" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 1024,
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'</code></pre>
+                    <p data-i18n="help_client_gemini_desc" style="margin-top:12px;">使用 Gemini Native API 格式：</p>
+                    <pre style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;font-size:12px;font-family:'SF Mono','Cascadia Code',monospace;overflow-x:auto;color:var(--text-primary);"><code>curl http://127.0.0.1:47339/v1beta/models/gemini-2.0-flash:generateContent \
+  -H "Content-Type: application/json" \
+  -H "x-goog-api-key: sk-gw-your-key-here" \
+  -d '{
+    "contents": [{"parts": [{"text": "Hello!"}]}]
+  }'</code></pre>
                     <div class="help-tip" data-i18n="help_client_example_tip">任意兼容 OpenAI API 的客户端（如 ChatBox、NextChat、Cursor 等）均可直接使用上述地址和密钥接入。</div>
+                    <div class="help-tip" data-i18n="help_client_tool_tip">💡 如果使用 Claude Code、Codex CLI 等工具，可直接在「工具配置」页面一键注入，无需手动填写地址和密钥。</div>
                 </div>
             </div>
 
@@ -2076,6 +2307,46 @@ print(response.choices[0].message.content)</code></pre>
                     <input class="form-input" id="f-remark" data-i18n-ph="modal_remark_ph" placeholder="可选备注" autocomplete="off">
                 </div>
             </div>
+            <div class="form-group">
+                <label class="form-label" data-i18n="capabilities_label">模型能力</label>
+                <div class="capability-editor" id="capability-editor">
+                    <div class="capability-grid">
+                        <label class="capability-check"><input type="checkbox" id="cap-input-text" checked data-cap><span data-i18n="cap_chk_input_text">文本输入</span></label>
+                        <label class="capability-check"><input type="checkbox" id="cap-input-image" data-cap><span data-i18n="cap_chk_input_image">图片输入</span></label>
+                        <label class="capability-check"><input type="checkbox" id="cap-input-audio" data-cap><span data-i18n="cap_chk_input_audio">音频输入</span></label>
+                        <label class="capability-check"><input type="checkbox" id="cap-input-video" data-cap><span data-i18n="cap_chk_input_video">视频输入</span></label>
+                        <label class="capability-check"><input type="checkbox" id="cap-output-text" checked data-cap><span data-i18n="cap_chk_output_text">文本输出</span></label>
+                        <label class="capability-check"><input type="checkbox" id="cap-output-image" data-cap><span data-i18n="cap_chk_output_image">图片输出</span></label>
+                        <label class="capability-check"><input type="checkbox" id="cap-output-audio" data-cap><span data-i18n="cap_chk_output_audio">音频输出</span></label>
+                        <label class="capability-check"><input type="checkbox" id="cap-fn" data-cap><span data-i18n="cap_chk_fn">函数调用</span></label>
+                        <label class="capability-check"><input type="checkbox" id="cap-stream" checked data-cap><span data-i18n="cap_chk_stream">流式输出</span></label>
+                    </div>
+                    <div class="capability-nums">
+                        <div class="form-group" style="flex:1;">
+                            <label class="form-label" data-i18n="cap_labels_context">上下文窗口 (tokens)</label>
+                            <input class="form-input" id="cap-context" type="number" placeholder="可选" min="0" style="font-family:'SF Mono','Cascadia Code',monospace;font-size:12px;">
+                        </div>
+                        <div class="form-group" style="flex:1;">
+                            <label class="form-label" data-i18n="cap_max_output">最大输出 (tokens)</label>
+                            <input class="form-input" id="cap-maxout" type="number" placeholder="可选" min="0" style="font-family:'SF Mono','Cascadia Code',monospace;font-size:12px;">
+                        </div>
+                    </div>
+                    <div class="capability-actions">
+                        <button type="button" class="btn btn-ghost btn-sm" onclick="autoInferCapabilities()" data-i18n="cap_auto_infer">自动推断</button>
+                        <span class="form-hint" style="font-size:11px;" data-i18n="capabilities_hint">留空则根据模型名自动推断</span>
+                    </div>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label" data-i18n="api_format_label">上游 API 格式</label>
+                <select class="form-input" id="f-api-format">
+                    <option value="openai_chat" data-i18n="api_format_openai_chat">OpenAI Chat (默认)</option>
+                    <option value="openai_responses" data-i18n="api_format_openai_responses">OpenAI Responses</option>
+                    <option value="anthropic" data-i18n="api_format_anthropic">Anthropic Messages</option>
+                    <option value="gemini_native" data-i18n="api_format_gemini_native">Gemini Native</option>
+                </select>
+                <div class="form-hint" data-i18n="api_format_hint">网关自动将客户端请求转换为该格式发送给上游，响应再转回</div>
+            </div>
             <div class="form-actions">
                 <button class="btn btn-ghost" onclick="closeModal()" data-i18n="modal_cancel">取消</button>
                 <button class="btn btn-primary" id="btn-save" onclick="saveUpstream()" data-i18n="modal_save">保存</button>
@@ -2083,9 +2354,53 @@ print(response.choices[0].message.content)</code></pre>
         </div>
     </div>
 
+    <!-- ==================== Tool Pool Picker Modal ==================== -->
+    <div class="modal-overlay" id="tool-pool-picker">
+        <div class="modal" style="width:460px;">
+            <div class="modal-title" id="tool-pool-picker-title" data-i18n="tool_config_default_pool">默认模型池</div>
+            <input type="hidden" id="tool-pool-edit-mode" value="enable">
+            <div class="tool-config-modal-head">
+                <div class="tool-config-modal-icon" id="tool-pool-modal-icon"></div>
+                <div style="flex:1;min-width:0;">
+                    <div style="font-weight:600;color:var(--text-primary);font-size:14px;" id="tool-pool-modal-name"></div>
+                    <div class="tool-config-badges" id="tool-pool-modal-badges"></div>
+                </div>
+            </div>
+            <div class="tool-config-paths" id="tool-pool-modal-paths" style="display:none;"></div>
+            <div style="display:none;" id="tool-pool-modal-uninstalled"></div>
+            <div id="tool-pool-modal-form">
+                <div class="form-group">
+                    <label class="form-label" data-i18n="tool_config_default_pool">默认模型池</label>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <select class="form-input" id="tool-pool-select" style="flex:1;"></select>
+                        <label id="tool-default-1m-wrap" style="display:none;align-items:center;gap:4px;font-size:12px;color:var(--text-secondary);white-space:nowrap;cursor:pointer;"><input type="checkbox" id="tool-default-1m" style="margin:0;accent-color:var(--primary);"><span data-i18n="tool_config_role_1m">1M 上下文</span></label>                    </div>
+                    <div class="form-hint" id="tool-default-1m-hint" style="display:none;">未指定角色的模型将声明支持 1M 上下文</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" data-i18n="tool_config_api_key">API Key</label>
+                    <select class="form-input" id="tool-api-key-select"></select>
+                    <div class="form-hint" data-i18n="tool_config_api_key_hint">留空使用专用的工具网关 Token（独立于默认 Gateway API Key）</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" data-i18n="tool_config_provider_name">供应商标签名</label>
+                    <input class="form-input" id="tool-provider-name" value="LLM-API-Proxy" data-i18n-ph="tool_config_provider_name_ph">
+                </div>
+                <div class="form-group" id="tool-role-map" style="display:none;">
+                    <label class="form-label" data-i18n="tool_config_roles_title">模型角色映射</label>
+                    <div class="form-hint" data-i18n="tool_config_roles_hint">为 Claude Code 的各个角色指定模型池，/model 菜单中可查看并切换；未指定的角色自动沿用默认模型池</div>
+                    <div id="tool-role-rows" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;"></div>
+                </div>
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-danger" id="tool-pool-disable" style="display:none;" onclick="confirmDisableToolFromModal()" data-i18n="tool_config_confirm_disable">关闭</button>
+                <button class="btn btn-ghost" onclick="closeToolPoolPicker()" data-i18n="modal_cancel">取消</button>
+                <button class="btn btn-primary" id="tool-pool-save" onclick="confirmToolPoolSelection()" data-i18n="modal_save">保存</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ==================== Delete Confirm Modal ==================== -->
-    <div class="modal-overlay" id="delete-modal">
-        <div class="modal" style="width:380px;">
+    <div class="modal-overlay" id="delete-modal">        <div class="modal" style="width:380px;">
             <div class="modal-title" data-i18n="delete_confirm_title">确认删除</div>
             <p id="delete-modal-body" style="color:var(--text-secondary);font-size:13px;margin-bottom:18px;line-height:1.6;">
             </p>
@@ -2093,6 +2408,18 @@ print(response.choices[0].message.content)</code></pre>
             <div class="form-actions">
                 <button class="btn btn-ghost" onclick="closeDeleteModal()" data-i18n="modal_cancel">取消</button>
                 <button class="btn btn-danger" onclick="confirmDelete()" data-i18n="delete_confirm">删除</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== Generic Confirm Modal ==================== -->
+    <div class="modal-overlay" id="app-confirm-modal">
+        <div class="modal" style="width:380px;">
+            <div class="modal-title" id="app-confirm-title" data-i18n="confirm_title">确认操作</div>
+            <p id="app-confirm-body" style="color:var(--text-secondary);font-size:13px;margin-bottom:18px;line-height:1.6;"></p>
+            <div class="form-actions">
+                <button class="btn btn-ghost" onclick="closeAppConfirm()" data-i18n="modal_cancel">取消</button>
+                <button class="btn btn-danger" id="app-confirm-ok" onclick="confirmAppConfirm()">确认</button>
             </div>
         </div>
     </div>
@@ -2107,6 +2434,7 @@ print(response.choices[0].message.content)</code></pre>
                     <label class="form-label" data-i18n="modal_pool_name">模型名称 *</label>
                     <input class="form-input" id="pf-name" data-i18n-ph="modal_pool_name_ph" placeholder="例如：gpt-4o" autocomplete="off">
                     <div class="form-hint" data-i18n="modal_pool_name_hint">客户端请求时使用的模型名</div>
+                    <div class="form-hint" id="pf-name-duplicate" style="display:none;color:var(--danger);"></div>
                 </div>
                 <div class="form-group">
                     <label class="form-label" data-i18n="modal_pool_display">显示名称</label>
@@ -2119,11 +2447,21 @@ print(response.choices[0].message.content)</code></pre>
                     <input class="form-input" id="pf-concurrency" type="number" value="5" min="1" max="50">
                 </div>
                 <div class="form-group">
-                    <label class="form-label" data-i18n="modal_pool_thinking">思考模式</label>
-                    <label class="toggle" style="margin-top:8px;">
-                        <input type="checkbox" id="pf-thinking">
-                        <span class="slider"></span>
-                    </label>
+                    <label class="form-label" data-i18n="modal_pool_thinking">思考强度</label>
+                    <div class="thinking-level-selector" id="pf-thinking-levels">
+                        <button type="button" class="thinking-level-btn active" data-level="off" onclick="setThinkingLevel('off')" data-i18n="thinking_level_off">关闭</button>
+                        <button type="button" class="thinking-level-btn" data-level="low" onclick="setThinkingLevel('low')" data-i18n="thinking_level_low">低</button>
+                        <button type="button" class="thinking-level-btn" data-level="medium" onclick="setThinkingLevel('medium')" data-i18n="thinking_level_medium">中</button>
+                        <button type="button" class="thinking-level-btn" data-level="high" onclick="setThinkingLevel('high')" data-i18n="thinking_level_high">高</button>
+                        <button type="button" class="thinking-level-btn" data-level="max" onclick="setThinkingLevel('max')" data-i18n="thinking_level_max">最大</button>
+                        <button type="button" class="thinking-level-btn" data-level="custom" onclick="setThinkingLevel('custom')" data-i18n="thinking_level_custom">自定义</button>
+                    </div>
+                    <input type="hidden" id="pf-thinking">
+                    <div class="thinking-custom-box" id="pf-custom-box" style="display:none;margin-top:8px;">
+                        <label class="form-label" data-i18n="thinking_custom_params">自定义参数 (JSON)</label>
+                        <textarea class="form-input" id="pf-custom-params" rows="2" placeholder='{"reasoning": true, "reasoning_effort": "medium"}' style="font-family:'SF Mono','Cascadia Code',monospace;font-size:12px;"></textarea>
+                        <div class="form-hint" data-i18n="thinking_custom_params_hint">直接注入到请求体中的 JSON 参数</div>
+                    </div>
                 </div>
             </div>
             <div class="form-group">
@@ -2362,7 +2700,10 @@ logs_failover_all_failed: { zh: '全部失败', en: 'All Failed' },
 logs_token_overview_title: { zh: 'Token 用量统计', en: 'Token Usage Overview' },
 logs_token_by_pool: { zh: '按模型池', en: 'By Pool' },
 logs_token_by_upstream: { zh: '按上游', en: 'By Upstream' },
-logs_token_today: { zh: '今日 Token', en: 'Today Tokens' },
+        logs_token_today: { zh: '今日 Token', en: 'Today Tokens' },
+        logs_token_clear: { zh: '清理统计', en: 'Clear Stats' },
+        logs_token_clear_confirm: { zh: '确定要清空所有统计吗（仪表盘今日数据与 Token 用量）？此操作不可撤销，请求日志记录不受影响。', en: 'Clear all statistics (dashboard today counts and token usage)? This cannot be undone. Request logs are kept.' },
+        logs_token_cleared: { zh: '统计已清空（仪表盘与 Token 用量）', en: 'Statistics cleared (dashboard & token usage)' },
 logs_token_total: { zh: '累计 Token', en: 'Total Tokens' },
 logs_token_today_req: { zh: '今日请求', en: 'Today Requests' },
         logs_token_total_req: { zh: '累计请求', en: 'Total Requests' },
@@ -2548,6 +2889,8 @@ settings_import_full: { zh: '全量导入', en: 'Import (Full)' },
         modal_avail_models_hint: { zh: '从服务商拉取的模型列表，勾选后可在模型池中选择', en: 'Models fetched from provider. Select to use in pools.' },
         modal_cancel: { zh: '取消', en: 'Cancel' },
         modal_save: { zh: '保存', en: 'Save' },
+        modal_ok: { zh: '确认', en: 'OK' },
+        confirm_title: { zh: '确认操作', en: 'Confirm' },
 
         // ── Modal: Pool ──
         modal_add_pool: { zh: '新增模型池', en: 'Add Model Pool' },
@@ -2560,6 +2903,87 @@ settings_import_full: { zh: '全量导入', en: 'Import (Full)' },
         modal_pool_upstreams_hint: { zh: '勾选要加入该池的上游，并选择对应模型', en: 'Select upstreams and their models for this pool' },
         modal_pool_concurrency: { zh: '最大并发', en: 'Max Concurrency' },
         modal_pool_thinking: { zh: '思考模式', en: 'Thinking Mode' },
+        thinking_level_off: { zh: '关闭', en: 'Off' },
+        thinking_level_low: { zh: '低', en: 'Low' },
+        thinking_level_medium: { zh: '中', en: 'Medium' },
+        thinking_level_high: { zh: '高', en: 'High' },
+        thinking_level_max: { zh: '最大', en: 'Max' },
+        thinking_level_custom: { zh: '自定义', en: 'Custom' },
+        thinking_level_column: { zh: '思考强度', en: 'Thinking Level' },
+        thinking_override_label: { zh: '思考覆盖', en: 'Thinking Override' },
+        thinking_override_follow: { zh: '跟随池级', en: 'Follow Pool' },
+        toast_override_saved: { zh: '已更新该上游的思考强度覆盖', en: 'Per-upstream thinking override updated' },
+        thinking_custom_params: { zh: '自定义参数 (JSON)', en: 'Custom Params (JSON)' },
+        thinking_custom_params_hint: { zh: '直接注入到请求体中的 JSON 参数', en: 'JSON injected verbatim into the request body' },
+        toast_pool_custom_params_invalid: { zh: '自定义参数不是合法 JSON', en: 'Custom params are not valid JSON' },
+        capabilities_label: { zh: '模型能力', en: 'Model Capabilities' },
+        capabilities_hint: { zh: '留空则根据模型名自动推断', en: 'Leave empty to auto-infer from model name' },
+        cap_auto_infer: { zh: '自动推断', en: 'Auto-infer' },
+        cap_inferred: { zh: '已根据模型名填充能力', en: 'Capabilities inferred from model name' },
+        cap_labels_context: { zh: '上下文窗口 (tokens)', en: 'Context window (tokens)' },
+        cap_max_output: { zh: '最大输出 (tokens)', en: 'Max output (tokens)' },
+        cap_labels: {
+            zh: { text: '文本', image: '图片', audio: '音频', video: '视频', function: '函数调用', streaming: '流式' },
+            en: { text: 'text', image: 'image', audio: 'audio', video: 'video', function: 'function', streaming: 'stream' }
+        },
+        cap_labels_none: { zh: '未知', en: 'unknown' },
+        cap_chk_input_text: { zh: '文本输入', en: 'Text input' },
+        cap_chk_input_image: { zh: '图片输入', en: 'Image input' },
+        cap_chk_input_audio: { zh: '音频输入', en: 'Audio input' },
+        cap_chk_input_video: { zh: '视频输入', en: 'Video input' },
+        cap_chk_output_text: { zh: '文本输出', en: 'Text output' },
+        cap_chk_output_image: { zh: '图片输出', en: 'Image output' },
+        cap_chk_output_audio: { zh: '音频输出', en: 'Audio output' },
+        cap_chk_fn: { zh: '函数调用', en: 'Function calling' },
+        cap_chk_stream: { zh: '流式输出', en: 'Streaming' },
+        api_format_label: { zh: '上游 API 格式', en: 'Upstream API Format' },
+        api_format_hint: { zh: '网关自动将客户端请求转换为该格式发送给上游，响应再转回', en: 'Gateway auto-converts requests to this format and converts responses back' },
+        api_format_openai_chat: { zh: 'OpenAI Chat (默认)', en: 'OpenAI Chat (default)' },
+        api_format_openai_responses: { zh: 'OpenAI Responses', en: 'OpenAI Responses' },
+        api_format_anthropic: { zh: 'Anthropic Messages', en: 'Anthropic Messages' },
+        api_format_gemini_native: { zh: 'Gemini Native', en: 'Gemini Native' },
+        nav_tool_config: { zh: '工具配置', en: 'Tool Config' },
+        tool_config_title: { zh: '工具配置', en: 'Tool Configuration' },
+        tool_config_desc: { zh: '将代理地址一键注入到已安装的 AI 编码工具中', en: 'Inject the proxy address into installed AI coding tools' },
+        tool_config_redetect: { zh: '重新检测', en: 'Re-detect' },
+        tool_config_installed: { zh: '已安装', en: 'Installed' },
+        tool_config_not_installed: { zh: '未安装', en: 'Not Installed' },
+        tool_config_switch_on: { zh: '已开启', en: 'ON' },
+        tool_config_switch_off: { zh: '已关闭', en: 'OFF' },
+        tool_config_default_pool: { zh: '默认模型池', en: 'Default Pool' },
+        tool_config_paths_label: { zh: '配置文件位置', en: 'Config File Locations' },
+        tool_config_not_installed_hint: { zh: '该工具尚未安装，请先下载安装后再进行配置', en: 'This tool is not installed yet. Download and install it first, then configure.' },
+        tool_config_api_key: { zh: 'API Key', en: 'API Key' },
+        tool_config_api_key_hint: { zh: '留空使用专用的工具网关 Token（独立于默认 Gateway API Key）', en: 'Leave empty to use a dedicated tool gateway token (separate from the default Gateway API Key)' },
+        tool_config_provider_name: { zh: '供应商标签名', en: 'Provider Label' },
+        tool_config_provider_name_ph: { zh: '写入配置中的供应商名称', en: 'Provider name written into config' },
+        tool_config_warning_not_installed: { zh: '未检测到 {tool}，请先下载安装', en: '{tool} not detected, please download and install first' },
+        tool_config_download: { zh: '下载 →', en: 'Download →' },
+        tool_config_confirm_enable: { zh: '写入配置', en: 'Write Config' },
+        tool_config_confirm_disable: { zh: '关闭', en: 'Disable' },
+        tool_config_disable_warning: { zh: '关闭后将恢复 {tool} 的原始配置文件。确定继续？', en: 'This will restore {tool}\'s original config file. Continue?' },
+        tool_config_rewrite: { zh: '重新写入', en: 'Rewrite' },
+        tool_config_default_key: { zh: '(工具网关 Token)', en: '(Tool Gateway Token)' },
+        tool_config_roles_title: { zh: '模型角色映射', en: 'Model Role Mapping' },
+        tool_config_roles_hint: { zh: '为各工具的角色槽位指定模型池，未指定的角色自动沿用默认模型池', en: 'Assign a pool to each role slot. Roles left unset fall back to the default pool.' },
+        tool_config_role_sonnet: { zh: 'Sonnet', en: 'Sonnet' },
+        tool_config_role_opus: { zh: 'Opus', en: 'Opus' },
+        tool_config_role_fable: { zh: 'Fable', en: 'Fable' },
+        tool_config_role_haiku: { zh: 'Haiku', en: 'Haiku' },
+        tool_config_role_subagent: { zh: 'Subagent', en: 'Subagent' },
+        tool_config_role_1m: { zh: '1M 上下文', en: '1M context' },
+        tool_config_roles_default: { zh: '(跟随默认模型池)', en: '(follow default pool)' },
+        tool_config_default_1m_hint: { zh: '默认模型池声明支持 1M 上下文', en: 'The default pool declares 1M context support' },
+        env_conflict_warn: { zh: '检测到 {count} 个系统环境变量会覆盖注入的代理配置，可能导致配置不生效', en: '{count} system environment variable(s) will override the injected proxy config' },
+        env_conflict_cleanup: { zh: '一键清理', en: 'Clean Up' },
+        env_conflict_cleanup_done: { zh: '已清理冲突环境变量，备份已保存', en: 'Conflicting env vars cleaned, backup saved' },
+        env_conflict_cleanup_fail: { zh: '清理环境变量失败', en: 'Failed to clean up env vars' },
+        env_conflict_none: { zh: '未检测到环境变量冲突', en: 'No env var conflicts detected' },
+        env_conflict_checking: { zh: '检查环境变量冲突…', en: 'Checking env var conflicts…' },
+        toast_tool_config_refreshed: { zh: '工具配置已刷新', en: 'Tool config refreshed' },
+        toast_tool_config_written: { zh: '配置已写入', en: 'Config written' },
+        toast_tool_config_restored: { zh: '已恢复原始配置', en: 'Original config restored' },
+        toast_select_pool: { zh: '请先选择模型池', en: 'Please select a pool first' },
         modal_pool_thinking_hint: { zh: '为支持的上游自动注入推理参数', en: 'Auto-inject reasoning params for supported upstreams' },
         modal_pool_failover: { zh: '故障转移', en: 'Failover' },
         modal_pool_failover_hint: { zh: '上游失败时自动尝试下一个', en: 'Try next upstream on failure' },
@@ -2595,7 +3019,7 @@ settings_import_full: { zh: '全量导入', en: 'Import (Full)' },
         help_title: { zh: '使用教程', en: 'User Guide' },
         help_intro: { zh: 'LLM-API-Proxy 是一个本地运行的 LLM API 网关，将多个上游 AI 服务商聚合为统一的 OpenAI 兼容接口。以下按功能模块逐一介绍使用方法。', en: 'LLM-API-Proxy is a local LLM API gateway that aggregates multiple upstream AI providers into a unified OpenAI-compatible interface. Below is a guide for each module.' },
         help_quick_start: { zh: '快速开始', en: 'Quick Start' },
-        help_quick_start_desc: { zh: '从零到跑通只需五步：', en: 'Five steps to get started:' },
+        help_quick_start_desc: { zh: '从零到跑通只需六步：', en: 'Six steps to get started:' },
         help_step_add_upstream: { zh: '添加上游', en: 'Add Upstream' },
         help_step_add_upstream_desc: { zh: '在「上游服务」页填入服务商的 Base URL、API Key 和模型名', en: 'Enter provider Base URL, API Key, and model name in Upstreams page' },
         help_step_create_pool: { zh: '创建模型池', en: 'Create Pool' },
@@ -2606,6 +3030,8 @@ settings_import_full: { zh: '全量导入', en: 'Import (Full)' },
         help_step_connect_desc: { zh: '将地址和密钥填入任意 OpenAI 兼容客户端即可', en: 'Paste into any OpenAI-compatible client' },
         help_step_manage_keys: { zh: '管理密钥', en: 'Manage Keys' },
         help_step_manage_keys_desc: { zh: '按需创建多个 API 密钥，分配池访问权限', en: 'Create multiple API keys with pool-level permissions' },
+        help_step_tool_config: { zh: '配置工具（可选）', en: 'Configure Tools (Optional)' },
+        help_step_tool_config_desc: { zh: '在「工具配置」页一键将代理地址注入已安装的 AI 编码工具，无需手动填写地址和密钥', en: 'Inject proxy address into installed AI coding tools with one click on the Tool Config page — no manual address/key entry needed' },
         help_dashboard: { zh: '仪表盘', en: 'Dashboard' },
         help_upstreams: { zh: '上游服务', en: 'Upstreams' },
         help_pools: { zh: '模型池', en: 'Model Pools' },
@@ -2747,6 +3173,7 @@ test_chat_ok: { zh: '✓ 连接成功 · 模型 {model} · {ms}ms', en: '✓ Con
         toast_no_models_for_upstream: { zh: '该上游暂无可用模型', en: 'No available models for this upstream' },
         toast_load_upstream_list_fail: { zh: '加载上游列表失败', en: 'Failed to load upstream list' },
         toast_health_check_fail: { zh: '检测失败: ', en: 'Health check failed: ' },
+        toast_pool_name_duplicate: { zh: '模型名称已存在，请更换', en: 'Model name already exists' },
         toast_update_found_toast: { zh: '发现新版本 v{v}，请前往「设置」页面下载', en: 'New version v{v} available. Go to Settings to download.' },
 
         // ── Context menu (input) ──
@@ -2789,11 +3216,14 @@ test_chat_ok: { zh: '✓ 连接成功 · 模型 {model} · {ms}ms', en: '✓ Con
         help_dashboard_desc_5: { zh: '<strong>最近活动</strong>：实时显示最近的网关请求日志', en: '<strong>Recent Activity</strong>: Real-time display of recent gateway request logs' },
         help_dashboard_tip: { zh: '仪表盘每 30 秒自动刷新一次统计数据，离开页面时自动停止刷新以节省资源。', en: 'The dashboard auto-refreshes every 30 seconds. Refreshing stops when you leave the page to save resources.' },
         help_upstreams_desc: { zh: '上游服务指你实际订阅的 AI 服务商（如 OpenAI、Anthropic、DeepSeek 等）。每个上游包含：', en: 'Upstreams are the AI providers you subscribe to (e.g. OpenAI, Anthropic, DeepSeek). Each upstream includes:' },
-        help_upstreams_item_1: { zh: '<strong>供应商名称</strong>：用于识别服务商，也决定思考模式注入的参数类型', en: '<strong>Provider Name</strong>: Identifies the provider and determines thinking mode injection' },
+        help_upstreams_item_1: { zh: '<strong>供应商名称</strong>：用于识别服务商，也决定 <strong>API 格式适配</strong>和思考参数注入类型', en: '<strong>Provider Name</strong>: Identifies the provider and determines API format adaptation and thinking parameter injection' },
         help_upstreams_item_2: { zh: '<strong>Base URL</strong>：服务商的 API 地址，如 <code>https://api.openai.com</code>', en: '<strong>Base URL</strong>: Provider API address, e.g. <code>https://api.openai.com</code>' },
         help_upstreams_item_3: { zh: '<strong>API Key</strong>：你在服务商处获取的密钥，加密存储', en: '<strong>API Key</strong>: Your provider key, stored encrypted' },
         help_upstreams_item_4: { zh: '<strong>模型</strong>：该上游使用的模型名，如 <code>gpt-4o</code>', en: '<strong>Model</strong>: Model name for this upstream, e.g. <code>gpt-4o</code>' },
         help_upstreams_item_5: { zh: '<strong>可用模型</strong>：点击「获取模型列表」按钮自动从服务商拉取支持的模型列表', en: '<strong>Available Models</strong>: Click "Fetch Models" to auto-fetch supported models from the provider' },
+        help_upstreams_item_6: { zh: '<strong>API 格式</strong>：选择上游的原生 API 格式（OpenAI Chat / Anthropic Messages / Gemini），网关自动做格式转换', en: '<strong>API Format</strong>: Select the upstream native API format (OpenAI Chat / Anthropic Messages / Gemini); the gateway auto-converts' },
+        help_upstreams_item_7: { zh: '<strong>模型能力</strong>：标识该模型支持的输入/输出模态（文本、图片、音频）、是否支持函数调用、上下文窗口大小等。留空时系统根据模型名自动推断', en: '<strong>Model Capabilities</strong>: Marks input/output modalities (text, image, audio), function calling support, context window, etc. Auto-inferred from model name when empty' },
+        help_upstreams_item_8: { zh: '点击「自动推断」按钮可根据模型名自动填充能力标记', en: 'Click "Auto-Infer" to auto-fill capabilities from the model name' },
         help_upstreams_ops: { zh: '<strong>操作方式：</strong>', en: '<strong>Operations:</strong>' },
         help_upstreams_op_1: { zh: '点击「+ 新增上游」添加新服务商', en: 'Click "+ Add Upstream" to add a new provider' },
         help_upstreams_op_2: { zh: '右键点击表格行可弹出菜单：编辑、Token 消耗、启用/禁用、复制信息、删除（右键删除直接执行，无需二次确认）', en: 'Right-click a table row for context menu: Edit, Token Usage, Enable/Disable, Copy Info, Delete (right-click delete executes immediately without confirmation)' },
@@ -2808,7 +3238,10 @@ test_chat_ok: { zh: '✓ 连接成功 · 模型 {model} · {ms}ms', en: '✓ Con
         help_pools_item_3: { zh: '<strong>关联上游</strong>：勾选要加入该池的上游，并为每个上游选择对应模型', en: '<strong>Associated Upstreams</strong>: Select upstreams and their models for this pool' },
         help_pools_item_4: { zh: '<strong>多模型选择</strong>：按住 Ctrl（或 Shift）可为一个上游选择多个模型，网关会在这些模型之间轮询负载均衡', en: '<strong>Multi-Model Selection</strong>: Hold Ctrl (or Shift) to select multiple models for an upstream. The gateway will round-robin between them' },
         help_pools_item_5: { zh: '<strong>最大并发</strong>：该池允许的最大并发请求数', en: '<strong>Max Concurrency</strong>: Maximum concurrent requests for this pool' },
-        help_pools_item_6: { zh: '<strong>思考模式</strong>：开启后自动为支持的上游注入推理参数（如 OpenAI 的 <code>reasoning_effort</code>、Claude 的 <code>thinking</code>）', en: '<strong>Thinking Mode</strong>: Auto-injects reasoning params for supported upstreams (e.g. OpenAI <code>reasoning_effort</code>, Claude <code>thinking</code>)' },
+        help_pools_item_6: { zh: '<strong>思考强度</strong>：支持关闭/低/中/高/最大/自定义六级，自动为不同厂商的上游注入对应的推理参数（如 OpenAI 的 <code>reasoning_effort</code>、Claude 的 <code>thinking</code>）', en: '<strong>Thinking Intensity</strong>: Six levels (off/low/medium/high/max/custom), auto-maps provider-specific reasoning params (e.g. OpenAI <code>reasoning_effort</code>, Claude <code>thinking</code>)' },
+        help_pools_item_7: { zh: '<strong>逐上游思考覆盖</strong>：在号池详情中可为每个上游单独设置思考强度，覆盖池级配置', en: '<strong>Per-Upstream Thinking Override</strong>: Set a per-upstream thinking intensity in the pool detail view, overriding the pool-level setting' },
+        help_pools_item_8: { zh: '<strong>模型能力标签</strong>：展示池内所有上游能力的并集，包括文本/图片/音频输入、函数调用、上下文窗口等', en: '<strong>Model Capability Tags</strong>: Shows the union of all upstream capabilities in the pool — text/image/audio input, function calling, context window, etc.' },
+        help_pools_item_9: { zh: '<strong>自定义思考参数</strong>：选择「自定义」时可直接输入 JSON 参数，注入到请求体中', en: '<strong>Custom Thinking Params</strong>: When "Custom" is selected, enter raw JSON params injected into the request body' },
         help_pools_lb: { zh: '<strong>负载均衡机制（两层轮询）：</strong>', en: '<strong>Load Balancing (Two-Layer Round-Robin):</strong>' },
         help_pools_lb_1: { zh: '<strong>第一层 — 上游轮询</strong>：每次请求在上游列表中轮换起始位置，使请求均匀分布到不同上游', en: '<strong>Layer 1 — Upstream Round-Robin</strong>: Rotates the starting position in the upstream list for each request, distributing load evenly' },
         help_pools_lb_2: { zh: '<strong>第二层 — 模型轮询</strong>：若某上游关联了多个模型，每次请求到该上游时在模型间轮换', en: '<strong>Layer 2 — Model Round-Robin</strong>: If an upstream has multiple models, rotates between them on each request' },
@@ -2817,6 +3250,24 @@ test_chat_ok: { zh: '✓ 连接成功 · 模型 {model} · {ms}ms', en: '✓ Con
         help_pools_detail_2: { zh: '详情页可视化展示池内上游的排序、模型、健康状态', en: 'The detail view shows upstream order, models, and health status visually' },
         help_pools_detail_3: { zh: '<strong>拖拽排序</strong>：在详情弹窗中拖拽行可调整上游顺序，保存后立即生效', en: '<strong>Drag to Reorder</strong>: Drag rows in the detail modal to reorder upstreams. Saved immediately' },
         help_pools_tip: { zh: '请求转发逻辑：轮询选择上游 → 跳过已禁用的上游 → 失败时若开启故障转移则自动尝试下一个上游 → 全部失败则返回错误。右键删除模型池直接执行，无需二次确认。日志自动保留策略可在设置中配置。', en: 'Request flow: Round-robin select upstream → Skip disabled → If failover is on, try next upstream on failure → Return error if all fail. Right-click delete executes immediately. Log retention is configurable in Settings.' },
+
+        // ── Help: Tool config section ──
+        help_tool_config: { zh: '工具配置', en: 'Tool Config' },
+        help_tool_config_desc: { zh: '工具配置页支持将代理地址一键注入到已安装的 AI 编码工具中，无需手动编辑配置文件。', en: 'The Tool Config page injects the proxy address into installed AI coding tools with one click — no manual config editing needed.' },
+        help_tool_config_supported_title: { zh: '<strong>支持的工具：</strong>', en: '<strong>Supported Tools:</strong>' },
+        help_tool_config_supported_desc: { zh: '支持 Claude Code、Claude Desktop、Codex CLI、Gemini CLI、Grok CLI、OpenCode、OpenClaw、Hermes 共 8 种工具', en: 'Supports 8 tools: Claude Code, Claude Desktop, Codex CLI, Gemini CLI, Grok CLI, OpenCode, OpenClaw, Hermes' },
+        help_tool_config_detect_title: { zh: '<strong>自动检测：</strong>', en: '<strong>Auto-Detection:</strong>' },
+        help_tool_config_detect_desc: { zh: '页面会自动检测系统已安装的工具，未安装的工具显示下载链接', en: 'The page auto-detects installed tools; uninstalled tools show a download link' },
+        help_tool_config_switch_title: { zh: '<strong>开关机制：</strong>', en: '<strong>Switch Mechanism:</strong>' },
+        help_tool_config_switch_desc: { zh: '每个工具独立开关：开启时自动写入配置并备份原始文件，关闭时自动恢复原始配置。软件退出时自动还原配置，下次启动时重新注入', en: 'Each tool has an independent switch: enabling writes config and backs up the original; disabling restores it. On app exit configs are restored and re-injected at next startup' },
+        help_tool_config_modal_title: { zh: '<strong>配置弹窗：</strong>', en: '<strong>Config Dialog:</strong>' },
+        help_tool_config_modal_desc: { zh: '开启开关时弹出配置弹窗，选择默认模型池、API Key 和供应商标签名', en: 'A dialog appears when enabling, letting you choose the default pool, API Key, and provider label' },
+        help_tool_config_strategies_title: { zh: '<strong>模型写入策略：</strong>', en: '<strong>Model Write Strategies:</strong>' },
+        help_tool_config_strategy_full: { zh: '<strong>全量写入</strong>：将所有模型池写入配置文件，适用于支持多模型声明的工具', en: '<strong>Full Write</strong>: Writes all pools into the config file, for tools that support multiple model declarations' },
+        help_tool_config_strategy_auto: { zh: '<strong>默认+自动发现</strong>：写入默认池，工具运行时通过 /v1/models 自动发现其他池', en: '<strong>Default + Auto-Discovery</strong>: Writes the default pool; the tool discovers other pools via /v1/models at runtime' },
+        help_tool_config_backup_title: { zh: '<strong>备份与恢复：</strong>', en: '<strong>Backup & Restore:</strong>' },
+        help_tool_config_backup_desc: { zh: '写入前自动备份原始配置文件，关闭开关或软件退出时自动恢复', en: 'Original config is backed up before writing and restored on switch-off or app exit' },
+        help_tool_config_tip: { zh: '提示：开关状态会持久化保存，软件重启后自动恢复上次的状态并重新写入配置。若检测到系统环境变量（ANTHROPIC_*、OPENAI_* 等）与注入配置冲突，页面会提示并可一键清理。', en: 'Tip: Switch states persist across restarts; configs are rewritten on startup. If system env vars (ANTHROPIC_*, OPENAI_*, etc.) conflict with the injected config, the page warns and offers one-click cleanup.' },
         help_logs_desc: { zh: '请求日志页记录所有经过网关转发的请求，并提供多维度的统计分析和故障切换事件追踪。', en: 'The Logs page records all gateway-forwarded requests with multi-dimensional statistics and failover event tracking.' },
         help_logs_filter_title: { zh: '<strong>日志筛选与导出：</strong>', en: '<strong>Filter & Export:</strong>' },
         help_logs_item_1: { zh: '<strong>筛选</strong>：按模型池、上游或状态码（2xx / 4xx / 5xx）过滤', en: '<strong>Filter</strong>: By pool, upstream, or status code (2xx / 4xx / 5xx)' },
@@ -2861,6 +3312,9 @@ test_chat_ok: { zh: '✓ 连接成功 · 模型 {model} · {ms}ms', en: '✓ Con
         help_portability_tip: { zh: '将便捷版 .exe 放入 U 盘或任意目录运行，所有数据会自动在程序同级目录生成。拔走即带走，不在电脑上残留任何用户数据。', en: 'Place the portable .exe on a USB drive or any directory. All data is generated alongside the program. Take it with you — no user data remains on the computer.' },
         help_client_example_desc: { zh: '以 Python OpenAI SDK 为例：', en: 'Example with Python OpenAI SDK:' },
         help_client_curl_desc: { zh: '使用 curl 命令行：', en: 'Using curl:' },
+        help_client_anthropic_desc: { zh: '使用 Anthropic Messages API 格式：', en: 'Using Anthropic Messages API format:' },
+        help_client_gemini_desc: { zh: '使用 Gemini Native API 格式：', en: 'Using Gemini Native API format:' },
+        help_client_tool_tip: { zh: '💡 如果使用 Claude Code、Codex CLI 等工具，可直接在「工具配置」页面一键注入，无需手动填写地址和密钥。', en: '💡 If you use Claude Code, Codex CLI, etc., inject the config with one click on the Tool Config page — no manual address/key entry needed.' },
         help_client_example_tip: { zh: '任意兼容 OpenAI API 的客户端（如 ChatBox、NextChat、Cursor 等）均可直接使用上述地址和密钥接入。', en: 'Any OpenAI-compatible client (e.g. ChatBox, NextChat, Cursor) can use the above address and key.' },
 
         // ── Help: Settings sub-sections ──
@@ -2918,6 +3372,22 @@ test_chat_ok: { zh: '✓ 连接成功 · 模型 {model} · {ms}ms', en: '✓ Con
         help_failover_trigger_3: { zh: '上游返回 HTTP 200 但响应体包含 <code>error</code> 字段（"假成功"检测）', en: 'Upstream returns HTTP 200 but response body contains an <code>error</code> field (false success detection)' },
         help_failover_trigger_4: { zh: '流式响应中 SSE chunk 包含 <code>error</code> 字段', en: 'SSE chunk in streaming response contains an <code>error</code> field' },
         help_failover_tip: { zh: '4xx 客户端错误（如 401 认证失败、400 参数错误）不会触发故障转移，因为这类错误对所有上游都会一样。只有服务端问题或连接问题才会切换上游。', en: '4xx client errors (e.g. 401 auth failure, 400 bad request) do not trigger failover, as these errors would be the same across all upstreams. Only server-side or connection issues trigger upstream switching.' },
+
+        // ── Help: Multi-format API conversion section ──
+        help_api_convert: { zh: '多格式 API 转换', en: 'Multi-Format API Conversion' },
+        help_api_convert_desc: { zh: '网关支持多种原生 API 格式的端点，自动将请求转换为上游所需的格式，响应也自动转回客户端期望的格式。', en: 'The gateway supports multiple native API format endpoints, auto-converting requests to the upstream format and responses back to the client format.' },
+        help_api_convert_endpoints_title: { zh: '<strong>支持的端点：</strong>', en: '<strong>Supported Endpoints:</strong>' },
+        help_api_convert_endpoint_1: { zh: 'OpenAI Chat：POST /v1/chat/completions（默认，兼容所有 OpenAI 客户端）', en: 'OpenAI Chat: POST /v1/chat/completions (default, compatible with all OpenAI clients)' },
+        help_api_convert_endpoint_2: { zh: 'Anthropic Messages：POST /v1/messages（兼容 Claude 原生客户端）', en: 'Anthropic Messages: POST /v1/messages (compatible with Claude native clients)' },
+        help_api_convert_endpoint_3: { zh: 'Gemini Native：POST /v1beta/models/{model}:generateContent（兼容 Gemini 原生客户端）', en: 'Gemini Native: POST /v1beta/models/{model}:generateContent (compatible with Gemini native clients)' },
+        help_api_convert_endpoint_4: { zh: 'OpenAI Responses：POST /v1/responses（兼容 Codex CLI 等工具）', en: 'OpenAI Responses: POST /v1/responses (compatible with Codex CLI and similar tools)' },
+        help_api_convert_detect_title: { zh: '<strong>格式检测：</strong>', en: '<strong>Format Detection:</strong>' },
+        help_api_convert_detect_desc: { zh: '网关根据请求路径自动识别格式，无需额外配置', en: 'The gateway auto-detects the format from the request path; no extra config needed' },
+        help_api_convert_upstream_title: { zh: '<strong>上游格式适配：</strong>', en: '<strong>Upstream Format Adaptation:</strong>' },
+        help_api_convert_upstream_desc: { zh: '在上游编辑中可设置该上游的原生 API 格式，网关会自动将客户端请求转换为上游格式，响应再转回客户端格式', en: 'Set the upstream native API format when editing an upstream; the gateway converts client requests to the upstream format and responses back to the client format' },
+        help_api_convert_stream_title: { zh: '<strong>流式转换：</strong>', en: '<strong>Streaming Conversion:</strong>' },
+        help_api_convert_stream_desc: { zh: 'SSE 流式响应也支持格式转换，实时将上游的流式格式转换为客户端期望的流式格式', en: 'SSE streaming also supports format conversion, converting upstream chunks to the client-expected stream format in real time' },
+        help_api_convert_tip: { zh: '提示：即使上游是 Anthropic 原生格式，使用 OpenAI 兼容客户端接入也能正常工作，网关会自动做双向转换。', en: 'Tip: Even if an upstream is Anthropic-native, OpenAI-compatible clients work fine — the gateway handles bidirectional conversion automatically.' },
 
         // ── Help: Security section ──
         help_security_1: { zh: '<strong>API Key 加密</strong>：所有上游 API Key 使用 AES-256-GCM 加密存储，明文绝不出现在数据库或日志中', en: '<strong>API Key Encryption</strong>: All upstream API Keys are encrypted with AES-256-GCM. Plaintext never appears in database or logs' },
@@ -3083,6 +3553,7 @@ dashboardTimer = setInterval(refreshDashboard, 30000);
 }
 if (page === 'upstreams') loadUpstreams();
 if (page === 'pools') loadPools();
+if (page === 'tool-config') loadToolConfig();
 if (page === 'logs') { populatePoolFilter(); populateUpstreamFilter(); loadLogs(true); }
 if (page === 'settings') loadSettings();
 // Auto-render stored update info if available (from silent startup check)
@@ -3331,6 +3802,8 @@ if (page === 'settings' && lastUpdateInfo) {
         document.getElementById('f-enabled').checked = true;
         document.getElementById('f-remark').value = '';
         document.getElementById('model-chips').innerHTML = '';
+        resetCapabilitiesForm();
+        document.getElementById('f-api-format').value = 'openai_chat';
         document.getElementById('upstream-modal').classList.add('open');
     }
 
@@ -3354,6 +3827,8 @@ if (page === 'settings' && lastUpdateInfo) {
             container.innerHTML = models.map(m =>
                 `<span class="model-chip selected" onclick="selectModel(this, '${esc(m)}')">${esc(m)}</span>`
             ).join('');
+            loadCapabilitiesIntoForm(u);
+            document.getElementById('f-api-format').value = u.api_format || 'openai_chat';
             document.getElementById('upstream-modal').classList.add('open');
         } catch (e) {
             toast(t('toast_load_upstream_detail_fail') + e, 'error');
@@ -3475,6 +3950,8 @@ if (page === 'settings' && lastUpdateInfo) {
         }
         const enabled = document.getElementById('f-enabled').checked;
         const remark = document.getElementById('f-remark').value.trim();
+        const capabilities = JSON.stringify(readCapabilitiesFromForm());
+        const api_format = document.getElementById('f-api-format').value;
 
         if (!provider_name || !base_url || !api_key) {
             toast(t('toast_required_fields'), 'error');
@@ -3487,10 +3964,10 @@ if (page === 'settings' && lastUpdateInfo) {
 
         try {
             if (id) {
-                await cmd('update_upstream', { id, req: { provider_name, base_url, api_key, selected_model, available_models, enabled, remark } });
+                await cmd('update_upstream', { id, req: { provider_name, base_url, api_key, selected_model, available_models, enabled, remark, capabilities, api_format } });
                 toast(t('toast_upstream_updated'), 'success');
             } else {
-                await cmd('create_upstream', { req: { provider_name, base_url, api_key, selected_model, available_models, enabled, remark } });
+                await cmd('create_upstream', { req: { provider_name, base_url, api_key, selected_model, available_models, enabled, remark, capabilities, api_format } });
                 toast(t('toast_upstream_created'), 'success');
             }
             closeModal();
@@ -3515,6 +3992,32 @@ if (page === 'settings' && lastUpdateInfo) {
             toast(t('toast_toggle_fail') + e, 'error');
             await loadUpstreams();
         }
+    }
+
+    // ================================================================
+    // Generic Confirm Dialog
+    // ================================================================
+    let appConfirmCallback = null;
+
+    function showAppConfirm(message, onConfirm, opts = {}) {
+        document.getElementById('app-confirm-title').textContent = opts.title || t('confirm_title');
+        document.getElementById('app-confirm-body').textContent = message;
+        const okBtn = document.getElementById('app-confirm-ok');
+        okBtn.textContent = opts.okText || t('modal_ok');
+        okBtn.className = opts.danger ? 'btn btn-danger' : 'btn btn-primary';
+        appConfirmCallback = onConfirm;
+        document.getElementById('app-confirm-modal').classList.add('open');
+    }
+
+    function closeAppConfirm() {
+        appConfirmCallback = null;
+        document.getElementById('app-confirm-modal').classList.remove('open');
+    }
+
+    async function confirmAppConfirm() {
+        const cb = appConfirmCallback;
+        closeAppConfirm();
+        if (cb) await cb();
     }
 
     // ================================================================
@@ -3901,6 +4404,7 @@ if (page === 'settings' && lastUpdateInfo) {
                 <td><span class="badge badge-blue">${p.upstream_count} ${t('label_upstream_suffix')}</span></td>
                 <td>${p.max_concurrency}</td>
                 <td>${p.thinking_enabled ? '<span class="badge badge-green">' + t('label_on') + '</span>' : '<span style="color:var(--text-muted)">' + t('label_off') + '</span>'}</td>
+                <td>${thinkingLevelLabel(p.thinking_level)}</td>
                 <td>
                     <button class="btn btn-ghost btn-sm" onclick="openPoolDetailModal('${jsEsc(p.id)}')">${t('btn_detail')}</button>
                     <button class="btn btn-ghost btn-sm" onclick="openEditPoolModal('${jsEsc(p.id)}')">${t('btn_edit')}</button>
@@ -3914,11 +4418,496 @@ if (page === 'settings' && lastUpdateInfo) {
         document.getElementById('pool-modal-title').textContent = t('modal_add_pool');
         document.getElementById('pool-edit-id').value = '';
         document.getElementById('pf-name').value = '';
+        document.getElementById('pf-name').disabled = false;
+        document.getElementById('pf-name-duplicate').style.display = 'none';
         document.getElementById('pf-display').value = '';
         document.getElementById('pf-concurrency').value = '5';
-        document.getElementById('pf-thinking').checked = false;
+        setThinkingLevel('off');
         await loadPoolUpstreamCheckboxes(null);
         document.getElementById('pool-modal').classList.add('open');
+    }
+
+    function setThinkingLevel(level) {
+        const box = document.getElementById('pf-custom-box');
+        document.querySelectorAll('#pf-thinking-levels .thinking-level-btn').forEach(btn => {
+            const active = btn.dataset.level === level;
+            btn.classList.toggle('active', active);
+        });
+        document.getElementById('pf-thinking').value = level;
+        box.style.display = level === 'custom' ? 'block' : 'none';
+        if (level !== 'custom') {
+            document.getElementById('pf-custom-params').value = '';
+        }
+    }
+
+    function getThinkingLevel() {
+        return document.getElementById('pf-thinking').value || 'off';
+    }
+
+    function checkPoolNameDuplicate() {
+        const input = document.getElementById('pf-name');
+        const hint = document.getElementById('pf-name-duplicate');
+        const name = input.value.trim();
+        const dup = !input.disabled && poolsCache.some(p => p.name === name);
+        hint.textContent = dup ? t('toast_pool_name_duplicate') : '';
+        hint.style.display = dup ? 'block' : 'none';
+        return !dup;
+    }
+
+    document.addEventListener('input', function (e) {
+        if (e.target && e.target.id === 'pf-name') checkPoolNameDuplicate();
+    });
+
+    function thinkingLevelLabel(level) {
+        const key = 'thinking_level_' + (level || 'off');
+        const label = t(key);
+        return label !== key ? label : (level || 'off');
+    }
+
+    // ================================================================
+    // Model Capabilities (P3.1)
+    // ================================================================
+
+    function capabilityTag(label, cls, icon) {
+        return '<span class="capability-tag ' + (cls || '') + '">' + (icon || '') + ' ' + esc(label) + '</span>';
+    }
+
+    // Render capability tags from a ModelCapabilities JSON string (or object).
+    function renderCapabilityTags(caps) {
+        let c = caps;
+        if (typeof caps === 'string') {
+            if (!caps || !caps.trim()) return '';
+            try { c = JSON.parse(caps); } catch (e) { return ''; }
+        }
+        if (!c || typeof c !== 'object') return '';
+        const labels = t('cap_labels');
+        const parts = [];
+        const inMod = c.input_modalities || [];
+        const outMod = c.output_modalities || [];
+        const has = (v) => (inMod.indexOf(v) !== -1);
+        const hasOut = (v) => (outMod.indexOf(v) !== -1);
+        if (has('text')) parts.push(capabilityTag(labels.text, '', '📝'));
+        if (has('image')) parts.push(capabilityTag(labels.image, 'image', '🖼️'));
+        if (has('audio')) parts.push(capabilityTag(labels.audio, 'audio', '🔊'));
+        if (has('video')) parts.push(capabilityTag(labels.video, '', '🎬'));
+        if (c.supports_function_calling) parts.push(capabilityTag(labels.function, 'function', '🔧'));
+        if (c.supports_streaming) parts.push(capabilityTag(labels.streaming, '', '⚡'));
+        if (c.context_window) parts.push(capabilityTag((Math.floor(c.context_window / 1024)) + 'K', 'context', '📊'));
+        if (parts.length === 0) return '<span style="color:var(--text-muted);font-size:11px;">' + t('cap_labels_none') + '</span>';
+        return parts.join('');
+    }
+
+    // Read current capability form state into a ModelCapabilities JSON object/string.
+    function readCapabilitiesFromForm() {
+        const inMod = [];
+        if (document.getElementById('cap-input-text').checked) inMod.push('text');
+        if (document.getElementById('cap-input-image').checked) inMod.push('image');
+        if (document.getElementById('cap-input-audio').checked) inMod.push('audio');
+        if (document.getElementById('cap-input-video').checked) inMod.push('video');
+        const outMod = [];
+        if (document.getElementById('cap-output-text').checked) outMod.push('text');
+        if (document.getElementById('cap-output-image').checked) outMod.push('image');
+        if (document.getElementById('cap-output-audio').checked) outMod.push('audio');
+        return {
+            input_modalities: inMod,
+            output_modalities: outMod,
+            supports_function_calling: document.getElementById('cap-fn').checked,
+            supports_streaming: document.getElementById('cap-stream').checked,
+            context_window: parseInt(document.getElementById('cap-context').value, 10) || null,
+            max_output_tokens: parseInt(document.getElementById('cap-maxout').value, 10) || null
+        };
+    }
+
+    function loadCapabilitiesIntoForm(u) {
+        let c = {};
+        if (u && u.capabilities && u.capabilities.trim()) {
+            try { c = JSON.parse(u.capabilities); } catch (e) { c = {}; }
+        }
+        const inMod = c.input_modalities || [];
+        const outMod = c.output_modalities || [];
+        const set = (id, v) => { document.getElementById(id).checked = !!v; };
+        set('cap-input-text', inMod.indexOf('text') !== -1);
+        set('cap-input-image', inMod.indexOf('image') !== -1);
+        set('cap-input-audio', inMod.indexOf('audio') !== -1);
+        set('cap-input-video', inMod.indexOf('video') !== -1);
+        set('cap-output-text', outMod.indexOf('text') !== -1);
+        set('cap-output-image', outMod.indexOf('image') !== -1);
+        set('cap-output-audio', outMod.indexOf('audio') !== -1);
+        set('cap-fn', !!c.supports_function_calling);
+        set('cap-stream', c.supports_streaming !== false);
+        document.getElementById('cap-context').value = c.context_window || '';
+        document.getElementById('cap-maxout').value = c.max_output_tokens || '';
+    }
+
+    function resetCapabilitiesForm() {
+        document.getElementById('cap-input-text').checked = true;
+        document.getElementById('cap-input-image').checked = false;
+        document.getElementById('cap-input-audio').checked = false;
+        document.getElementById('cap-input-video').checked = false;
+        document.getElementById('cap-output-text').checked = true;
+        document.getElementById('cap-output-image').checked = false;
+        document.getElementById('cap-output-audio').checked = false;
+        document.getElementById('cap-fn').checked = false;
+        document.getElementById('cap-stream').checked = true;
+        document.getElementById('cap-context').value = '';
+        document.getElementById('cap-maxout').value = '';
+    }
+
+    // Client-side auto-infer preview; the authoritative inference is done server-side.
+    function autoInferCapabilities() {
+        resetCapabilitiesForm();
+        const model = document.getElementById('f-model').value.trim().toLowerCase();
+        let caps = readCapabilitiesFromForm();
+        if (model.indexOf('gpt-4o') !== -1 || model.indexOf('gpt-5') !== -1 || model.indexOf('claude-3') !== -1 || model.indexOf('claude-4') !== -1 || model.indexOf('claude-5') !== -1) {
+            document.getElementById('cap-input-image').checked = true;
+            document.getElementById('cap-fn').checked = true;
+            document.getElementById('cap-context').value = 200000;
+        } else if (model.indexOf('gemini') !== -1) {
+            document.getElementById('cap-input-image').checked = true;
+            document.getElementById('cap-input-audio').checked = true;
+            document.getElementById('cap-fn').checked = true;
+            document.getElementById('cap-context').value = 1000000;
+        } else if (model.indexOf('deepseek') !== -1) {
+            document.getElementById('cap-fn').checked = true;
+            document.getElementById('cap-context').value = 64000;
+        } else if (model.indexOf('qwen') !== -1) {
+            document.getElementById('cap-fn').checked = true;
+            document.getElementById('cap-context').value = 131072;
+        }
+        toast(t('cap_inferred'), 'success');
+    }
+
+// ================================================================
+    // Tool Config (P4)
+    // ================================================================
+
+        // Tool brand icons embedded as data URIs.
+    const TOOL_ICONS = {
+        'claude': 'data:image/svg+xml;base64,PHN2ZyBoZWlnaHQ9IjFlbSIgc3R5bGU9ImZsZXg6bm9uZTtsaW5lLWhlaWdodDoxIiB2aWV3Qm94PSIwIDAgMjQgMjQiIHdpZHRoPSIxZW0iIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHRpdGxlPkNsYXVkZTwvdGl0bGU+PHBhdGggZD0iTTQuNzA5IDE1Ljk1NWw0LjcyLTIuNjQ3LjA4LS4yMy0uMDgtLjEyOEg5LjJsLS43OS0uMDQ4LTIuNjk4LS4wNzMtMi4zMzktLjA5Ny0yLjI2Ni0uMTIyLS41NzEtLjEyMUwwIDExLjc4NGwuMDU1LS4zNTIuNDgtLjMyMS42ODYuMDYgMS41Mi4xMDMgMi4yNzguMTU4IDEuNjUyLjA5NyAyLjQ0OS4yNTVoLjM4OWwuMDU1LS4xNTctLjEzNC0uMDk4LS4xMDMtLjA5Ny0yLjM1OC0xLjU5Ni0yLjU1Mi0xLjY4OC0xLjMzNi0uOTcyLS43MjQtLjQ5MS0uMzY0LS40NjItLjE1OC0xLjAwOC42NTYtLjcyMi44ODEuMDYuMjI1LjA2MS44OTMuNjg2IDEuOTA4IDEuNDc2IDIuNDkxIDEuODMzLjM2NS4zMDQuMTQ1LS4xMDMuMDE5LS4wNzMtLjE2NC0uMjc0LTEuMzU1LTIuNDQ2LTEuNDQ2LTIuNDktLjY0NC0xLjAzMi0uMTctLjYxOWEyLjk3IDIuOTcgMCAwMS0uMTA0LS43MjlMNi4yODMuMTM0IDYuNjk2IDBsLjk5Ni4xMzQuNDIuMzY0LjYyIDEuNDE0IDEuMDAyIDIuMjI5IDEuNTU1IDMuMDMuNDU2Ljg5OC4yNDMuODMyLjA5MS4yNTVoLjE1OFY5LjAxbC4xMjgtMS43MDYuMjM3LTIuMDk1LjIzLTIuNjk1LjA4LS43Ni4zNzYtLjkxLjc0Ny0uNDkyLjU4NC4yOC40OC42ODUtLjA2Ny40NDQtLjI4NiAxLjg1MS0uNTU5IDIuOTAzLS4zNjQgMS45NDJoLjIxMmwuMjQzLS4yNDIuOTg1LTEuMzA2IDEuNjUyLTIuMDY0LjczLS44Mi44NS0uOTA0LjU0Ny0uNDMxaDEuMDMzbC43NiAxLjEyOS0uMzQgMS4xNjYtMS4wNjQgMS4zNDctLjg4MSAxLjE0Mi0xLjI2NCAxLjctLjc5IDEuMzYuMDczLjExLjE4OC0uMDIgMi44NTYtLjYwNiAxLjU0My0uMjggMS44NDEtLjMxNS44MzMuMzg4LjA5MS4zOTUtLjMyOC44MDctMS45NjkuNDg2LTIuMzA5LjQ2Mi0zLjQzOS44MTMtLjA0Mi4wMy4wNDkuMDYxIDEuNTQ5LjE0Ni42NjIuMDM2aDEuNjIybDMuMDIuMjI1Ljc5LjUyMi40NzQuNjM4LS4wNzkuNDg1LTEuMjE1LjYyLTEuNjQtLjM4OS0zLjgyOS0uOTEtMS4zMTItLjMyOWgtLjE4MnYuMTFsMS4wOTMgMS4wNjggMi4wMDYgMS44MSAyLjUwOSAyLjMzLjEyNy41NzgtLjMyMi40NTUtLjM0LS4wNDktMi4yMDUtMS42NTctLjg1MS0uNzQ3LTEuOTI2LTEuNjJoLS4xMjh2LjE3bC40NDQuNjQ5IDIuMzQ1IDMuNTIxLjEyMiAxLjA4LS4xNy4zNTMtLjYwOC4yMTMtLjY2OC0uMTIyLTEuMzc0LTEuOTI1LTEuNDE1LTIuMTY3LTEuMTQzLTEuOTQzLS4xNC4wOC0uNjc0IDcuMjU0LS4zMTYuMzctLjcyOS4yOC0uNjA3LS40NjEtLjMyMi0uNzQ3LjMyMi0xLjQ3Ni4zODktMS45MjQuMzE1LTEuNTMuMjg2LTEuOS4xNy0uNjMyLS4wMTItLjA0Mi0uMTQuMDE4LTEuNDM0IDEuOTY3LTIuMTggMi45NDUtMS43MjYgMS44NDUtLjQxNC4xNjQtLjcxNy0uMzcuMDY3LS42NjIuNDAxLS41ODkgMi4zODgtMy4wMzYgMS40NC0xLjg4Mi45My0xLjA4Ni0uMDA2LS4xNThoLS4wNTVMNC4xMzIgMTguNTZsLTEuMTMuMTQ2LS40ODctLjQ1Ni4wNjEtLjc0Ni4yMzEtLjI0MyAxLjkwOC0xLjMxMi0uMDA2LjAwNnoiIGZpbGw9IiNEOTc3NTciIGZpbGwtcnVsZT0ibm9uemVybyI+PC9wYXRoPjwvc3ZnPg==',
+        'claude-desktop': 'data:image/svg+xml;base64,PHN2ZyBoZWlnaHQ9IjFlbSIgc3R5bGU9ImZsZXg6bm9uZTtsaW5lLWhlaWdodDoxIiB2aWV3Qm94PSIwIDAgMjQgMjQiIHdpZHRoPSIxZW0iIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHRpdGxlPkNsYXVkZTwvdGl0bGU+PHBhdGggZD0iTTQuNzA5IDE1Ljk1NWw0LjcyLTIuNjQ3LjA4LS4yMy0uMDgtLjEyOEg5LjJsLS43OS0uMDQ4LTIuNjk4LS4wNzMtMi4zMzktLjA5Ny0yLjI2Ni0uMTIyLS41NzEtLjEyMUwwIDExLjc4NGwuMDU1LS4zNTIuNDgtLjMyMS42ODYuMDYgMS41Mi4xMDMgMi4yNzguMTU4IDEuNjUyLjA5NyAyLjQ0OS4yNTVoLjM4OWwuMDU1LS4xNTctLjEzNC0uMDk4LS4xMDMtLjA5Ny0yLjM1OC0xLjU5Ni0yLjU1Mi0xLjY4OC0xLjMzNi0uOTcyLS43MjQtLjQ5MS0uMzY0LS40NjItLjE1OC0xLjAwOC42NTYtLjcyMi44ODEuMDYuMjI1LjA2MS44OTMuNjg2IDEuOTA4IDEuNDc2IDIuNDkxIDEuODMzLjM2NS4zMDQuMTQ1LS4xMDMuMDE5LS4wNzMtLjE2NC0uMjc0LTEuMzU1LTIuNDQ2LTEuNDQ2LTIuNDktLjY0NC0xLjAzMi0uMTctLjYxOWEyLjk3IDIuOTcgMCAwMS0uMTA0LS43MjlMNi4yODMuMTM0IDYuNjk2IDBsLjk5Ni4xMzQuNDIuMzY0LjYyIDEuNDE0IDEuMDAyIDIuMjI5IDEuNTU1IDMuMDMuNDU2Ljg5OC4yNDMuODMyLjA5MS4yNTVoLjE1OFY5LjAxbC4xMjgtMS43MDYuMjM3LTIuMDk1LjIzLTIuNjk1LjA4LS43Ni4zNzYtLjkxLjc0Ny0uNDkyLjU4NC4yOC40OC42ODUtLjA2Ny40NDQtLjI4NiAxLjg1MS0uNTU5IDIuOTAzLS4zNjQgMS45NDJoLjIxMmwuMjQzLS4yNDIuOTg1LTEuMzA2IDEuNjUyLTIuMDY0LjczLS44Mi44NS0uOTA0LjU0Ny0uNDMxaDEuMDMzbC43NiAxLjEyOS0uMzQgMS4xNjYtMS4wNjQgMS4zNDctLjg4MSAxLjE0Mi0xLjI2NCAxLjctLjc5IDEuMzYuMDczLjExLjE4OC0uMDIgMi44NTYtLjYwNiAxLjU0My0uMjggMS44NDEtLjMxNS44MzMuMzg4LjA5MS4zOTUtLjMyOC44MDctMS45NjkuNDg2LTIuMzA5LjQ2Mi0zLjQzOS44MTMtLjA0Mi4wMy4wNDkuMDYxIDEuNTQ5LjE0Ni42NjIuMDM2aDEuNjIybDMuMDIuMjI1Ljc5LjUyMi40NzQuNjM4LS4wNzkuNDg1LTEuMjE1LjYyLTEuNjQtLjM4OS0zLjgyOS0uOTEtMS4zMTItLjMyOWgtLjE4MnYuMTFsMS4wOTMgMS4wNjggMi4wMDYgMS44MSAyLjUwOSAyLjMzLjEyNy41NzgtLjMyMi40NTUtLjM0LS4wNDktMi4yMDUtMS42NTctLjg1MS0uNzQ3LTEuOTI2LTEuNjJoLS4xMjh2LjE3bC40NDQuNjQ5IDIuMzQ1IDMuNTIxLjEyMiAxLjA4LS4xNy4zNTMtLjYwOC4yMTMtLjY2OC0uMTIyLTEuMzc0LTEuOTI1LTEuNDE1LTIuMTY3LTEuMTQzLTEuOTQzLS4xNC4wOC0uNjc0IDcuMjU0LS4zMTYuMzctLjcyOS4yOC0uNjA3LS40NjEtLjMyMi0uNzQ3LjMyMi0xLjQ3Ni4zODktMS45MjQuMzE1LTEuNTMuMjg2LTEuOS4xNy0uNjMyLS4wMTItLjA0Mi0uMTQuMDE4LTEuNDM0IDEuOTY3LTIuMTggMi45NDUtMS43MjYgMS44NDUtLjQxNC4xNjQtLjcxNy0uMzcuMDY3LS42NjIuNDAxLS41ODkgMi4zODgtMy4wMzYgMS40NC0xLjg4Mi45My0xLjA4Ni0uMDA2LS4xNThoLS4wNTVMNC4xMzIgMTguNTZsLTEuMTMuMTQ2LS40ODctLjQ1Ni4wNjEtLjc0Ni4yMzEtLjI0MyAxLjkwOC0xLjMxMi0uMDA2LjAwNnoiIGZpbGw9IiNEOTc3NTciIGZpbGwtcnVsZT0ibm9uemVybyI+PC9wYXRoPjwvc3ZnPg==',
+        'codex': 'data:image/svg+xml;base64,PHN2ZyBmaWxsPSJjdXJyZW50Q29sb3IiIGZpbGwtcnVsZT0iZXZlbm9kZCIgaGVpZ2h0PSIxZW0iIHN0eWxlPSJmbGV4Om5vbmU7bGluZS1oZWlnaHQ6MSIgdmlld0JveD0iMCAwIDI0IDI0IiB3aWR0aD0iMWVtIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjx0aXRsZT5PcGVuQUk8L3RpdGxlPjxwYXRoIGQ9Ik0yMS41NSAxMC4wMDRhNS40MTYgNS40MTYgMCAwMC0uNDc4LTQuNTAxYy0xLjIxNy0yLjA5LTMuNjYyLTMuMTY2LTYuMDUtMi42NkE1LjU5IDUuNTkgMCAwMDEwLjgzMSAxQzguMzkuOTk1IDYuMjI0IDIuNTQ2IDUuNDczIDQuODM4QTUuNTUzIDUuNTUzIDAgMDAxLjc2IDcuNDk2YTUuNDg3IDUuNDg3IDAgMDAuNjkxIDYuNSA1LjQxNiA1LjQxNiAwIDAwLjQ3NyA0LjUwMmMxLjIxNyAyLjA5IDMuNjYyIDMuMTY1IDYuMDUgMi42NkE1LjU4NiA1LjU4NiAwIDAwMTMuMTY4IDIzYzIuNDQzLjAwNiA0LjYxLTEuNTQ2IDUuMzYxLTMuODRhNS41NTMgNS41NTMgMCAwMDMuNzE1LTIuNjYgNS40ODggNS40ODggMCAwMC0uNjkzLTYuNDk3di4wMDF6bS04LjM4MSAxMS41NThhNC4xOTkgNC4xOTkgMCAwMS0yLjY3NS0uOTU0Yy4wMzQtLjAxOC4wOTMtLjA1LjEzMi0uMDc0bDQuNDQtMi41M2EuNzEuNzEgMCAwMC4zNjQtLjYyM3YtNi4xNzZsMS44NzcgMS4wNjljLjAyLjAxLjAzMy4wMjkuMDM2LjA1djUuMTE1Yy0uMDAzIDIuMjc0LTEuODcgNC4xMTgtNC4xNzQgNC4xMjN6TTQuMTkyIDE3Ljc4YTQuMDU5IDQuMDU5IDAgMDEtLjQ5OC0yLjc2M2MuMDMyLjAyLjA5LjA1NS4xMzEuMDc4bDQuNDQgMi41M2MuMjI1LjEzLjUwNC4xMy43MyAwbDUuNDItMy4wODh2Mi4xMzhhLjA2OC4wNjggMCAwMS0uMDI3LjA1N0w5LjkgMTkuMjg4Yy0xLjk5OSAxLjEzNi00LjU1Mi40Ni01LjcwNy0xLjUxaC0uMDAxek0zLjAyMyA4LjIxNkE0LjE1IDQuMTUgMCAwMTUuMTk4IDYuNDFsLS4wMDIuMTUxdjUuMDZhLjcxMS43MTEgMCAwMC4zNjQuNjI0bDUuNDIgMy4wODctMS44NzYgMS4wN2EuMDY3LjA2NyAwIDAxLS4wNjMuMDA1bC00LjQ4OS0yLjU1OWMtMS45OTUtMS4xNC0yLjY3OS0zLjY1OC0xLjUzLTUuNjNoLjAwMXptMTUuNDE3IDMuNTRsLTUuNDItMy4wODhMMTQuODk2IDcuNmEuMDY3LjA2NyAwIDAxLjA2My0uMDA2bDQuNDg5IDIuNTU3YzEuOTk4IDEuMTQgMi42ODMgMy42NjIgMS41MjkgNS42MzNhNC4xNjMgNC4xNjMgMCAwMS0yLjE3NCAxLjgwN1YxMi4zOGEuNzEuNzEgMCAwMC0uMzYzLS42MjN6bTEuODY3LTIuNzczYTYuMDQgNi4wNCAwIDAwLS4xMzItLjA3OGwtNC40NC0yLjUzYS43MzEuNzMxIDAgMDAtLjcyOSAwbC01LjQyIDMuMDg4VjcuMzI1YS4wNjguMDY4IDAgMDEuMDI3LS4wNTdMMTQuMSA0LjcxM2MyLTEuMTM3IDQuNTU1LS40NiA1LjcwNyAxLjUxMy40ODcuODMzLjY2NCAxLjgwOS40OTkgMi43NTdoLjAwMXptLTExLjc0MSAzLjgxbC0xLjg3Ny0xLjA2OGEuMDY1LjA2NSAwIDAxLS4wMzYtLjA1MVY2LjU1OWMuMDAxLTIuMjc3IDEuODczLTQuMTIyIDQuMTgxLTQuMTIuOTc2IDAgMS45Mi4zMzggMi42NzEuOTU0LS4wMzQuMDE4LS4wOTIuMDUtLjEzMS4wNzNsLTQuNDQgMi41M2EuNzEuNzEgMCAwMC0uMzY1LjYyM2wtLjAwMyA2LjE3M3YuMDAyem0xLjAyLTIuMTY4TDEyIDkuMjVsMi40MTQgMS4zNzV2Mi43NUwxMiAxNC43NWwtMi40MTUtMS4zNzV2LTIuNzV6Ij48L3BhdGg+PC9zdmc+',
+        'gemini': 'data:image/svg+xml;base64,PHN2ZyBoZWlnaHQ9IjFlbSIgc3R5bGU9ImZsZXg6bm9uZTtsaW5lLWhlaWdodDoxIiB2aWV3Qm94PSIwIDAgMjQgMjQiIHdpZHRoPSIxZW0iIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHRpdGxlPkdlbWluaTwvdGl0bGU+PHBhdGggZD0iTTIwLjYxNiAxMC44MzVhMTQuMTQ3IDE0LjE0NyAwIDAxLTQuNDUtMy4wMDEgMTQuMTExIDE0LjExMSAwIDAxLTMuNjc4LTYuNDUyLjUwMy41MDMgMCAwMC0uOTc1IDAgMTQuMTM0IDE0LjEzNCAwIDAxLTMuNjc5IDYuNDUyIDE0LjE1NSAxNC4xNTUgMCAwMS00LjQ1IDMuMDAxYy0uNjUuMjgtMS4zMTguNTA1LTIuMDAyLjY3OGEuNTAyLjUwMiAwIDAwMCAuOTc1Yy42ODQuMTcyIDEuMzUuMzk3IDIuMDAyLjY3N2ExNC4xNDcgMTQuMTQ3IDAgMDE0LjQ1IDMuMDAxIDE0LjExMiAxNC4xMTIgMCAwMTMuNjc5IDYuNDUzLjUwMi41MDIgMCAwMC45NzUgMGMuMTcyLS42ODUuMzk3LTEuMzUxLjY3Ny0yLjAwM2ExNC4xNDUgMTQuMTQ1IDAgMDEzLjAwMS00LjQ1IDE0LjExMyAxNC4xMTMgMCAwMTYuNDUzLTMuNjc4LjUwMy41MDMgMCAwMDAtLjk3NSAxMy4yNDUgMTMuMjQ1IDAgMDEtMi4wMDMtLjY3OHoiIGZpbGw9IiMzMTg2RkYiPjwvcGF0aD48cGF0aCBkPSJNMjAuNjE2IDEwLjgzNWExNC4xNDcgMTQuMTQ3IDAgMDEtNC40NS0zLjAwMSAxNC4xMTEgMTQuMTExIDAgMDEtMy42NzgtNi40NTIuNTAzLjUwMyAwIDAwLS45NzUgMCAxNC4xMzQgMTQuMTM0IDAgMDEtMy42NzkgNi40NTIgMTQuMTU1IDE0LjE1NSAwIDAxLTQuNDUgMy4wMDFjLS42NS4yOC0xLjMxOC41MDUtMi4wMDIuNjc4YS41MDIuNTAyIDAgMDAwIC45NzVjLjY4NC4xNzIgMS4zNS4zOTcgMi4wMDIuNjc3YTE0LjE0NyAxNC4xNDcgMCAwMTQuNDUgMy4wMDEgMTQuMTEyIDE0LjExMiAwIDAxMy42NzkgNi40NTMuNTAyLjUwMiAwIDAwLjk3NSAwYy4xNzItLjY4NS4zOTctMS4zNTEuNjc3LTIuMDAzYTE0LjE0NSAxNC4xNDUgMCAwMTMuMDAxLTQuNDUgMTQuMTEzIDE0LjExMyAwIDAxNi40NTMtMy42NzguNTAzLjUwMyAwIDAwMC0uOTc1IDEzLjI0NSAxMy4yNDUgMCAwMS0yLjAwMy0uNjc4eiIgZmlsbD0idXJsKCNsb2JlLWljb25zLWdlbWluaS1maWxsLTApIj48L3BhdGg+PHBhdGggZD0iTTIwLjYxNiAxMC44MzVhMTQuMTQ3IDE0LjE0NyAwIDAxLTQuNDUtMy4wMDEgMTQuMTExIDE0LjExMSAwIDAxLTMuNjc4LTYuNDUyLjUwMy41MDMgMCAwMC0uOTc1IDAgMTQuMTM0IDE0LjEzNCAwIDAxLTMuNjc5IDYuNDUyIDE0LjE1NSAxNC4xNTUgMCAwMS00LjQ1IDMuMDAxYy0uNjUuMjgtMS4zMTguNTA1LTIuMDAyLjY3OGEuNTAyLjUwMiAwIDAwMCAuOTc1Yy42ODQuMTcyIDEuMzUuMzk3IDIuMDAyLjY3N2ExNC4xNDcgMTQuMTQ3IDAgMDE0LjQ1IDMuMDAxIDE0LjExMiAxNC4xMTIgMCAwMTMuNjc5IDYuNDUzLjUwMi41MDIgMCAwMC45NzUgMGMuMTcyLS42ODUuMzk3LTEuMzUxLjY3Ny0yLjAwM2ExNC4xNDUgMTQuMTQ1IDAgMDEzLjAwMS00LjQ1IDE0LjExMyAxNC4xMTMgMCAwMTYuNDUzLTMuNjc4LjUwMy41MDMgMCAwMDAtLjk3NSAxMy4yNDUgMTMuMjQ1IDAgMDEtMi4wMDMtLjY3OHoiIGZpbGw9InVybCgjbG9iZS1pY29ucy1nZW1pbmktZmlsbC0xKSI+PC9wYXRoPjxwYXRoIGQ9Ik0yMC42MTYgMTAuODM1YTE0LjE0NyAxNC4xNDcgMCAwMS00LjQ1LTMuMDAxIDE0LjExMSAxNC4xMTEgMCAwMS0zLjY3OC02LjQ1Mi41MDMuNTAzIDAgMDAtLjk3NSAwIDE0LjEzNCAxNC4xMzQgMCAwMS0zLjY3OSA2LjQ1MiAxNC4xNTUgMTQuMTU1IDAgMDEtNC40NSAzLjAwMWMtLjY1LjI4LTEuMzE4LjUwNS0yLjAwMi42NzhhLjUwMi41MDIgMCAwMDAgLjk3NWMuNjg0LjE3MiAxLjM1LjM5NyAyLjAwMi42NzdhMTQuMTQ3IDE0LjE0NyAwIDAxNC40NSAzLjAwMSAxNC4xMTIgMTQuMTEyIDAgMDEzLjY3OSA2LjQ1My41MDIuNTAyIDAgMDAuOTc1IDBjLjE3Mi0uNjg1LjM5Ny0xLjM1MS42NzctMi4wMDNhMTQuMTQ1IDE0LjE0NSAwIDAxMy4wMDEtNC40NSAxNC4xMTMgMTQuMTEzIDAgMDE2LjQ1My0zLjY3OC41MDMuNTAzIDAgMDAwLS45NzUgMTMuMjQ1IDEzLjI0NSAwIDAxLTIuMDAzLS42Nzh6IiBmaWxsPSJ1cmwoI2xvYmUtaWNvbnMtZ2VtaW5pLWZpbGwtMikiPjwvcGF0aD48ZGVmcz48bGluZWFyR3JhZGllbnQgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiIGlkPSJsb2JlLWljb25zLWdlbWluaS1maWxsLTAiIHgxPSI3IiB4Mj0iMTEiIHkxPSIxNS41IiB5Mj0iMTIiPjxzdG9wIHN0b3AtY29sb3I9IiMwOEI5NjIiPjwvc3RvcD48c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiMwOEI5NjIiIHN0b3Atb3BhY2l0eT0iMCI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIiBpZD0ibG9iZS1pY29ucy1nZW1pbmktZmlsbC0xIiB4MT0iOCIgeDI9IjExLjUiIHkxPSI1LjUiIHkyPSIxMSI+PHN0b3Agc3RvcC1jb2xvcj0iI0Y5NDU0MyI+PC9zdG9wPjxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iI0Y5NDU0MyIgc3RvcC1vcGFjaXR5PSIwIj48L3N0b3A+PC9saW5lYXJHcmFkaWVudD48bGluZWFyR3JhZGllbnQgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiIGlkPSJsb2JlLWljb25zLWdlbWluaS1maWxsLTIiIHgxPSIzLjUiIHgyPSIxNy41IiB5MT0iMTMuNSIgeTI9IjEyIj48c3RvcCBzdG9wLWNvbG9yPSIjRkFCQzEyIj48L3N0b3A+PHN0b3Agb2Zmc2V0PSIuNDYiIHN0b3AtY29sb3I9IiNGQUJDMTIiIHN0b3Atb3BhY2l0eT0iMCI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjwvc3ZnPg==',
+        'grokbuild': 'data:image/svg+xml;base64,PHN2ZyBmaWxsPSJjdXJyZW50Q29sb3IiIGZpbGwtcnVsZT0iZXZlbm9kZCIgaGVpZ2h0PSIxZW0iIHN0eWxlPSJmbGV4Om5vbmU7bGluZS1oZWlnaHQ6MSIgdmlld0JveD0iMCAwIDI0IDI0IiB3aWR0aD0iMWVtIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjx0aXRsZT5Hcm9rPC90aXRsZT48cGF0aCBkPSJNOS4yNyAxNS4yOWw3Ljk3OC01Ljg5N2MuMzkxLS4yOS45NS0uMTc3IDEuMTM3LjI3Mi45OCAyLjM2OS41NDIgNS4yMTUtMS40MSA3LjE2OS0xLjk1MSAxLjk1NC00LjY2NyAyLjM4Mi03LjE0OSAxLjQwNmwtMi43MTEgMS4yNTdjMy44ODkgMi42NjEgOC42MTEgMi4wMDMgMTEuNTYyLS45NTMgMi4zNDEtMi4zNDQgMy4wNjYtNS41MzkgMi4zODgtOC40MmwuMDA2LjAwN2MtLjk4My00LjIzMi4yNDItNS45MjQgMi43NS05LjM4My4wNi0uMDgyLjEyLS4xNjQuMTc5LS4yNDhsLTMuMzAxIDMuMzA1di0uMDFMOS4yNjcgMTUuMjkyTTcuNjIzIDE2LjcyM2MtMi43OTItMi42Ny0yLjMxLTYuODAxLjA3MS05LjE4NCAxLjc2MS0xLjc2MyA0LjY0Ny0yLjQ4MyA3LjE2Ni0xLjQyNWwyLjcwNS0xLjI1YTcuODA4IDcuODA4IDAgMDAtMS44MjktMUE4Ljk3NSA4Ljk3NSAwIDAwNS45ODQgNS44M2MtMi41MzMgMi41MzYtMy4zMyA2LjQzNi0xLjk2MiA5Ljc2NCAxLjAyMiAyLjQ4Ny0uNjUzIDQuMjQ2LTIuMzQgNi4wMjItLjU5OS42My0xLjE5OSAxLjI1OS0xLjY4MiAxLjkyNWw3LjYyLTYuODE1Ij48L3BhdGg+PC9zdmc+',
+        'opencode': 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0nMjQwJyBoZWlnaHQ9JzMwMCcgdmlld0JveD0nMCAwIDI0MCAzMDAnIGZpbGw9J25vbmUnIHhtbG5zPSdodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2Zyc+PGcgY2xpcC1wYXRoPSd1cmwoI2NsaXAwXzE0MDFfODYyNzQpJz48bWFzayBpZD0nbWFzazBfMTQwMV84NjI3NCcgc3R5bGU9J21hc2stdHlwZTpsdW1pbmFuY2UnIG1hc2tVbml0cz0ndXNlclNwYWNlT25Vc2UnIHg9JzAnIHk9JzAnIHdpZHRoPScyNDAnIGhlaWdodD0nMzAwJz48cGF0aCBkPSdNMjQwIDBIMFYzMDBIMjQwVjBaJyBmaWxsPSd3aGl0ZScvPjwvbWFzaz48ZyBtYXNrPSd1cmwoI21hc2swXzE0MDFfODYyNzQpJz48cGF0aCBkPSdNMTgwIDI0MEg2MFYxMjBIMTgwVjI0MFonIGZpbGw9JyNDRkNFQ0QnLz48cGF0aCBkPSdNMTgwIDYwSDYwVjI0MEgxODBWNjBaTTI0MCAzMDBIMFYwSDI0MFYzMDBaJyBmaWxsPScjMjExRTFFJy8+PC9nPjwvZz48ZGVmcz48Y2xpcFBhdGggaWQ9J2NsaXAwXzE0MDFfODYyNzQnPjxyZWN0IHdpZHRoPScyNDAnIGhlaWdodD0nMzAwJyBmaWxsPSd3aGl0ZScvPjwvY2xpcFBhdGg+PC9kZWZzPjwvc3ZnPg==',
+        'openclaw': 'data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgMTIwIDEyMCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8ZGVmcz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0ibG9ic3Rlci1ncmFkaWVudCIgeDE9IjAlIiB5MT0iMCUiIHgyPSIxMDAlIiB5Mj0iMTAwJSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiNmZjRkNGQiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjOTkxYjFiIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogIDwvZGVmcz4KICA8IS0tIEJvZHkgLS0+CiAgPHBhdGggZD0iTTYwIDEwIEMzMCAxMCAxNSAzNSAxNSA1NSBDMTUgNzUgMzAgOTUgNDUgMTAwIEw0NSAxMTAgTDU1IDExMCBMNTUgMTAwIEM1NSAxMDAgNjAgMTAyIDY1IDEwMCBMNjUgMTEwIEw3NSAxMTAgTDc1IDEwMCBDOTAgOTUgMTA1IDc1IDEwNSA1NSBDMTA1IDM1IDkwIDEwIDYwIDEwWiIgZmlsbD0idXJsKCNsb2JzdGVyLWdyYWRpZW50KSIvPgogIDwhLS0gTGVmdCBDbGF3IC0tPgogIDxwYXRoIGQ9Ik0yMCA0NSBDNSA0MCAwIDUwIDUgNjAgQzEwIDcwIDIwIDY1IDI1IDU1IEMyOCA0OCAyNSA0NSAyMCA0NVoiIGZpbGw9InVybCgjbG9ic3Rlci1ncmFkaWVudCkiLz4KICA8IS0tIFJpZ2h0IENsYXcgLS0+CiAgPHBhdGggZD0iTTEwMCA0NSBDMTE1IDQwIDEyMCA1MCAxMTUgNjAgQzExMCA3MCAxMDAgNjUgOTUgNTUgQzkyIDQ4IDk1IDQ1IDEwMCA0NVoiIGZpbGw9InVybCgjbG9ic3Rlci1ncmFkaWVudCkiLz4KICA8IS0tIEFudGVubmEgLS0+CiAgPHBhdGggZD0iTTQ1IDE1IFEzNSA1IDMwIDgiIHN0cm9rZT0iI2ZmNGQ0ZCIgc3Ryb2tlLXdpZHRoPSIzIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8cGF0aCBkPSJNNzUgMTUgUTg1IDUgOTAgOCIgc3Ryb2tlPSIjZmY0ZDRkIiBzdHJva2Utd2lkdGg9IjMiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDwhLS0gRXllcyAtLT4KICA8Y2lyY2xlIGN4PSI0NSIgY3k9IjM1IiByPSI2IiBmaWxsPSIjMDUwODEwIi8+CiAgPGNpcmNsZSBjeD0iNzUiIGN5PSIzNSIgcj0iNiIgZmlsbD0iIzA1MDgxMCIvPgogIDxjaXJjbGUgY3g9IjQ2IiBjeT0iMzQiIHI9IjIuNSIgZmlsbD0iIzAwZTVjYyIvPgogIDxjaXJjbGUgY3g9Ijc2IiBjeT0iMzQiIHI9IjIuNSIgZmlsbD0iIzAwZTVjYyIvPgo8L3N2Zz4K',
+        'hermes': 'data:image/png;base64,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',
+    };
+
+const TOOL_MONO_ICONS = new Set(['codex', 'grokbuild']);
+    const TOOL_OC_ICONS = new Set(['opencode']);
+
+
+    async function loadToolConfig(showToast) {
+        const listEl = document.getElementById('tool-config-list');
+        if (!listEl) return;
+        try {
+            const [detections, switches, pools] = await Promise.all([
+                cmd('detect_all_tools') || [],
+                cmd('get_tool_switches') || [],
+                cmd('list_pools') || []
+            ]);
+            listEl.innerHTML = detections.map(d => {
+                const sw = (switches || []).find(s => s.app_id === d.app_id) || {};
+                const isOn = !!sw.switch_enabled;
+                const installedBadge = d.installed
+                    ? '<span class="tool-config-badge-installed">' + t('tool_config_installed') + '</span>'
+                    : '<span class="tool-config-badge-missing">' + t('tool_config_not_installed') + '</span>';
+                const switchBadge = isOn
+                    ? '<span class="tool-config-badge-on">' + t('tool_config_switch_on') + '</span>'
+                    : '<span class="tool-config-badge-off">' + t('tool_config_switch_off') + '</span>';
+                const iconUri = TOOL_ICONS[d.app_id] || TOOL_ICONS.claude;
+                const mono = TOOL_MONO_ICONS.has(d.app_id) ? ' tc-mono' : '';
+                const oc = TOOL_OC_ICONS.has(d.app_id) ? ' tc-oc' : '';
+                const off = d.installed ? '' : ' tc-off';
+
+                return `
+                    <div class="tool-config-tile${off}" role="button" tabindex="0"
+                         onclick="openToolPoolPicker('${jsEsc(d.app_id)}')"
+                         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openToolPoolPicker('${jsEsc(d.app_id)}')}">
+                        <div class="tool-config-icon${mono}${oc}"><img src="${iconUri}" alt="${esc(d.display_name)}"></div>
+                        <div class="tool-config-name">${esc(d.display_name)}</div>
+                        <div class="tool-config-badges">${installedBadge} ${switchBadge}</div>
+                    </div>`;
+            }).join('');
+            if (showToast) toast(t('toast_tool_config_refreshed'), 'success');
+            checkEnvConflicts();
+        } catch (e) {
+            listEl.innerHTML = '<div class="empty-state" style="color:var(--danger);">' + esc(String(e)) + '</div>';
+        }
+    }
+
+    // Cache of pools for the pool picker.
+    let toolPoolPickerTarget = null;
+    let toolConfigTargetName = '';
+
+    async function openToolPoolPicker(appId) {
+        toolPoolPickerTarget = appId;
+        const picker = document.getElementById('tool-pool-picker');
+        const sel = document.getElementById('tool-pool-select');
+        const [pools, switches, detections] = await Promise.all([
+            cmd('list_pools') || [],
+            cmd('get_tool_switches') || [],
+            cmd('detect_all_tools') || []
+        ]);
+        const det = (detections || []).find(x => x.app_id === appId) || {};
+        toolConfigTargetName = det.display_name || appId;
+        const sw = (switches || []).find(s => s.app_id === appId) || {};
+        const isOn = !!sw.switch_enabled;
+        const installed = !!det.installed;
+        const iconUri = TOOL_ICONS[appId] || TOOL_ICONS.claude;
+        const mono = TOOL_MONO_ICONS.has(appId) ? ' tc-mono' : '';
+        const oc = TOOL_OC_ICONS.has(appId) ? ' tc-oc' : '';
+
+        document.getElementById('tool-pool-modal-icon').className = 'tool-config-modal-icon' + mono + oc;
+        document.getElementById('tool-pool-modal-icon').innerHTML = '<img src="' + iconUri + '" alt="' + esc(toolConfigTargetName) + '">';
+        document.getElementById('tool-pool-modal-name').textContent = toolConfigTargetName;
+        document.getElementById('tool-pool-modal-badges').innerHTML =
+            (installed
+                ? '<span class="tool-config-badge-installed">' + t('tool_config_installed') + '</span>'
+                : '<span class="tool-config-badge-missing">' + t('tool_config_not_installed') + '</span>')
+            + (isOn
+                ? '<span class="tool-config-badge-on">' + t('tool_config_switch_on') + '</span>'
+                : '<span class="tool-config-badge-off">' + t('tool_config_switch_off') + '</span>');
+
+        const pathsWrap = document.getElementById('tool-pool-modal-paths');
+        if (installed && det.config_paths && det.config_paths.length) {
+            pathsWrap.style.display = '';
+            pathsWrap.innerHTML = '<div class="tool-config-paths-label">' + t('tool_config_paths_label') + '</div>'
+                + det.config_paths.map(p => '<div class="tool-config-meta" style="word-break:break-all;">' + esc(p) + '</div>').join('');
+        } else {
+            pathsWrap.style.display = 'none';
+        }
+
+        const uninstalledWrap = document.getElementById('tool-pool-modal-uninstalled');
+        const formWrap = document.getElementById('tool-pool-modal-form');
+        const disableBtn = document.getElementById('tool-pool-disable');
+        const saveBtn = document.getElementById('tool-pool-save');
+        if (!installed) {
+            uninstalledWrap.style.display = '';
+            uninstalledWrap.innerHTML = '<div class="tool-config-download-panel">'
+                + t('tool_config_not_installed_hint') + '<br>'
+                + '<a class="btn btn-primary btn-sm" style="margin-top:10px;" href="' + esc(det.download_url || '#') + '" target="_blank" rel="noopener">' + t('tool_config_download') + '</a>'
+                + '</div>';
+            formWrap.style.display = 'none';
+            disableBtn.style.display = 'none';
+            saveBtn.style.display = 'none';
+            document.getElementById('tool-pool-picker-title').textContent = toolConfigTargetName;
+            picker.classList.add('open');
+            return;
+        }
+
+        uninstalledWrap.style.display = 'none';
+        formWrap.style.display = '';
+        disableBtn.style.display = isOn ? '' : 'none';
+        saveBtn.style.display = '';
+        document.getElementById('tool-pool-picker-title').textContent = isOn
+            ? t('tool_config_default_pool')
+            : t('tool_config_confirm_enable');
+        document.getElementById('tool-pool-edit-mode').value = isOn ? 'update' : 'enable';
+        sel.innerHTML = pools.map(p => '<option value="' + jsEsc(p.id) + '">' + esc(p.display_name) + ' (' + esc(p.name) + ')</option>').join('') || '<option value="">-</option>';
+        if (sw.pool_id) sel.value = sw.pool_id;
+        saveBtn.textContent = isOn ? t('tool_config_rewrite') : t('modal_save');
+
+        // 1M checkbox for the default pool: roles that follow the default pool
+        // inherit this 1M declaration (Claude Code / Desktop); Hermes, Gemini
+        // and OpenCode declare it on their default model entry.
+        const default1mWrap = document.getElementById('tool-default-1m-wrap');
+        const default1mHint = document.getElementById('tool-default-1m-hint');
+        const default1m = document.getElementById('tool-default-1m');
+        const oneMApps = ['claude', 'claude-desktop', 'gemini', 'hermes', 'opencode'];
+        if (oneMApps.indexOf(appId) !== -1) {
+            default1mWrap.style.display = 'flex';
+            default1mHint.style.display = '';
+            const saved1m = (sw.model_roles_1m) || [];
+            if (appId === 'claude' || appId === 'claude-desktop') {
+                const allRoles = appId === 'claude'
+                    ? ['sonnet', 'opus', 'fable', 'haiku', 'subagent']
+                    : ['sonnet', 'opus', 'fable', 'haiku'];
+                const mappedKeys = new Set((sw.model_roles || []).map(r => r[0]));
+                const unmapped = allRoles.filter(k => !mappedKeys.has(k));
+                default1m.checked = unmapped.length > 0 && unmapped.every(k => saved1m.indexOf(k) !== -1);
+            } else {
+                default1m.checked = saved1m.indexOf('default') !== -1;
+            }
+        } else {
+            default1mWrap.style.display = 'none';
+            default1mHint.style.display = 'none';
+            default1m.checked = false;
+        }
+
+        // Role mapping table (Claude Code / Claude Desktop have role slots).
+        const roleMapWrap = document.getElementById('tool-role-map');
+        const roleRowsWrap = document.getElementById('tool-role-rows');
+        if (appId === 'claude' || appId === 'claude-desktop') {
+            const roles = appId === 'claude'
+                ? [
+                    ['sonnet', t('tool_config_role_sonnet')],
+                    ['opus', t('tool_config_role_opus')],
+                    ['fable', t('tool_config_role_fable')],
+                    ['haiku', t('tool_config_role_haiku')],
+                    ['subagent', t('tool_config_role_subagent')]
+                ]
+                : [
+                    ['sonnet', t('tool_config_role_sonnet')],
+                    ['opus', t('tool_config_role_opus')],
+                    ['fable', t('tool_config_role_fable')],
+                    ['haiku', t('tool_config_role_haiku')]
+                ];
+            // Persisted mapping from a previous write (restored from snapshot).
+            const savedRoles = (sw && sw.model_roles) || [];
+            // Persisted 1M-context role flags (Claude Code / Claude Desktop).
+            const savedRoles1m = (sw && sw.model_roles_1m) || [];
+            const with1m = appId === 'claude' || appId === 'claude-desktop';
+            const poolOptions = pools.map(p => '<option value="' + jsEsc(p.id) + '">' + esc(p.display_name) + ' (' + esc(p.name) + ')</option>').join('');
+            roleRowsWrap.innerHTML = roles.map(([key, label]) => {
+                // Map saved role→pool by pool name so edits round-trip.
+                const savedPool = savedRoles.find(r => r[0] === key);
+                const savedPoolId = savedPool ? (pools.find(p => p.name === savedPool[1]) || {}).id || '' : '';
+                const supports1m = savedRoles1m.indexOf(key) !== -1;
+                return '<div style="display:flex;align-items:center;gap:8px;">'
+                    + '<span style="width:84px;flex-shrink:0;font-size:13px;color:var(--text-secondary);">' + esc(label) + '</span>'
+                    + '<select class="form-input" data-role="' + jsEsc(key) + '" style="flex:1;">'
+                    + '<option value="">' + t('tool_config_roles_default') + '</option>'
+                    + poolOptions
+                    + '</select>'
+                    + (with1m
+                        ? '<label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-secondary);white-space:nowrap;cursor:pointer;"><input type="checkbox" data-role-1m="' + jsEsc(key) + '"' + (supports1m ? ' checked' : '') + ' style="margin:0;accent-color:var(--primary);">' + esc(t('tool_config_role_1m')) + '</label>'
+                        : '')
+                    + '</div>';
+            }).join('');
+            // Pre-select persisted pool ids.
+            roleRowsWrap.querySelectorAll('select[data-role]').forEach((selEl) => {
+                const savedPool = savedRoles.find(r => r[0] === selEl.dataset.role);
+                if (savedPool) {
+                    const pid = (pools.find(p => p.name === savedPool[1]) || {}).id;
+                    if (pid) selEl.value = pid;
+                }
+            });
+            roleMapWrap.style.display = '';
+        } else {
+            roleMapWrap.style.display = 'none';
+            roleRowsWrap.innerHTML = '';
+        }
+
+        const apiKeySel = document.getElementById('tool-api-key-select');
+        apiKeySel.innerHTML = '<option value="">' + t('tool_config_default_key') + '</option>';
+        try {
+            const keys = await (cmd('list_api_keys') || []);
+            apiKeySel.innerHTML = '<option value="">' + t('tool_config_default_key') + '</option>' +
+                keys.map(k => '<option value="' + jsEsc(k.id) + '">' + esc(k.name || k.id) + '</option>').join('');
+        } catch (e) { /* ignore */ }
+        if (sw.api_key_id) apiKeySel.value = sw.api_key_id;
+        document.getElementById('tool-provider-name').value = sw.provider_name || 'LLM-API-Proxy';
+        picker.classList.add('open');
+    }
+
+    async function confirmToolPoolSelection() {
+        const sel = document.getElementById('tool-pool-select');
+        const mode = document.getElementById('tool-pool-edit-mode').value;
+        const apiKeySel = document.getElementById('tool-api-key-select');
+        const apiKeyId = apiKeySel && apiKeySel.value ? apiKeySel.value : null;
+        const providerName = document.getElementById('tool-provider-name').value.trim() || 'LLM-API-Proxy';
+        const poolId = sel.value;
+        if (!poolId) { toast(t('toast_select_pool'), 'error'); return; }
+        // Collect role→pool mapping for Claude Code / Claude Desktop
+        // (only non-default selections) plus 1M-context flags (Desktop).
+        const modelRoles = [];
+        const modelRoles1m = [];
+        if (toolPoolPickerTarget === 'claude' || toolPoolPickerTarget === 'claude-desktop') {
+            const roleRows = document.querySelectorAll('#tool-role-rows select[data-role]');
+            const pools = await (cmd('list_pools') || []);
+            roleRows.forEach((rowEl) => {
+                const pid = rowEl.value;
+                if (!pid) return; // follows default pool
+                const pool = pools.find(p => p.id === pid);
+                if (pool) modelRoles.push([rowEl.dataset.role, pool.name]);
+            });
+            const oneMApps = ['claude', 'claude-desktop', 'gemini', 'hermes', 'opencode'];
+            if (oneMApps.indexOf(toolPoolPickerTarget) !== -1) {
+                if (toolPoolPickerTarget === 'claude' || toolPoolPickerTarget === 'claude-desktop') {
+                    document.querySelectorAll('#tool-role-rows input[data-role-1m]').forEach((cb) => {
+                        // NB: `data-role-1m` does NOT camelCase in dataset (digit
+                        // after "-"), so `cb.dataset.role1m` is undefined; use
+                        // getAttribute instead.
+                        const key = cb.getAttribute('data-role-1m');
+                        if (cb.checked && key) modelRoles1m.push(key);
+                    });
+                    // The default pool's 1M checkbox applies to every unmapped
+                    // role (they follow the default pool).
+                    if (document.getElementById('tool-default-1m').checked) {
+                        roleRows.forEach((rowEl) => {
+                            if (!rowEl.value && rowEl.dataset.role) modelRoles1m.push(rowEl.dataset.role);
+                        });
+                    }
+                } else if (document.getElementById('tool-default-1m').checked) {
+                    // Tools without role slots declare 1M on their default model.
+                    modelRoles1m.push('default');
+                }
+            }
+        }
+        let payload = null;
+        try {
+            payload = { roles: modelRoles };
+            if (['claude', 'claude-desktop', 'gemini', 'hermes', 'opencode'].indexOf(toolPoolPickerTarget) !== -1) payload.roles_1m = modelRoles1m;
+            if (mode === 'enable') {
+                await cmd('enable_tool_switch', { appId: toolPoolPickerTarget, poolId, apiKeyId, providerName, modelRoles: payload });
+            } else {
+                await cmd('update_tool_config', { appId: toolPoolPickerTarget, poolId, apiKeyId, providerName, modelRoles: payload });
+            }
+            closeToolPoolPicker();
+            toast(t('toast_tool_config_written'), 'success');
+            loadToolConfig();
+        } catch (e) {
+            console.error('[tool-config] save failed:', e, JSON.stringify({ appId: toolPoolPickerTarget, poolId, apiKeyId, providerName, modelRoles: payload }));
+            toast(t('toast_save_fail') + e, 'error');
+        }
+    }
+
+    function closeToolPoolPicker() {
+        document.getElementById('tool-pool-picker').classList.remove('open');
+    }
+
+    async function confirmDisableToolFromModal() {
+        try {
+            await cmd('disable_tool_switch', { appId: toolPoolPickerTarget });
+            closeToolPoolPicker();
+            toast(t('toast_tool_config_restored'), 'success');
+            loadToolConfig();
+        } catch (e) {
+            toast(t('toast_save_fail') + e, 'error');
+        }
+    }
+
+    // Detect system env vars that would override the injected proxy config
+    // (e.g. ANTHROPIC_BASE_URL set at OS level beats settings.json's env).
+    let envConflictCache = [];
+
+    async function checkEnvConflicts() {
+        const banner = document.getElementById('env-conflict-banner');
+        if (!banner) return;
+        try {
+            envConflictCache = await (cmd('detect_env_conflicts') || []);
+        } catch (e) { envConflictCache = []; }
+        if (!envConflictCache.length) { banner.style.display = 'none'; return; }
+        const names = envConflictCache.map(c => esc(c.name)).join(', ');
+        banner.innerHTML =
+            '<span>⚠️ ' + t('env_conflict_warn').replace('{count}', envConflictCache.length) + ' (' + names + ')</span> ' +
+            '<button class="btn btn-danger btn-sm" onclick="cleanupEnvConflicts()">' + t('env_conflict_cleanup') + '</button>';
+        banner.style.display = 'flex';
+    }
+
+    async function cleanupEnvConflicts() {
+        if (!envConflictCache.length) return;
+        const ok = confirm(t('env_conflict_cleanup') + '?');
+        if (!ok) return;
+        try {
+            await cmd('cleanup_env_conflicts', { conflicts: envConflictCache });
+            envConflictCache = [];
+            document.getElementById('env-conflict-banner').style.display = 'none';
+            toast(t('env_conflict_cleanup_done'), 'success');
+        } catch (e) {
+            toast(t('env_conflict_cleanup_fail') + ': ' + e, 'error');
+        }
     }
 
     async function openEditPoolModal(id) {
@@ -3933,7 +4922,10 @@ if (page === 'settings' && lastUpdateInfo) {
             document.getElementById('pf-name').disabled = true;
             document.getElementById('pf-display').value = p.display_name;
             document.getElementById('pf-concurrency').value = p.max_concurrency;
-            document.getElementById('pf-thinking').checked = p.thinking_enabled;
+            setThinkingLevel(p.thinking_level || 'off');
+            if ((p.thinking_level || 'off') === 'custom') {
+                document.getElementById('pf-custom-params').value = p.thinking_custom_params || '';
+            }
             await loadPoolUpstreamCheckboxes(poolUpstreams);
             document.getElementById('pool-modal').classList.add('open');
         } catch (e) {
@@ -4042,6 +5034,10 @@ if (page === 'settings' && lastUpdateInfo) {
                 <div><span style="color:var(--text-muted);">${t('pools_display_name')}:</span> ${esc(pool.display_name)}</div>
                 <div><span style="color:var(--text-muted);">${t('pools_max_concurrency')}:</span> ${pool.max_concurrency}</div>
                 <div><span style="color:var(--text-muted);">${t('modal_pool_thinking')}:</span> ${pool.thinking_enabled ? t('label_on') : t('label_off')}</div>
+                <div><span style="color:var(--text-muted);">${t('thinking_level_column')}:</span> ${thinkingLevelLabel(pool.thinking_level)}</div>
+                <div style="margin-top:8px;"><span style="color:var(--text-muted);">${t('capabilities_label')}:</span>
+                    <span class="capability-tags">${renderCapabilityTags(pool.capabilities)}</span>
+                </div>
             `;
 
             const poolUpstreams = await cmd('get_pool_upstreams', { poolId }) || [];
@@ -4061,12 +5057,20 @@ if (page === 'settings' && lastUpdateInfo) {
                 const u = upstreamMap[pu.upstream_id];
                 const healthBadge = u ? statusBadge(u.status) : '<span class="badge badge-blue">-</span>';
                 const providerName = u ? esc(u.provider_name) : esc(pu.upstream_id);
+                const overrideVal = (pu.thinking_level_override || '');
+                const overrideOptions = ['', 'off', 'low', 'medium', 'high', 'max', 'custom']
+                    .map(v => '<option value="' + v + '"' + (overrideVal === v ? ' selected' : '') + '>' +
+                        (v === '' ? t('thinking_override_follow') : t('thinking_level_' + v)) + '</option>')
+                    .join('');
                 return `
                     <div class="pool-detail-item" draggable="true" data-upstream-id="${esc(pu.upstream_id)}" data-sort="${idx}" style="display:flex;align-items:center;gap:12px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:8px;background:var(--bg-primary);cursor:grab;transition:border-color 0.15s;">
                         <span style="color:var(--text-muted);font-size:18px;cursor:grab;">⣿</span>
                         <span class="badge badge-blue" style="min-width:28px;text-align:center;">${idx + 1}</span>
                         <span style="flex:1;font-weight:500;color:var(--text-primary);">${providerName}</span>
                         <span style="font-size:12px;color:var(--text-secondary);font-family:'SF Mono','Cascadia Code',monospace;">${esc(pu.model || '-')}</span>
+                        <select class="form-select" style="width:110px;font-size:11px;padding:3px 6px;height:auto;cursor:pointer;" title="${t('thinking_override_label')}" onchange="setThinkingOverride('${jsEsc(poolId)}', '${jsEsc(pu.upstream_id)}', this.value)">
+                            ${overrideOptions}
+                        </select>
                         <span>${healthBadge}</span>
                     </div>`;
             }).join('');
@@ -4082,6 +5086,17 @@ if (page === 'settings' && lastUpdateInfo) {
         document.getElementById('pool-detail-modal').classList.remove('open');
         poolDetailPoolId = null;
         poolDetailUpstreamsCache = [];
+    }
+
+    // Update a single upstream's thinking level override within a pool.
+    async function setThinkingOverride(poolId, upstreamId, level) {
+        try {
+            await cmd('update_pool_upstream', { poolId, upstreamId, thinkingLevelOverride: level });
+            toast(t('toast_override_saved'), 'success');
+        } catch (e) {
+            toast(t('toast_save_fail') + e, 'error');
+            openPoolDetailModal(poolId);
+        }
     }
 
     function bindDragAndDrop() {
@@ -4151,7 +5166,11 @@ if (page === 'settings' && lastUpdateInfo) {
         const name = document.getElementById('pf-name').value.trim();
         const display_name = document.getElementById('pf-display').value.trim() || name;
         const max_concurrency = parseInt(document.getElementById('pf-concurrency').value) || 5;
-        const thinking_enabled = document.getElementById('pf-thinking').checked;
+        const thinking_enabled = getThinkingLevel() !== 'off';
+        const thinking_level = getThinkingLevel();
+        const thinking_custom_params = thinking_level === 'custom'
+            ? document.getElementById('pf-custom-params').value.trim()
+            : '';
 
         const upstreams = [];
         document.querySelectorAll('.pool-upstream-row').forEach(row => {
@@ -4164,7 +5183,19 @@ if (page === 'settings' && lastUpdateInfo) {
         });
 
         if (!name) { toast(t('toast_pool_name_required'), 'error'); return; }
+        if (!id && poolsCache.some(p => p.name === name)) {
+            toast(t('toast_pool_name_duplicate'), 'error');
+            return;
+        }
         if (!id && upstreams.length === 0) { toast(t('pool_validate_no_upstream'), 'error'); return; }
+        if (thinking_level === 'custom') {
+            try {
+                JSON.parse(thinking_custom_params || '{}');
+            } catch (e) {
+                toast(t('toast_pool_custom_params_invalid'), 'error');
+                return;
+            }
+        }
 
         const btn = document.getElementById('btn-save-pool');
         btn.disabled = true;
@@ -4173,7 +5204,7 @@ if (page === 'settings' && lastUpdateInfo) {
         try {
             if (id) {
                 await cmd('update_pool', {
-                    id, req: { display_name, max_concurrency, thinking_enabled }
+                    id, req: { display_name, max_concurrency, thinking_enabled, thinking_level, thinking_custom_params }
                 });
                 const currentUpstreams = await cmd('get_pool_upstreams', { poolId: id }) || [];
                 for (const u of currentUpstreams) {
@@ -4184,7 +5215,7 @@ if (page === 'settings' && lastUpdateInfo) {
                 }
                 toast(t('toast_pool_updated'), 'success');
             } else {
-                await cmd('create_pool', { req: { name, display_name, max_concurrency, thinking_enabled, upstreams } });
+                await cmd('create_pool', { req: { name, display_name, max_concurrency, thinking_enabled, thinking_level, thinking_custom_params, upstreams } });
                 toast(t('toast_pool_created'), 'success');
             }
             closePoolModal();
@@ -4515,6 +5546,19 @@ loadLogs(false);
     // ================================================================
     // Token Usage Overview (P2-6)
     // ================================================================
+    async function clearTokenUsage() {
+        showAppConfirm(t('logs_token_clear_confirm'), async () => {
+            try {
+                await cmd('clear_all_token_usage');
+                toast(t('logs_token_cleared'), 'success');
+                loadTokenOverview();
+                refreshDashboard();
+            } catch (e) {
+                toast(t('toast_save_fail') + e, 'error');
+            }
+        }, { title: t('logs_token_clear'), danger: true });
+    }
+
     async function loadTokenOverview() {
         try {
             const data = await cmd('get_token_overview');
@@ -4727,8 +5771,8 @@ function generateApiKey() {
             document.getElementById('set-probe-threshold').value = s.probe_failure_threshold || 3;
 
             // Log retention settings
-            document.getElementById('set-log-retention-days').value = s.log_retention_days || 5;
-            document.getElementById('set-log-max-entries').value = s.log_max_entries || 200;
+            document.getElementById('set-log-retention-days').value = s.log_retention_days || 30;
+            document.getElementById('set-log-max-entries').value = s.log_max_entries || 20000;
 
             // Alert settings
             document.getElementById('set-alert-enabled').checked = s.alert_enabled || false;
@@ -4820,8 +5864,8 @@ function generateApiKey() {
                 probe_enabled: document.getElementById('set-probe-enabled').checked,
                 probe_interval_seconds: parseInt(document.getElementById('set-probe-interval').value) || 300,
                 probe_failure_threshold: parseInt(document.getElementById('set-probe-threshold').value) || 3,
-                log_retention_days: parseInt(document.getElementById('set-log-retention-days').value) || 5,
-                log_max_entries: parseInt(document.getElementById('set-log-max-entries').value) || 200,
+                log_retention_days: parseInt(document.getElementById('set-log-retention-days').value) || 30,
+                log_max_entries: parseInt(document.getElementById('set-log-max-entries').value) || 20000,
                 alert_enabled: document.getElementById('set-alert-enabled').checked,
                 alert_failure_rate_threshold: parseFloat(document.getElementById('set-alert-failure-rate').value) || 50,
                 alert_min_request_count: parseInt(document.getElementById('set-alert-min-requests').value) || 10,

@@ -65,6 +65,47 @@ async fn test_sse_stream_passthrough_and_model_replacement() {
 }
 
 #[tokio::test]
+async fn test_anthropic_stream_converts_chat_sse_to_anthropic_events() {
+    let mock_server = MockServer::start().await;
+
+    let sse_data = vec![
+        r#"data: {"id":"chatcmpl-1","object":"chat.completion.chunk","model":"test-model","choices":[{"delta":{"role":"assistant"},"index":0}]}"#,
+        r#"data: {"id":"chatcmpl-1","object":"chat.completion.chunk","model":"test-model","choices":[{"delta":{"content":"Hello"},"index":0}]}"#,
+        r#"data: {"id":"chatcmpl-1","object":"chat.completion.chunk","model":"test-model","choices":[{"delta":{"content":" world"},"index":0,"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2}}"#,
+        "data: [DONE]",
+    ];
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(sse_response(&sse_data))
+        .mount(&mock_server)
+        .await;
+
+    let env = TestEnv::new().await;
+    let upstream_id = env.create_upstream("StreamProvider", &mock_server.uri());
+    env.create_pool("stream-model", "Stream Pool", &[upstream_id]);
+
+    let resp = env.send_anthropic_stream_request("stream-model").await;
+
+    assert_eq!(resp.status(), 200);
+    let body = read_sse_body(resp).await;
+
+    // Anthropic SSE lifecycle (matches the reference implementation):
+    // message_start -> content_block_start(text) -> text_delta -> message_delta -> message_stop
+    assert!(body.starts_with("event: message_start"), "got: {body}");
+    assert!(body.contains(r#""type":"message""#), "got: {body}");
+    assert!(body.contains("content_block_delta"), "got: {body}");
+    assert!(body.contains(r#""type":"text_delta""#), "got: {body}");
+    assert!(body.contains(r#""text":"Hello""#), "got: {body}");
+    // Completion: message_delta + message_stop
+    assert!(body.contains("message_delta"), "got: {body}");
+    assert!(body.contains("event: message_stop"), "got: {body}");
+    assert!(body.contains(r#""stop_reason":"end_turn""#), "got: {body}");
+    // No [DONE] after the Anthropic stream — it ends at message_stop.
+    assert!(!body.contains("data: [DONE]"), "got: {body}");
+}
+
+#[tokio::test]
 async fn test_sse_stream_error_detection() {
     let mock_server = MockServer::start().await;
 

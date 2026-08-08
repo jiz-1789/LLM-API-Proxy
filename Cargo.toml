@@ -11,7 +11,7 @@ resolver = "3"
 opt-level = 2
 
 [workspace.package]
-version = "0.3.4"
+version = "0.4.0"
 edition = "2024"
 license = "AGPL-3.0-only"
 
@@ -54,8 +54,14 @@ anyhow = "1"
 # Time
 chrono = { version = "0.4", features = ["serde"] }
 
+# Home directory detection (tool config paths)
+dirs = "6"
+
 # Archive (diagnostic package)
 zip = "2"
 
 # Concurrent map for rate limiting
 dashmap = "6"
+
+# Order-preserving TOML editing (Codex/Grok config.toml upsert)
+toml_edit = "0.22"

@@ -17,14 +17,6 @@ async fn read_json(resp: axum::response::Response) -> serde_json::Value {
     serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null)
 }
 
-/// Helper: read response body as text.
-async fn read_text(resp: axum::response::Response) -> String {
-    let bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
-    String::from_utf8_lossy(&bytes).to_string()
-}
-
 // ── Authentication tests ──────────────────────────────────────
 
 #[tokio::test]
@@ -66,6 +58,132 @@ async fn test_invalid_api_key_returns_401() {
     assert_eq!(resp.status(), 401);
     let body = read_json(resp).await;
     assert!(body["error"]["message"].as_str().unwrap().contains("authorization"));
+}
+
+// ── OpenAI Responses API endpoint ─────────────────────────────
+
+#[tokio::test]
+async fn test_responses_endpoint_normalizes_and_converts_output() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "chatcmpl-123",
+            "object": "chat.completion",
+            "model": "test-model",
+            "choices": [{"message": {"role": "assistant", "content": "Hello from responses!"}, "index": 0}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let env = TestEnv::new().await;
+    let upstream_id = env.create_upstream("TestProvider", &mock_server.uri());
+    env.create_pool("test-model", "Test Pool", &[upstream_id]);
+
+    let resp = env.send_responses_request("test-model").await;
+
+    assert_eq!(resp.status(), 200);
+    let body = read_json(resp).await;
+    // Responses API output shape
+    assert_eq!(body["object"], "response");
+    assert_eq!(body["status"], "completed");
+    assert_eq!(body["output"][0]["type"], "message");
+    assert_eq!(body["output"][0]["content"][0]["text"], "Hello from responses!");
+    assert_eq!(body["usage"]["input_tokens"], 10);
+    assert_eq!(body["usage"]["output_tokens"], 5);
+}
+
+// ── Anthropic Messages API endpoint ──────────────────────────
+
+#[tokio::test]
+async fn test_anthropic_messages_endpoint_normalizes_and_converts() {
+    let mock_server = MockServer::start().await;
+
+    // The gateway forwards the normalized Chat request to the upstream.
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .and(header("Authorization", "Bearer sk-upstream-test-key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "chatcmpl-123",
+            "object": "chat.completion",
+            "model": "test-model",
+            "choices": [{"message": {"role": "assistant", "content": "Hello from anthropic!"}, "index": 0}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let env = TestEnv::new().await;
+    let upstream_id = env.create_upstream("TestProvider", &mock_server.uri());
+    env.create_pool("test-model", "Test Pool", &[upstream_id]);
+
+    let resp = env.send_anthropic_request("test-model").await;
+
+    assert_eq!(resp.status(), 200);
+    let body = read_json(resp).await;
+    // Anthropic Messages output shape
+    assert_eq!(body["type"], "message");
+    assert_eq!(body["role"], "assistant");
+    assert_eq!(body["model"], "Test Pool");
+    assert_eq!(body["stop_reason"], "end_turn");
+    assert_eq!(body["content"][0]["type"], "text");
+    assert_eq!(body["content"][0]["text"], "Hello from anthropic!");
+    assert_eq!(body["usage"]["input_tokens"], 10);
+    assert_eq!(body["usage"]["output_tokens"], 5);
+}
+
+// ── Gemini Native API endpoint ───────────────────────────────
+
+#[tokio::test]
+async fn test_gemini_generate_endpoint_normalizes_and_converts() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "chatcmpl-123",
+            "object": "chat.completion",
+            "model": "test-model",
+            "choices": [{"message": {"role": "assistant", "content": "Hello from gemini!"}, "index": 0}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let env = TestEnv::new().await;
+    let upstream_id = env.create_upstream("TestProvider", &mock_server.uri());
+    env.create_pool("test-model", "Test Pool", &[upstream_id]);
+
+    let resp = env.send_gemini_request("test-model").await;
+
+    assert_eq!(resp.status(), 200);
+    let body = read_json(resp).await;
+    // Gemini Native output shape
+    assert_eq!(body["candidates"][0]["content"]["parts"][0]["text"], "Hello from gemini!");
+    assert_eq!(body["candidates"][0]["finishReason"], "STOP");
+    assert_eq!(body["modelVersion"], "Test Pool");
+    assert_eq!(body["usageMetadata"]["promptTokenCount"], 10);
+    assert_eq!(body["usageMetadata"]["candidatesTokenCount"], 5);
+}
+
+#[tokio::test]
+async fn test_gemini_invalid_path_returns_400() {
+    let env = TestEnv::new().await;
+
+    use tower::ServiceExt;
+    let body = serde_json::json!({"contents": [{"role": "user", "parts": [{"text": "hi"}]}]});
+    let request = axum::http::Request::builder()
+        .method("POST")
+        .uri("/v1beta/models/:generateContent")
+        .header("x-goog-api-key", crate::tests::common::TEST_API_KEY)
+        .header("Content-Type", "application/json")
+        .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+
+    let resp = env.router.clone().oneshot(request).await.unwrap();
+    assert_eq!(resp.status(), 400);
 }
 
 // ── Request validation tests ─────────────────────────────────

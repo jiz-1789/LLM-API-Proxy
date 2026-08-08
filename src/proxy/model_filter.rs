@@ -2,28 +2,20 @@ use serde_json::Value;
 
 /// Replace model name in upstream response to match the pool display name.
 pub fn replace_model_name(body: &mut Value, display_name: &str) {
-    if let Some(obj) = body.as_object_mut() {
-        if let Some(model_value) = obj.get("model") {
-            if let Some(_model_str) = model_value.as_str() {
-                obj.insert("model".to_string(), Value::String(display_name.to_string()));
-            }
-        }
+    if let Some(obj) = body.as_object_mut()
+        && obj.get("model").is_some_and(|v| v.is_string())
+    {
+        obj.insert("model".to_string(), Value::String(display_name.to_string()));
     }
 
     // Also handle choices[].message.model (some providers include it in choices)
     if let Some(choices) = body.get_mut("choices").and_then(|c| c.as_array_mut()) {
         for choice in choices.iter_mut() {
-            if let Some(msg) = choice.get_mut("message") {
-                if let Some(model_value) = msg.get("model") {
-                    if let Some(_model_str) = model_value.as_str() {
-                        if let Some(obj) = msg.as_object_mut() {
-                            obj.insert(
-                                "model".to_string(),
-                                Value::String(display_name.to_string()),
-                            );
-                        }
-                    }
-                }
+            if let Some(msg) = choice.get_mut("message")
+                && msg.get("model").is_some_and(|v| v.is_string())
+                && let Some(obj) = msg.as_object_mut()
+            {
+                obj.insert("model".to_string(), Value::String(display_name.to_string()));
             }
         }
     }

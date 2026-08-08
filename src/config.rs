@@ -266,8 +266,8 @@ impl ProbeSettings {
 /// Log retention configuration persisted in the settings table.
 ///
 /// Settings keys (all stored as strings):
-/// - `log_retention_days` (default: 5, minimum: 1)
-/// - `log_max_entries` (default: 200, minimum: 10)
+/// - `log_retention_days` (default: 30, minimum: 1)
+/// - `log_max_entries` (default: 20000, minimum: 10)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogRetentionSettings {
     pub retention_days: i32,
@@ -277,8 +277,8 @@ pub struct LogRetentionSettings {
 impl Default for LogRetentionSettings {
     fn default() -> Self {
         Self {
-            retention_days: 5,
-            max_entries: 200,
+            retention_days: 30,
+            max_entries: 20000,
         }
     }
 }
@@ -293,14 +293,14 @@ impl LogRetentionSettings {
                 .ok()
                 .flatten()
                 .and_then(|v| v.parse().ok())
-                .unwrap_or(5)
+                .unwrap_or(30)
                 .max(1),
             max_entries: db
                 .get_setting("log_max_entries")
                 .ok()
                 .flatten()
                 .and_then(|v| v.parse().ok())
-                .unwrap_or(200)
+                .unwrap_or(20000)
                 .max(10),
         }
     }
@@ -477,8 +477,8 @@ mod tests {
     #[test]
     fn test_log_retention_default() {
         let config = LogRetentionSettings::default();
-        assert_eq!(config.retention_days, 5);
-        assert_eq!(config.max_entries, 200);
+        assert_eq!(config.retention_days, 30);
+        assert_eq!(config.max_entries, 20000);
     }
 
     #[test]
@@ -486,8 +486,8 @@ mod tests {
         let db = crate::db::Database::open_in_memory().unwrap();
         db.initialize().unwrap();
         let config = LogRetentionSettings::load(&db);
-        assert_eq!(config.retention_days, 5);
-        assert_eq!(config.max_entries, 200);
+        assert_eq!(config.retention_days, 30);
+        assert_eq!(config.max_entries, 20000);
     }
 
     #[test]
@@ -530,8 +530,8 @@ mod tests {
         db.save_setting("log_max_entries", "invalid").unwrap();
 
         let config = LogRetentionSettings::load(&db);
-        assert_eq!(config.retention_days, 5); // falls back to default
-        assert_eq!(config.max_entries, 200); // falls back to default
+        assert_eq!(config.retention_days, 30); // falls back to default
+        assert_eq!(config.max_entries, 20000); // falls back to default
     }
 
     #[test]

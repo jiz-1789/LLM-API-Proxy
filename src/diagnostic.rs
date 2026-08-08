@@ -89,6 +89,10 @@ pub struct SanitizedUpstream {
     pub last_success_time: Option<String>,
     pub last_error_reason: Option<String>,
     pub recovered_at: Option<String>,
+    /// JSON-serialized ModelCapabilities; empty means unknown, v14.
+    pub capabilities: String,
+    /// Upstream native API format, v12.
+    pub api_format: String,
 }
 
 /// A sanitized pool entry for diagnostic output.
@@ -100,7 +104,10 @@ pub struct SanitizedPool {
     pub timeout_seconds: i32,
     pub max_concurrency: i32,
     pub thinking_enabled: bool,
+    pub thinking_level: String,
     pub failover_enabled: bool,
+    /// Pool-level aggregated capabilities (JSON), v14.
+    pub capabilities: String,
 }
 
 // ============================================================================
@@ -168,6 +175,8 @@ pub fn collect_sanitized_upstreams(db: &Database) -> Vec<SanitizedUpstream> {
             last_success_time: u.last_success_time,
             last_error_reason: u.last_error_reason,
             recovered_at: u.recovered_at,
+            capabilities: u.capabilities,
+            api_format: u.api_format,
         })
         .collect()
 }
@@ -184,7 +193,9 @@ pub fn collect_sanitized_pools(db: &Database) -> Vec<SanitizedPool> {
             timeout_seconds: p.timeout_seconds,
             max_concurrency: p.max_concurrency,
             thinking_enabled: p.thinking_enabled,
+            thinking_level: p.thinking_level,
             failover_enabled: p.failover_enabled,
+            capabilities: p.capabilities,
         })
         .collect()
 }
@@ -503,6 +514,8 @@ mod tests {
             "[]",
             true,
             "",
+            "",
+            "openai_chat",
         )
         .unwrap();
 
@@ -525,6 +538,8 @@ mod tests {
             "[]",
             true,
             "",
+            "",
+            "openai_chat",
         )
         .unwrap();
 
@@ -550,6 +565,8 @@ mod tests {
             "[]",
             true,
             "",
+            "",
+            "openai_chat",
         )
         .unwrap();
 
@@ -561,7 +578,7 @@ mod tests {
     #[test]
     fn test_collect_sanitized_pools() {
         let db = test_db();
-        db.create_pool("pool_1", "test-pool", "Test Pool", 5, false)
+        db.create_pool("pool_1", "test-pool", "Test Pool", 5, false, "off", "", "")
             .unwrap();
 
         let pools = collect_sanitized_pools(&db);
@@ -597,7 +614,7 @@ mod tests {
 
         // Open and verify contents
         let file = std::fs::File::open(&zip_path).unwrap();
-        let mut archive = zip::ZipArchive::new(file).unwrap();
+        let archive = zip::ZipArchive::new(file).unwrap();
 
         // Verify all expected files are present
         let expected_files = [
@@ -627,6 +644,8 @@ mod tests {
             "[]",
             true,
             "",
+            "",
+            "openai_chat",
         )
         .unwrap();
         db.save_setting("gateway_api_key", "sk-gw-super-secret").unwrap();

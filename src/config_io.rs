@@ -32,6 +32,12 @@ pub struct ExportUpstream {
     pub available_models: Vec<String>,
     pub enabled: bool,
     pub remark: String,
+    /// JSON-serialized ModelCapabilities; empty means auto-infer, v14.
+    #[serde(default)]
+    pub capabilities: String,
+    /// Upstream native API format, defaults to openai_chat, v12.
+    #[serde(default)]
+    pub api_format: String,
 }
 
 /// A pool in export format, with nested upstream associations.
@@ -41,6 +47,11 @@ pub struct ExportPool {
     pub display_name: String,
     pub max_concurrency: i32,
     pub thinking_enabled: bool,
+    pub thinking_level: String,
+    pub thinking_custom_params: String,
+    /// Pool-level aggregated capabilities (computed by backend), v14.
+    #[serde(default)]
+    pub capabilities: String,
     pub upstreams: Vec<ExportPoolUpstream>,
 }
 
@@ -113,6 +124,8 @@ pub fn export_config(db: &Database, crypto: &KeyManager) -> Result<ConfigExport,
             available_models,
             enabled: u.enabled,
             remark: u.remark.clone(),
+            capabilities: u.capabilities.clone(),
+            api_format: u.api_format.clone(),
         });
     }
 
@@ -134,6 +147,9 @@ pub fn export_config(db: &Database, crypto: &KeyManager) -> Result<ConfigExport,
             display_name: p.display_name.clone(),
             max_concurrency: p.max_concurrency,
             thinking_enabled: p.thinking_enabled,
+            thinking_level: p.thinking_level.clone(),
+            thinking_custom_params: p.thinking_custom_params.clone(),
+            capabilities: p.capabilities.clone(),
             upstreams: export_pool_upstreams,
         });
     }
@@ -192,6 +208,9 @@ pub fn import_config(
         }
     }
 
+    // Recompute pool-level capabilities after import.
+    db.recompute_all_pool_capabilities()?;
+
     info!(
         "Config import complete: +{} ~{} upstreams, +{} ~{} pools, {} settings",
         result.upstreams_added,
@@ -233,8 +252,8 @@ fn import_full(
 
             conn.execute(
                 "INSERT INTO upstreams (id, provider_name, base_url, api_key_encrypted,
-                 selected_model, available_models, enabled, remark)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                 selected_model, available_models, enabled, remark, capabilities, api_format)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     new_id,
                     u.provider_name,
@@ -244,6 +263,8 @@ fn import_full(
                     models_json,
                     u.enabled as i32,
                     u.remark,
+                    u.capabilities,
+                    if u.api_format.is_empty() { "openai_chat" } else { &u.api_format },
                 ],
             )?;
             id_map.insert(u.id.clone(), new_id);
@@ -254,14 +275,18 @@ fn import_full(
         for p in &config.pools {
             let new_pool_id = generate_id("pool");
             conn.execute(
-                "INSERT INTO pools (id, name, display_name, max_concurrency, thinking_enabled)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT INTO pools (id, name, display_name, max_concurrency, thinking_enabled,
+                                    thinking_level, thinking_custom_params, capabilities)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     new_pool_id,
                     p.name,
                     p.display_name,
                     p.max_concurrency,
                     p.thinking_enabled as i32,
+                    p.thinking_level,
+                    p.thinking_custom_params,
+                    p.capabilities,
                 ],
             )?;
 
@@ -270,8 +295,8 @@ fn import_full(
                 let resolved_id = id_map.get(&pu.upstream_id);
                 if let Some(real_id) = resolved_id {
                     conn.execute(
-                        "INSERT INTO pool_upstreams (pool_id, upstream_id, sort_order, model)
-                         VALUES (?1, ?2, ?3, ?4)",
+                        "INSERT INTO pool_upstreams (pool_id, upstream_id, sort_order, model, capabilities)
+                         SELECT ?1, ?2, ?3, ?4, capabilities FROM upstreams WHERE id=?2",
                         params![new_pool_id, real_id, pu.sort_order, pu.model],
                     )?;
                 } else {
@@ -335,9 +360,9 @@ fn import_incremental(
                 // Update existing upstream
                 conn.execute(
                     "UPDATE upstreams SET provider_name=?1, base_url=?2, api_key_encrypted=?3,
-                     selected_model=?4, available_models=?5, enabled=?6, remark=?7,
+                     selected_model=?4, available_models=?5, enabled=?6, remark=?7, capabilities=?8, api_format=?9,
                      updated_at=datetime('now', 'localtime')
-                     WHERE id=?8",
+                     WHERE id=?10",
                     params![
                         u.provider_name,
                         u.base_url,
@@ -346,6 +371,8 @@ fn import_incremental(
                         models_json,
                         u.enabled as i32,
                         u.remark,
+                        u.capabilities,
+                        if u.api_format.is_empty() { "openai_chat" } else { &u.api_format },
                         existing,
                     ],
                 )?;
@@ -356,8 +383,8 @@ fn import_incremental(
                 let new_id = generate_id("up");
                 conn.execute(
                     "INSERT INTO upstreams (id, provider_name, base_url, api_key_encrypted,
-                     selected_model, available_models, enabled, remark)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                     selected_model, available_models, enabled, remark, capabilities, api_format)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                     params![
                         &new_id,
                         u.provider_name,
@@ -367,6 +394,8 @@ fn import_incremental(
                         models_json,
                         u.enabled as i32,
                         u.remark,
+                        u.capabilities,
+                        if u.api_format.is_empty() { "openai_chat" } else { &u.api_format },
                     ],
                 )?;
                 id_map.insert(u.id.clone(), new_id);
@@ -388,11 +417,15 @@ fn import_incremental(
                 // Update existing pool
                 conn.execute(
                     "UPDATE pools SET display_name=?1, max_concurrency=?2, thinking_enabled=?3,
-                     updated_at=datetime('now', 'localtime') WHERE id=?4",
+                     thinking_level=?4, thinking_custom_params=?5, capabilities=?6,
+                     updated_at=datetime('now', 'localtime') WHERE id=?7",
                     params![
                         p.display_name,
                         p.max_concurrency,
                         p.thinking_enabled as i32,
+                        p.thinking_level,
+                        p.thinking_custom_params,
+                        p.capabilities,
                         existing,
                     ],
                 )?;
@@ -404,8 +437,8 @@ fn import_incremental(
                 for pu in &p.upstreams {
                     if let Some(real_id) = id_map.get(&pu.upstream_id) {
                         conn.execute(
-                            "INSERT INTO pool_upstreams (pool_id, upstream_id, sort_order, model)
-                             VALUES (?1, ?2, ?3, ?4)",
+                            "INSERT INTO pool_upstreams (pool_id, upstream_id, sort_order, model, capabilities)
+                             SELECT ?1, ?2, ?3, ?4, capabilities FROM upstreams WHERE id=?2",
                             params![existing, real_id, pu.sort_order, pu.model],
                         )?;
                     } else {
@@ -420,21 +453,25 @@ fn import_incremental(
                 // Create new pool
                 let new_pool_id = generate_id("pool");
                 conn.execute(
-                    "INSERT INTO pools (id, name, display_name, max_concurrency, thinking_enabled)
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    "INSERT INTO pools (id, name, display_name, max_concurrency, thinking_enabled,
+                                        thinking_level, thinking_custom_params, capabilities)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                     params![
                         &new_pool_id,
                         p.name,
                         p.display_name,
                         p.max_concurrency,
                         p.thinking_enabled as i32,
+                        p.thinking_level,
+                        p.thinking_custom_params,
+                        p.capabilities,
                     ],
                 )?;
                 for pu in &p.upstreams {
                     if let Some(real_id) = id_map.get(&pu.upstream_id) {
                         conn.execute(
-                            "INSERT INTO pool_upstreams (pool_id, upstream_id, sort_order, model)
-                             VALUES (?1, ?2, ?3, ?4)",
+                            "INSERT INTO pool_upstreams (pool_id, upstream_id, sort_order, model, capabilities)
+                             SELECT ?1, ?2, ?3, ?4, capabilities FROM upstreams WHERE id=?2",
                             params![&new_pool_id, real_id, pu.sort_order, pu.model],
                         )?;
                     } else {
@@ -556,12 +593,17 @@ mod tests {
                 available_models: vec!["gpt-4".to_string(), "gpt-3.5-turbo".to_string()],
                 enabled: true,
                 remark: "test".to_string(),
+                capabilities: String::new(),
+                api_format: "openai_chat".to_string(),
             }],
             pools: vec![ExportPool {
                 name: "gpt-4-pool".to_string(),
                 display_name: "GPT-4".to_string(),
                 max_concurrency: 5,
                 thinking_enabled: false,
+                thinking_level: "high".to_string(),
+                thinking_custom_params: String::new(),
+                capabilities: String::new(),
                 upstreams: vec![ExportPoolUpstream {
                     upstream_id: "up_test1".to_string(),
                     sort_order: 0,
@@ -694,7 +736,7 @@ mod tests {
         let crypto = KeyManager::initialize(temp_dir.path()).unwrap();
 
         let export = export_config(&db, &crypto).unwrap();
-        assert_eq!(export.schema_version, 10);
+        assert_eq!(export.schema_version, 16);
         assert!(export.settings.contains_key("test_key"));
         assert!(export.upstreams.is_empty());
         assert!(export.pools.is_empty());
@@ -710,7 +752,7 @@ mod tests {
 
         // Add some existing data first
         let encrypted = crypto.encrypt_api_key("sk-existing").unwrap();
-        db.create_upstream("up_existing", "Existing", "https://existing.com", &encrypted, "model", "[]", true, "").unwrap();
+        db.create_upstream("up_existing", "Existing", "https://existing.com", &encrypted, "model", "[]", true, "", "", "openai_chat").unwrap();
 
         let config = make_test_export();
         let result = import_config(&db, &crypto, &config, &ImportMode::Full).unwrap();
@@ -744,7 +786,7 @@ mod tests {
 
         // Create an existing upstream that matches the import
         let encrypted = crypto.encrypt_api_key("sk-old-key").unwrap();
-        db.create_upstream("up_existing", "OpenAI", "https://api.openai.com", &encrypted, "gpt-3.5-turbo", "[]", false, "old remark").unwrap();
+        db.create_upstream("up_existing", "OpenAI", "https://api.openai.com", &encrypted, "gpt-3.5-turbo", "[]", false, "old remark", "", "openai_chat").unwrap();
 
         let config = make_test_export();
         let result = import_config(&db, &crypto, &config, &ImportMode::Incremental).unwrap();
@@ -798,7 +840,8 @@ mod tests {
         let crypto = KeyManager::initialize(temp_dir.path()).unwrap();
 
         // Create existing pool
-        db.create_pool("pool_old", "old-pool", "Old Pool", 5, false).unwrap();
+        db.create_pool("pool_old", "old-pool", "Old Pool", 5, false, "off", "", "")
+            .unwrap();
 
         let config = make_test_export();
         let result = import_config(&db, &crypto, &config, &ImportMode::Full).unwrap();
@@ -840,8 +883,9 @@ mod tests {
 
         // Create existing data that doesn't match the import
         let encrypted = crypto.encrypt_api_key("sk-other").unwrap();
-        db.create_upstream("up_other", "OtherProvider", "https://other.com", &encrypted, "model-x", "[]", true, "").unwrap();
-        db.create_pool("pool_other", "other-pool", "Other Pool", 3, false).unwrap();
+        db.create_upstream("up_other", "OtherProvider", "https://other.com", &encrypted, "model-x", "[]", true, "", "", "openai_chat").unwrap();
+        db.create_pool("pool_other", "other-pool", "Other Pool", 3, false, "off", "", "")
+            .unwrap();
 
         let config = make_test_export();
         let result = import_config(&db, &crypto, &config, &ImportMode::Incremental).unwrap();
@@ -902,7 +946,7 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         db.initialize().unwrap();
         // Create upstream with empty encrypted key
-        db.create_upstream("up_empty", "Empty", "https://empty.com", &[], "model", "[]", true, "").unwrap();
+        db.create_upstream("up_empty", "Empty", "https://empty.com", &[], "model", "[]", true, "", "", "openai_chat").unwrap();
 
         let temp_dir = tempfile::tempdir().unwrap();
         let crypto = KeyManager::initialize(temp_dir.path()).unwrap();

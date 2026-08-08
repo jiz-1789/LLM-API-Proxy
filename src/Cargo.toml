@@ -34,6 +34,7 @@ rand = { workspace = true }
 getrandom = "0.2"
 uuid = { workspace = true }
 chrono = { workspace = true }
+dirs = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
@@ -42,6 +43,11 @@ bytes = { workspace = true }
 log = "0.4"
 zip = { workspace = true }
 dashmap = { workspace = true }
+toml_edit = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
 tempfile = "3"

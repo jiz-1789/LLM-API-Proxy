@@ -43,11 +43,14 @@
 ## ✨ 核心特性
 
 - **统一入口** — 对外暴露一个 OpenAI 兼容的 URL 和 API Key，兼容 ChatGPT、Claude Desktop、LibreChat、FastGPT 等主流客户端
+- **工具一键注入** — 支持 Claude Code、Codex CLI、Gemini CLI 等 8 种 AI 编码工具，一键将代理地址写入配置文件，无需手动编辑
+- **多级思考强度** — 支持关闭/低/中/高/最大/自定义六级思考强度，按厂商自动映射对应参数
+- **多格式 API 转换** — 同时支持 OpenAI Chat、Anthropic Messages、Gemini Native、OpenAI Responses 四种 API 格式，自动双向转换
+- **模型能力标记** — 自动识别并标注模型支持的输入模态（文本/图片/音频）、函数调用、上下文窗口等能力
 - **号池聚合** — 将多个厂商的同名/同类模型聚合到一个自定义号池中，对外表现为一个"模型"
 - **顺序轮询** — 每次请求按轮询顺序分配给不同上游，实现负载均衡
 - **故障转移** — 某个上游失败时自动跳过并尝试下一个，支持 HTTP 错误、超时、以及响应体 `error` 字段检测
 - **SSE 流式透传** — 完整透传上游 SSE 事件流，支持流式聊天与 Token 用量统计
-- **思考模式** — 按上游厂商类型自动注入 `reasoning` / `reasoning_effort` / `thinking` 参数
 - **模型伪装** — 终端工具看到的模型名始终是号池名，底层实际模型名被隐藏
 - **AES-256-GCM 加密** — API Key 加密后存入 SQLite，Master Key 跟随数据目录，U 盘即插即用
 - **请求日志** — 记录每次请求的状态码、耗时、Token 用量、失败上游链，支持按状态码/时间筛选与导出
@@ -101,17 +104,39 @@
 │   │   ├── settings.rs     # 键值设置存储
 │   │   ├── api_key.rs      # 多密钥管理
 │   │   ├── backup.rs       # 数据库备份与恢复
-│   │   └── rate_limit.rs   # 限流状态持久化
+│   │   ├── rate_limit.rs   # 限流状态持久化
+│   │   ├── token_usage.rs  # 独立 Token 用量统计
+│   │   └── tool_config.rs  # 工具配置开关数据层
 │   ├── gateway/            # OpenAI 兼容网关
 │   │   ├── mod.rs          # /v1/models, /v1/chat/completions 路由
 │   │   ├── auth.rs         # 多密钥认证（常量时间比较 + 号池权限）
 │   │   ├── stream.rs       # SSE 流式处理（模型名替换 + 用量提取 + 错误检测）
 │   │   ├── rate_limit.rs   # 限流器（DashMap + 持久化）
 │   │   ├── error_response.rs # OpenAI 兼容错误响应
-│   │   └── health.rs       # 三级健康检查
+│   │   ├── health.rs       # 三级健康检查
+│   │   └── convert/        # 多格式 API 转换
+│   │       ├── mod.rs      # 转换模块入口 + 格式检测
+│   │       ├── anthropic.rs # Anthropic Messages ↔ Chat
+│   │       ├── gemini.rs   # Gemini Native ↔ Chat
+│   │       ├── openai_responses.rs # OpenAI Responses ↔ Chat
+│   │       └── capabilities.rs # 模型能力推断
 │   ├── pool/               # 号池与轮询逻辑
 │   │   ├── mod.rs          # Pool 数据结构
-│   │   └── thinking.rs     # 思考模式参数注入（按厂商映射）
+│   │   └── thinking.rs     # 多级思考强度参数注入（按厂商映射）
+│   ├── tool_config/        # 工具配置写入模块
+│   │   ├── mod.rs          # 模块入口 + 开关管理器
+│   │   ├── detector.rs     # 工具安装检测
+│   │   ├── backup.rs       # 配置备份与恢复
+│   │   ├── writer.rs       # 原子写入引擎
+│   │   ├── env_check.rs    # 环境变量冲突检测与清理
+│   │   ├── claude.rs       # Claude Code 写入器
+│   │   ├── claude_desktop.rs # Claude Desktop 写入器
+│   │   ├── codex.rs        # Codex CLI 写入器
+│   │   ├── gemini.rs       # Gemini CLI 写入器
+│   │   ├── grok.rs         # Grok CLI 写入器
+│   │   ├── opencode.rs     # OpenCode 写入器
+│   │   ├── openclaw.rs     # OpenClaw 写入器
+│   │   └── hermes.rs       # Hermes 写入器
 │   ├── proxy/              # 上游转发
 │   │   ├── mod.rs          # 模块声明
 │   │   ├── failover.rs     # HTTP 转发与故障转移链
@@ -141,7 +166,8 @@
 │           ├── backup.rs   # 备份恢复命令
 │           ├── diagnostic.rs # 诊断导出命令
 │           ├── update.rs   # 在线更新命令
-│           └── shortcut.rs # 快捷方式命令
+│           ├── shortcut.rs # 快捷方式命令
+│           └── tool_config.rs # 工具配置命令
 └── dist/                   # 前端构建产物
     └── index.html          # 单页应用（内嵌 CSS/JS）
 ```
@@ -190,13 +216,15 @@ cargo tauri build
 
 API Key 会被 AES-256-GCM 加密后存入数据库，明文不落盘。
 
+> 可选：设置该上游的原生 API 格式（OpenAI / Anthropic / Gemini），网关自动做格式转换；模型能力标记留空时系统根据模型名自动推断。
+
 ### 3. 创建号池
 
 进入「号池管理」页面，创建一个号池：
 
 1. 填写号池名称（如 `grok-4.5`，即终端工具中看到的模型名）
 2. 关联一个或多个上游订阅
-3. 可选：开启思考模式、设置最大并发数、配置故障转移
+3. 可选：设置思考强度（关闭/低/中/高/最大/自定义）、最大并发数、配置故障转移
 
 ### 4. 对接终端工具
 
@@ -210,11 +238,21 @@ API Key:  sk-gw-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 即可开始使用。请求会自动在号池内的上游之间轮询，某家故障时自动切换。
 
-### 5. 最小化到托盘
+### 5. 配置工具（可选）
+
+进入「工具配置」页面，将代理地址一键注入已安装的 AI 编码工具：
+
+1. 页面自动检测系统已安装的工具（Claude Code、Codex CLI 等 8 种）
+2. 点击工具开关，在弹窗中选择默认模型池和 API Key
+3. 确认后自动写入配置文件，工具即可直接使用代理地址
+
+> 支持的工具会自动备份原始配置，关闭开关或软件退出时自动恢复。
+
+### 6. 最小化到托盘
 
 关闭窗口后程序最小化到系统托盘，后台继续提供代理服务。双击托盘图标或右键「打开主窗口」可恢复窗口。
 
-### 6. 版本更新
+### 7. 版本更新
 
 程序启动时会自动检查 GitHub / Gitee 上的最新发布版本。发现新版本时：
 
@@ -243,6 +281,9 @@ API Key:  sk-gw-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 |------|------|------|
 | `/v1/models` | GET | 返回所有号池名称作为可用模型列表 |
 | `/v1/chat/completions` | POST | 转发请求至号池上游，支持流式/非流式 |
+| `/v1/messages` | POST | Anthropic Messages 格式端点，兼容 Claude 原生客户端 |
+| `/v1beta/models/{model}:generateContent` | POST | Gemini Native 格式端点，兼容 Gemini 原生客户端 |
+| `/v1/responses` | POST | OpenAI Responses 格式端点，兼容 Codex CLI 等工具 |
 | `/api/health` | GET | 健康检查 |
 
 **请求示例：**
