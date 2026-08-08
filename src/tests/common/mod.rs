@@ -122,20 +122,6 @@ impl TestEnv {
         }
     }
 
-    /// Create a pool with failover disabled.
-    pub fn create_pool_no_failover(&self, name: &str, display_name: &str, upstream_ids: &[String]) {
-        let pool_id = format!("pool_test_{}", uuid::Uuid::new_v4().simple());
-        self.db
-            .create_pool(&pool_id, name, display_name, 5, false, "off", "", "")
-            .unwrap();
-
-        for (i, uid) in upstream_ids.iter().enumerate() {
-            self.db
-                .add_upstream_to_pool(&pool_id, uid, i as i32, "")
-                .unwrap();
-        }
-    }
-
     /// Send a chat completion request through the gateway router.
     pub async fn send_chat_request(
         &self,
@@ -255,7 +241,7 @@ impl TestEnv {
 
         let request = axum::http::Request::builder()
             .method("POST")
-            .uri(&format!("/v1beta/models/{}:generateContent", model))
+            .uri(format!("/v1beta/models/{}:generateContent", model))
             .header("x-goog-api-key", TEST_API_KEY)
             .header("Content-Type", "application/json")
             .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))

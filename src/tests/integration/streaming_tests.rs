@@ -90,15 +90,19 @@ async fn test_anthropic_stream_converts_chat_sse_to_anthropic_events() {
     assert_eq!(resp.status(), 200);
     let body = read_sse_body(resp).await;
 
-    // Anthropic SSE events: content_block_delta with text_delta
+    // Anthropic SSE lifecycle (matches the reference implementation):
+    // message_start -> content_block_start(text) -> text_delta -> message_delta -> message_stop
+    assert!(body.starts_with("event: message_start"), "got: {body}");
+    assert!(body.contains(r#""type":"message""#), "got: {body}");
     assert!(body.contains("content_block_delta"), "got: {body}");
     assert!(body.contains(r#""type":"text_delta""#), "got: {body}");
     assert!(body.contains(r#""text":"Hello""#), "got: {body}");
     // Completion: message_delta + message_stop
     assert!(body.contains("message_delta"), "got: {body}");
-    assert!(body.contains("message_stop"), "got: {body}");
+    assert!(body.contains("event: message_stop"), "got: {body}");
     assert!(body.contains(r#""stop_reason":"end_turn""#), "got: {body}");
-    assert!(body.contains("data: [DONE]"), "got: {body}");
+    // No [DONE] after the Anthropic stream — it ends at message_stop.
+    assert!(!body.contains("data: [DONE]"), "got: {body}");
 }
 
 #[tokio::test]

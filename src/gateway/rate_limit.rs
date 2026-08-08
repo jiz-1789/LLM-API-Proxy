@@ -480,9 +480,9 @@ mod tests {
         let limiter = RateLimiter::new(config.clone());
 
         // Add some entries
-        limiter.check("1.1.1.1");
-        limiter.check("1.1.1.1");
-        limiter.check("2.2.2.2");
+        let _ = limiter.check("1.1.1.1");
+        let _ = limiter.check("1.1.1.1");
+        let _ = limiter.check("2.2.2.2");
 
         // Persist
         limiter.persist_to_db(&db);
@@ -544,8 +544,8 @@ mod tests {
         };
         let limiter = RateLimiter::new(config);
 
-        limiter.check("1.1.1.1");
-        limiter.check("2.2.2.2");
+        let _ = limiter.check("1.1.1.1");
+        let _ = limiter.check("2.2.2.2");
 
         // Wait for entries to expire
         std::thread::sleep(Duration::from_millis(1100));

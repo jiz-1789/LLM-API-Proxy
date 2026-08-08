@@ -17,14 +17,6 @@ async fn read_json(resp: axum::response::Response) -> serde_json::Value {
     serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null)
 }
 
-/// Helper: read response body as text.
-async fn read_text(resp: axum::response::Response) -> String {
-    let bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
-    String::from_utf8_lossy(&bytes).to_string()
-}
-
 // ── Authentication tests ──────────────────────────────────────
 
 #[tokio::test]

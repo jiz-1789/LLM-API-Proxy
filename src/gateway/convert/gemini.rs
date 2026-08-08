@@ -281,6 +281,10 @@ pub fn gemini_request_to_chat(body: &Value) -> Result<Value, String> {
     let obj = body.as_object().ok_or("request body must be a JSON object")?;
 
     let mut messages: Vec<Value> = Vec::new();
+    // Map function name -> generated Chat tool_call id so a `functionResponse`
+    // part (which references the call by name) can resolve the matching id.
+    let mut call_ids: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut call_seq = 0usize;
 
     // systemInstruction -> system message
     if let Some(si) = obj.get("systemInstruction") {
@@ -298,6 +302,79 @@ pub fn gemini_request_to_chat(body: &Value) -> Result<Value, String> {
                 .and_then(|r| r.as_str())
                 .unwrap_or("user");
             let chat_role = if role == "model" { "assistant" } else { "user" };
+            // Function calls/responses live in `parts`. When present, emit Chat
+            // `tool_calls` / `tool` messages; otherwise fall back to plain text.
+            if let Some(parts) = content.get("parts").and_then(|p| p.as_array()) {
+                let has_function_parts = parts.iter().any(|p| {
+                    p.get("functionCall").is_some() || p.get("functionResponse").is_some()
+                });
+                if has_function_parts {
+                    let mut text = String::new();
+                    let mut tool_calls: Vec<Value> = Vec::new();
+                    let mut tool_results: Vec<Value> = Vec::new();
+                    for part in parts {
+                        if let Some(t) = part.get("text").and_then(|t| t.as_str()) {
+                            if !text.is_empty() {
+                                text.push('\n');
+                            }
+                            text.push_str(t);
+                        }
+                        if let Some(fc) = part.get("functionCall") {
+                            let name = fc.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                            let args = fc.get("args").cloned().unwrap_or(Value::Null);
+                            call_seq += 1;
+                            let call_id = format!("call_{}", call_seq);
+                            if !name.is_empty() {
+                                call_ids.insert(name.to_string(), call_id.clone());
+                            }
+                            tool_calls.push(json!({
+                                "id": call_id,
+                                "type": "function",
+                                "function": {
+                                    "name": name,
+                                    "arguments": args.to_string(),
+                                },
+                            }));
+                        }
+                        if let Some(fr) = part.get("functionResponse") {
+                            let name = fr.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                            let response = fr.get("response").cloned().unwrap_or(Value::Null);
+                            let content_str = match response {
+                                Value::String(s) => s,
+                                other => other.to_string(),
+                            };
+                            let call_id = call_ids
+                                .get(name)
+                                .cloned()
+                                .unwrap_or_else(|| format!("call_{}", call_seq));
+                            tool_results.push(json!({
+                                "tool_call_id": call_id,
+                                "content": content_str,
+                            }));
+                        }
+                    }
+                    if !tool_calls.is_empty() {
+                        let mut m = Map::new();
+                        m.insert("role".to_string(), Value::String("assistant".to_string()));
+                        m.insert("content".to_string(), Value::String(text));
+                        m.insert("tool_calls".to_string(), Value::Array(tool_calls));
+                        messages.push(Value::Object(m));
+                    } else if !tool_results.is_empty() {
+                        for tr in tool_results {
+                            let mut m = Map::new();
+                            m.insert("role".to_string(), Value::String("tool".to_string()));
+                            if let Some(id) = tr.get("tool_call_id").cloned() {
+                                m.insert("tool_call_id".to_string(), id);
+                            }
+                            m.insert("content".to_string(), tr.get("content").cloned().unwrap_or(Value::String(String::new())));
+                            messages.push(Value::Object(m));
+                        }
+                    } else {
+                        messages.push(json!({"role": chat_role, "content": text}));
+                    }
+                    continue;
+                }
+            }
             let text = extract_gemini_text(content);
             messages.push(json!({"role": chat_role, "content": text}));
         }
@@ -438,92 +515,199 @@ pub fn chat_to_gemini_client_response(response: &Value, model_display: &str) -> 
     })
 }
 
-/// Convert one OpenAI Chat SSE JSON chunk into a Gemini Native SSE chunk.
+/// Stateful converter turning an OpenAI Chat SSE stream into Gemini SSE
+/// chunks, chunk by chunk.
 ///
-/// Returns `(output_lines, usage, error)`. Used by the Gemini streaming
-/// endpoint: the internal upstream stream is OpenAI Chat SSE, and the client
-/// expects Gemini `candidates[].content.parts[].text` data.
-pub fn chat_sse_chunk_to_gemini(
-    json_str: &str,
-    _display_name: &str,
-) -> (Vec<String>, Option<(i64, i64, i64)>, Option<String>) {
-    let Ok(v) = serde_json::from_str::<Value>(json_str) else {
-        return (vec![], None, None);
-    };
+/// State is required because token usage arrives in a separate trailing chunk
+/// (with `stream_options.include_usage`) and streaming tool calls arrive as
+/// `delta.tool_calls` fragments across multiple chunks.
+pub struct GeminiStreamConverter {
+    last_usage: Option<(i64, i64, i64)>,
+    /// Set once `finish_reason` has been seen on a chunk.
+    finished: bool,
+    /// The deferred final chunk (and its trailing `[DONE]`) was sent.
+    completion_sent: bool,
+    /// Streaming tool calls, keyed by Chat index.
+    tool_calls: Vec<GeminiToolCall>,
+}
 
-    // Error detection
-    if let Some(err) = v.get("error") {
-        let msg = err
-            .get("message")
-            .and_then(|m| m.as_str())
-            .map(String::from)
-            .unwrap_or_else(|| err.to_string());
-        return (vec![], None, Some(msg));
-    }
+/// In-progress streaming tool call (Chat `delta.tool_calls` fragment).
+#[derive(Clone, Default)]
+struct GeminiToolCall {
+    name: String,
+    args: String,
+}
 
-    // Usage extraction
-    let usage = v.get("usage").filter(|u| !u.is_null()).and_then(|u| {
-        let prompt = u.get("prompt_tokens").and_then(|x| x.as_i64()).unwrap_or(0);
-        let completion = u.get("completion_tokens").and_then(|x| x.as_i64()).unwrap_or(0);
-        if prompt == 0 && completion == 0 {
-            None
-        } else {
-            Some((prompt, completion, prompt + completion))
+impl GeminiStreamConverter {
+    pub fn new(_display_name: &str) -> Self {
+        Self {
+            last_usage: None,
+            finished: false,
+            completion_sent: false,
+            tool_calls: Vec::new(),
         }
-    });
-
-    let Some(choice) = v
-        .get("choices")
-        .and_then(|c| c.as_array())
-        .and_then(|c| c.first())
-    else {
-        return (vec![], usage, None);
-    };
-
-    let delta = choice.get("delta").unwrap_or(&Value::Null);
-    let text = delta.get("content").and_then(|t| t.as_str()).unwrap_or("");
-    let reasoning = delta
-        .get("reasoning_content")
-        .and_then(|t| t.as_str())
-        .unwrap_or("");
-    let finish_reason = choice
-        .get("finish_reason")
-        .and_then(|f| f.as_str())
-        .unwrap_or("");
-
-    let mut lines = Vec::new();
-
-    // Reasoning delta -> thoughts
-    if !reasoning.is_empty() {
-        let event = json!({
-            "candidates": [{
-                "index": 0,
-                "content": {"role": "model", "parts": [{"text": ""}]},
-                "thoughts": [{"text": reasoning}],
-            }]
-        });
-        lines.push(format!("data: {}\n\n", event));
     }
 
-    // Text delta
-    if !text.is_empty() {
-        let event = json!({
-            "candidates": [{
-                "index": 0,
-                "content": {"role": "model", "parts": [{"text": text}]},
-            }]
-        });
-        lines.push(format!("data: {}\n\n", event));
-    }
-
-    // Completion chunk on finish
-    if !finish_reason.is_empty() && finish_reason != "null" {
-        let gemini_finish = match finish_reason {
-            "length" => "MAX_TOKENS",
-            "content_filter" => "SAFETY",
-            _ => "STOP",
+    /// Process one Chat SSE chunk payload (JSON without the `data: ` prefix).
+    pub fn process(
+        &mut self,
+        json_str: &str,
+    ) -> crate::gateway::convert::SseChunkResult {
+        let Ok(v) = serde_json::from_str::<Value>(json_str) else {
+            return (vec![], None, None);
         };
-        let (p, c, _t) = usage.unwrap_or((0, 0, 0));
+
+        // Error detection
+        if let Some(err) = v.get("error") {
+            let msg = err
+                .get("message")
+                .and_then(|m| m.as_str())
+                .map(String::from)
+                .unwrap_or_else(|| err.to_string());
+            return (vec![], None, Some(msg));
+        }
+
+        // Usage extraction (may arrive in a chunk without choices)
+        let usage = v.get("usage").filter(|u| !u.is_null()).and_then(|u| {
+            let prompt = u.get("prompt_tokens").and_then(|x| x.as_i64()).unwrap_or(0);
+            let completion = u.get("completion_tokens").and_then(|x| x.as_i64()).unwrap_or(0);
+            if prompt == 0 && completion == 0 {
+                None
+            } else {
+                Some((prompt, completion, prompt + completion))
+            }
+        });
+        if let Some(u) = usage {
+            self.last_usage = Some(u);
+        }
+
+        let Some(choice) = v
+            .get("choices")
+            .and_then(|c| c.as_array())
+            .and_then(|c| c.first())
+        else {
+            // Trailing usage-only chunk: flush a pending completion event.
+            let mut lines = Vec::new();
+            if self.finished && !self.completion_sent {
+                lines.extend(self.emit_completion());
+            }
+            return (lines, usage, None);
+        };
+
+        let delta = choice.get("delta").unwrap_or(&Value::Null);
+        let text = delta.get("content").and_then(|t| t.as_str()).unwrap_or("");
+        let reasoning = delta
+            .get("reasoning_content")
+            .and_then(|t| t.as_str())
+            .unwrap_or("");
+        let finish_reason = choice
+            .get("finish_reason")
+            .and_then(|f| f.as_str())
+            .unwrap_or("");
+
+        let mut lines = Vec::new();
+
+        // Reasoning delta -> thoughts
+        if !reasoning.is_empty() {
+            let event = json!({
+                "candidates": [{
+                    "index": 0,
+                    "content": {"role": "model", "parts": [{"text": ""}]},
+                    "thoughts": [{"text": reasoning}],
+                }]
+            });
+            lines.push(format!("data: {}\n\n", event));
+        }
+
+        // Text delta
+        if !text.is_empty() {
+            let event = json!({
+                "candidates": [{
+                    "index": 0,
+                    "content": {"role": "model", "parts": [{"text": text}]},
+                }]
+            });
+            lines.push(format!("data: {}\n\n", event));
+        }
+
+        // Streaming tool calls -> accumulate; emitted in the final chunk.
+        if let Some(tcs) = delta.get("tool_calls").and_then(|t| t.as_array()) {
+            for tc in tcs {
+                let index = tc.get("index").and_then(|i| i.as_i64()).unwrap_or(0) as usize;
+                let tc_delta = tc.get("function").unwrap_or(&Value::Null);
+                let name = tc_delta.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                let args = tc_delta.get("arguments").and_then(|a| a.as_str()).unwrap_or("");
+
+                if self.tool_calls.len() <= index {
+                    self.tool_calls.resize(index + 1, GeminiToolCall::default());
+                }
+                if !name.is_empty() && self.tool_calls[index].name.is_empty() {
+                    self.tool_calls[index].name = name.to_string();
+                }
+                if !args.is_empty() {
+                    self.tool_calls[index].args.push_str(args);
+                }
+            }
+        }
+
+        // Final chunk on finish (deferred until usage is known)
+        if !finish_reason.is_empty() && finish_reason != "null" {
+            self.finished = true;
+            if self.last_usage.is_some() {
+                lines.extend(self.emit_completion());
+            }
+        }
+
+        (lines, usage, None)
+    }
+
+    /// Flush the deferred final chunk (with `finishReason` + `usageMetadata`).
+    pub fn finish(&mut self) -> Vec<String> {
+        if self.completion_sent {
+            return Vec::new();
+        }
+        let mut lines = Vec::new();
+        if self.finished {
+            lines.extend(self.emit_completion());
+        }
+        lines
+    }
+
+    fn emit_completion(&mut self) -> Vec<String> {
+        if self.completion_sent {
+            return Vec::new();
+        }
+        self.completion_sent = true;
+        let mut lines = Vec::new();
+
+        // Function calls: one parts array with a functionCall per accumulated
+        // tool call, sent in a standalone chunk before the finish chunk.
+        let parts: Vec<Value> = self
+            .tool_calls
+            .iter()
+            .filter(|c| !c.name.is_empty())
+            .map(|c| {
+                let args = serde_json::from_str(&c.args).unwrap_or(Value::String(c.args.clone()));
+                json!({"functionCall": {"name": c.name, "args": args}})
+            })
+            .collect();
+
+        if !parts.is_empty() {
+            let event = json!({
+                "candidates": [{
+                    "index": 0,
+                    "content": {"role": "model", "parts": parts},
+                }]
+            });
+            lines.push(format!("data: {}\n\n", event));
+        }
+
+        let gemini_finish = if !self.tool_calls.iter().any(|c| !c.name.is_empty()) {
+            "STOP"
+        } else {
+            "FUNCTION_CALL"
+        };
+        let (p, c, _t) = self.last_usage.unwrap_or((0, 0, 0));
         let event = json!({
             "candidates": [{
                 "index": 0,
@@ -537,10 +721,8 @@ pub fn chat_sse_chunk_to_gemini(
             },
         });
         lines.push(format!("data: {}\n\n", event));
-        lines.push("data: [DONE]\n\n".to_string());
+        lines
     }
-
-    (lines, usage, None)
 }
 
 #[cfg(test)]
@@ -655,6 +837,55 @@ mod tests {
     }
 
     #[test]
+    fn test_gemini_request_function_calling_preserved() {
+        // Multi-turn function calling: functionCall parts become Chat tool_calls,
+        // matching functionResponse parts become Chat tool messages.
+        let body = json!({
+            "contents": [
+                {"role": "user", "parts": [{"text": "weather in SF?"}]},
+                {"role": "model", "parts": [
+                    {"functionCall": {"name": "get_weather", "args": {"city": "SF"}}}
+                ]},
+                {"role": "user", "parts": [
+                    {"functionResponse": {"name": "get_weather", "response": {"temp": 72}}}
+                ]}
+            ]
+        });
+        let out = gemini_request_to_chat(&body).unwrap();
+        let messages = out["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 3, "got: {messages:?}");
+        // assistant tool_calls
+        assert_eq!(messages[1]["role"], "assistant");
+        assert_eq!(messages[1]["content"], "");
+        let tool_calls = messages[1]["tool_calls"].as_array().unwrap();
+        assert_eq!(tool_calls[0]["id"], "call_1");
+        assert_eq!(tool_calls[0]["function"]["name"], "get_weather");
+        assert_eq!(tool_calls[0]["function"]["arguments"], r#"{"city":"SF"}"#);
+        // tool result resolves to the same call id via the name map
+        assert_eq!(messages[2]["role"], "tool");
+        assert_eq!(messages[2]["tool_call_id"], "call_1");
+        assert_eq!(messages[2]["content"], r#"{"temp":72}"#);
+    }
+
+    #[test]
+    fn test_gemini_request_function_text_mixed() {
+        // A model content may mix text and functionCall parts.
+        let body = json!({
+            "contents": [
+                {"role": "model", "parts": [
+                    {"text": "Let me check."},
+                    {"functionCall": {"name": "get_time", "args": {"tz": "UTC"}}}
+                ]}
+            ]
+        });
+        let out = gemini_request_to_chat(&body).unwrap();
+        let messages = out["messages"].as_array().unwrap();
+        assert_eq!(messages[0]["role"], "assistant");
+        assert_eq!(messages[0]["content"], "Let me check.");
+        assert_eq!(messages[0]["tool_calls"][0]["function"]["name"], "get_time");
+    }
+
+    #[test]
     fn test_chat_to_gemini_client_response_basic() {
         let resp = json!({
             "choices": [{
@@ -683,19 +914,70 @@ mod tests {
     }
 
     #[test]
-    fn test_chat_sse_chunk_to_gemini() {
+    fn test_gemini_stream_converter() {
+        let mut conv = GeminiStreamConverter::new("Pool");
         let chunk = r#"{"id":"x","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}"#;
-        let (lines, usage, error) = chat_sse_chunk_to_gemini(chunk, "Pool");
+        let (lines, usage, error) = conv.process(chunk);
         assert!(error.is_none());
+        assert!(usage.is_none());
         let joined = lines.join("");
         assert!(joined.contains(r#""parts":[{"text":"Hello"}]"#), "got: {joined}");
 
-        let done = r#"{"id":"x","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2}}"#;
-        let (lines2, usage2, error2) = chat_sse_chunk_to_gemini(done, "Pool");
+        // Finish chunk WITHOUT usage: completion must be deferred.
+        let done = r#"{"id":"x","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}"#;
+        let (lines2, usage2, error2) = conv.process(done);
         assert!(error2.is_none());
-        let joined2 = lines2.join("");
-        assert!(joined2.contains("STOP"), "got: {joined2}");
-        assert!(joined2.contains("data: [DONE]"), "got: {joined2}");
-        assert_eq!(usage2, Some((3, 2, 5)));
+        assert!(usage2.is_none());
+        assert!(
+            lines2.join("").is_empty(),
+            "completion should be deferred until usage, got: {}",
+            lines2.join("")
+        );
+
+        // Trailing usage-only chunk flushes the completion with real usage.
+        let usage_chunk = r#"{"id":"x","choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2}}"#;
+        let (lines3, usage3, error3) = conv.process(usage_chunk);
+        assert!(error3.is_none());
+        assert_eq!(usage3, Some((3, 2, 5)));
+        let joined3 = lines3.join("");
+        assert!(joined3.contains(r#""finishReason":"STOP""#), "got: {joined3}");
+        assert!(joined3.contains("promptTokenCount"), "usage missing: {joined3}");
+        assert!(
+            !joined3.contains("data: [DONE"),
+            "Gemini streams end on the finish chunk, no [DONE]: {joined3}"
+        );
+
+        // finish() after completion already sent: no duplicate final chunk.
+        let tail = conv.finish();
+        assert!(tail.is_empty(), "no duplicate final chunk expected: {}", tail.join(""));
+    }
+
+    #[test]
+    fn test_gemini_stream_converter_tool_calls() {
+        let mut conv = GeminiStreamConverter::new("Pool");
+        let start = r#"{"id":"x","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"get_weather","arguments":""}}]},"finish_reason":null}]}"#;
+        let (lines, _, error) = conv.process(start);
+        assert!(error.is_none());
+        assert!(lines.is_empty(), "gemini defers tool calls to final chunk");
+
+        let frag = r#"{"id":"x","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"city\":\"SF\"}"}}]},"finish_reason":"tool_calls"}]}"#;
+        let (lines2, _, error2) = conv.process(frag);
+        assert!(error2.is_none());
+        assert!(
+            lines2.join("").is_empty(),
+            "completion deferred until usage, got: {}",
+            lines2.join("")
+        );
+
+        let usage_chunk = r#"{"id":"x","choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2}}"#;
+        let (lines3, _, error3) = conv.process(usage_chunk);
+        assert!(error3.is_none());
+        let joined3 = lines3.join("");
+        assert!(joined3.contains("FUNCTION_CALL"), "got: {joined3}");
+        assert!(
+            joined3.contains(r#""name":"get_weather""#),
+            "functionCall name missing: {joined3}"
+        );
+        assert!(joined3.contains(r#""args":{"city":"SF"}"#), "args missing: {joined3}");
     }
 }

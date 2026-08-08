@@ -122,6 +122,53 @@ pub fn merge_thinking_params(body: &mut serde_json::Value, params: &Option<serde
     }
 }
 
+/// Re-map Chat-style thinking params into a native client format when
+/// passthrough is active (client format == upstream format).
+///
+/// The per-vendor params produced by `get_thinking_params` are shaped for the
+/// OpenAI Chat canonical format. When we forward the raw client body directly
+/// (no conversion), the same params must be expressed in the target wire
+/// format:
+/// - openai_responses: `reasoning_effort` -> `reasoning: {effort: ...}`
+/// - anthropic: native `thinking: {…}` is already correct
+/// - openai_chat: unchanged (already Chat-shaped)
+///
+/// Returns None when there is nothing to inject.
+pub fn map_thinking_params_for_client_format(
+    params: &Option<serde_json::Value>,
+    api_format: &str,
+) -> Option<serde_json::Value> {
+    let params = params.as_ref()?;
+    match api_format {
+        // Responses API uses `reasoning.effort`.
+        "openai_responses" => {
+            let effort = params
+                .get("reasoning_effort")
+                .and_then(|v| v.as_str())
+                .unwrap_or("high");
+            Some(serde_json::json!({ "reasoning": { "effort": effort } }))
+        }
+        // Anthropic already uses the native `thinking` shape.
+        "anthropic" => {
+            if params.get("thinking").is_some() {
+                Some(params.clone())
+            } else {
+                None
+            }
+        }
+        // Gemini native embeds reasoning under generationConfig.
+        "gemini_native" => {
+            if params.get("generationConfig").is_some() {
+                Some(params.clone())
+            } else {
+                None
+            }
+        }
+        // Chat format keeps the Chat-style params unchanged.
+        _ => Some(params.clone()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,5 +288,49 @@ mod tests {
         let original = body.clone();
         merge_thinking_params(&mut body, &None);
         assert_eq!(body, original);
+    }
+
+    #[test]
+    fn test_map_openai_responses_from_effort() {
+        let params = Some(serde_json::json!({ "reasoning_effort": "high" }));
+        let mapped = map_thinking_params_for_client_format(&params, "openai_responses").unwrap();
+        assert_eq!(mapped["reasoning"]["effort"], "high");
+    }
+
+    #[test]
+    fn test_map_openai_responses_from_reasoning() {
+        let params = Some(serde_json::json!({ "reasoning": true }));
+        let mapped = map_thinking_params_for_client_format(&params, "openai_responses").unwrap();
+        assert_eq!(mapped["reasoning"]["effort"], "high");
+    }
+
+    #[test]
+    fn test_map_anthropic_keeps_native_thinking() {
+        let params = Some(serde_json::json!({ "thinking": { "type": "enabled", "budget_tokens": 16000 } }));
+        let mapped = map_thinking_params_for_client_format(&params, "anthropic").unwrap();
+        assert_eq!(mapped["thinking"]["type"], "enabled");
+
+        let other = Some(serde_json::json!({ "reasoning_effort": "high" }));
+        assert!(map_thinking_params_for_client_format(&other, "anthropic").is_none());
+    }
+
+    #[test]
+    fn test_map_gemini_keeps_generation_config() {
+        let params = Some(serde_json::json!({ "generationConfig": { "thinkingConfig": { "thinkingBudget": 8000 } } }));
+        let mapped = map_thinking_params_for_client_format(&params, "gemini_native").unwrap();
+        assert_eq!(mapped["generationConfig"]["thinkingConfig"]["thinkingBudget"], 8000);
+    }
+
+    #[test]
+    fn test_map_chat_unchanged() {
+        let params = Some(serde_json::json!({ "reasoning_effort": "medium" }));
+        let mapped = map_thinking_params_for_client_format(&params, "openai_chat").unwrap();
+        assert_eq!(mapped["reasoning_effort"], "medium");
+    }
+
+    #[test]
+    fn test_map_none_returns_none() {
+        assert!(map_thinking_params_for_client_format(&None, "openai_responses").is_none());
+        assert!(map_thinking_params_for_client_format(&None, "anthropic").is_none());
     }
 }

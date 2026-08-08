@@ -1,9 +1,9 @@
 //! Streaming SSE conversion between native upstream formats and OpenAI Chat.
 //!
-//! Anthropic and Gemini native APIs emit SSE events in their own schema. This
-//! module provides a stateful converter that translates each incoming line into
-//! OpenAI Chat-compatible SSE chunks in real time, and extracts token usage for
-//! request logging.
+//! Anthropic, Gemini, and OpenAI Responses native APIs emit SSE events in their
+//! own schema. This module provides a stateful converter that translates each
+//! incoming line into OpenAI Chat-compatible SSE chunks in real time, and
+//! extracts token usage for request logging.
 
 use serde_json::{json, Value};
 
@@ -22,13 +22,15 @@ pub struct ConvertedLine {
 /// Stateful converter for native-format SSE streams.
 pub struct NativeStreamConverter {
     api_format: String,
-    // Anthropic: usage fields (input at message_start, output at message_delta)
+    // Usage fields shared by all native formats.
     prompt_tokens: i64,
     output_tokens: i64,
     // Anthropic: in-progress tool call (id, name, accumulated args JSON)
     tool_call: Option<(String, String, String)>,
     // Gemini: has the final chunk with usage been seen?
     gemini_ended: bool,
+    // Responses: in-progress tool call (call_id, name, accumulated arguments)
+    responses_tool_call: Option<(String, String, String)>,
 }
 
 impl NativeStreamConverter {
@@ -39,6 +41,7 @@ impl NativeStreamConverter {
             output_tokens: 0,
             tool_call: None,
             gemini_ended: false,
+            responses_tool_call: None,
         }
     }
 
@@ -47,6 +50,7 @@ impl NativeStreamConverter {
         match self.api_format.as_str() {
             "anthropic" => self.process_anthropic(raw_line, display_name),
             "gemini_native" => self.process_gemini(raw_line, display_name),
+            "openai_responses" => self.process_openai_responses(raw_line, display_name),
             _ => ConvertedLine {
                 lines: vec![format!("{}\n\n", raw_line)],
                 usage: None,
@@ -398,6 +402,265 @@ impl NativeStreamConverter {
     }
 
     // ====================================================================
+    // OpenAI Responses
+    // ====================================================================
+
+    fn process_openai_responses(&mut self, line: &str, display_name: &str) -> ConvertedLine {
+        let json_str = match line.strip_prefix("data: ") {
+            Some(s) => s.trim(),
+            None => {
+                // Swallow `event:` / comment / blank lines
+                return ConvertedLine {
+                    lines: vec![],
+                    usage: None,
+                    error: None,
+                    done: false,
+                };
+            }
+        };
+        if json_str == "[DONE]" {
+            return self.finish();
+        }
+        let Ok(v) = serde_json::from_str::<Value>(json_str) else {
+            return ConvertedLine {
+                lines: vec![],
+                usage: None,
+                error: None,
+                done: false,
+            };
+        };
+        let etype = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
+
+        match etype {
+            // output_text.delta -> delta.content
+            "response.output_text.delta" => {
+                let text = v.get("delta").and_then(|t| t.as_str()).unwrap_or("");
+                if text.is_empty() {
+                    return ConvertedLine {
+                        lines: vec![],
+                        usage: None,
+                        error: None,
+                        done: false,
+                    };
+                }
+                ConvertedLine {
+                    lines: vec![self.chat_chunk(
+                        json!({"role": "assistant", "content": text}),
+                        "stop",
+                        display_name,
+                        false,
+                    )],
+                    usage: None,
+                    error: None,
+                    done: false,
+                }
+            }
+            // reasoning_summary_text.delta -> delta.reasoning_content
+            "response.reasoning_summary_text.delta" => {
+                let text = v.get("delta").and_then(|t| t.as_str()).unwrap_or("");
+                if text.is_empty() {
+                    return ConvertedLine {
+                        lines: vec![],
+                        usage: None,
+                        error: None,
+                        done: false,
+                    };
+                }
+                ConvertedLine {
+                    lines: vec![self.chat_chunk(
+                        json!({"role": "assistant", "reasoning_content": text}),
+                        "stop",
+                        display_name,
+                        false,
+                    )],
+                    usage: None,
+                    error: None,
+                    done: false,
+                }
+            }
+            // output_item.added with a function_call item -> start a tool call
+            "response.output_item.added" => {
+                if let Some(item) = v.get("item")
+                    && item.get("type").and_then(|t| t.as_str()) == Some("function_call")
+                {
+                    let call_id = item.get("call_id").and_then(|x| x.as_str()).unwrap_or("");
+                    let name = item.get("name").and_then(|x| x.as_str()).unwrap_or("");
+                    self.responses_tool_call = Some((call_id.to_string(), name.to_string(), String::new()));
+                    let delta = json!({
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [{
+                            "index": 0,
+                            "id": call_id,
+                            "type": "function",
+                            "function": {"name": name, "arguments": ""}
+                        }]
+                    });
+                    ConvertedLine {
+                        lines: vec![self.chat_chunk(delta, "tool_calls", display_name, false)],
+                        usage: None,
+                        error: None,
+                        done: false,
+                    }
+                } else {
+                    ConvertedLine {
+                        lines: vec![],
+                        usage: None,
+                        error: None,
+                        done: false,
+                    }
+                }
+            }
+            // function_call_arguments.delta: accumulate args JSON
+            "response.function_call_arguments.delta" => {
+                if let Some(partial) = v.get("delta").and_then(|d| d.as_str())
+                    && let Some((id, name, args)) = self.responses_tool_call.take()
+                {
+                    self.responses_tool_call = Some((id, name, format!("{}{}", args, partial)));
+                }
+                ConvertedLine {
+                    lines: vec![],
+                    usage: None,
+                    error: None,
+                    done: false,
+                }
+            }
+            // function_call_arguments.done: finalize tool arguments
+            "response.function_call_arguments.done" => {
+                if let Some((id, name, args)) = self.responses_tool_call.take() {
+                    let final_args = v
+                        .get("arguments")
+                        .and_then(|a| a.as_str())
+                        .map(String::from)
+                        .unwrap_or(args);
+                    let delta = json!({
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [{
+                            "index": 0,
+                            "id": id,
+                            "type": "function",
+                            "function": {"name": name, "arguments": final_args}
+                        }]
+                    });
+                    ConvertedLine {
+                        lines: vec![self.chat_chunk(delta, "tool_calls", display_name, false)],
+                        usage: None,
+                        error: None,
+                        done: false,
+                    }
+                } else {
+                    ConvertedLine {
+                        lines: vec![],
+                        usage: None,
+                        error: None,
+                        done: false,
+                    }
+                }
+            }
+            // output_item.done: if it finished a tool call with no done event, flush it
+            "response.output_item.done" => {
+                if let Some((id, name, args)) = self.responses_tool_call.take()
+                    && let Some(item) = v.get("item")
+                    && item.get("type").and_then(|t| t.as_str()) == Some("function_call")
+                    && !args.is_empty()
+                {
+                    let delta = json!({
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [{
+                            "index": 0,
+                            "id": id,
+                            "type": "function",
+                            "function": {"name": name, "arguments": args}
+                        }]
+                    });
+                    ConvertedLine {
+                        lines: vec![self.chat_chunk(delta, "tool_calls", display_name, false)],
+                        usage: None,
+                        error: None,
+                        done: false,
+                    }
+                } else {
+                    ConvertedLine {
+                        lines: vec![],
+                        usage: None,
+                        error: None,
+                        done: false,
+                    }
+                }
+            }
+            // response.completed: status + usage + DONE
+            "response.completed" => {
+                let resp = v.get("response").unwrap_or(&Value::Null);
+                let status = resp
+                    .get("status")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("completed");
+                let finish_reason = if status == "incomplete" { "length" } else { "stop" };
+                let usage = resp.get("usage").unwrap_or(&Value::Null);
+                let prompt = usage
+                    .get("input_tokens")
+                    .and_then(|t| t.as_i64())
+                    .unwrap_or(0);
+                let output = usage
+                    .get("output_tokens")
+                    .and_then(|t| t.as_i64())
+                    .unwrap_or(0);
+                if prompt > 0 || output > 0 {
+                    self.prompt_tokens = prompt;
+                    self.output_tokens = output;
+                }
+                let chunk = self.chat_chunk(
+                    json!({"role": "assistant", "content": ""}),
+                    finish_reason,
+                    display_name,
+                    false,
+                );
+                let usage = if self.prompt_tokens > 0 || self.output_tokens > 0 {
+                    Some((
+                        self.prompt_tokens,
+                        self.output_tokens,
+                        self.prompt_tokens + self.output_tokens,
+                    ))
+                } else {
+                    None
+                };
+                ConvertedLine {
+                    lines: vec![chunk, "data: [DONE]\n\n".to_string()],
+                    usage,
+                    error: None,
+                    done: true,
+                }
+            }
+            // response.failed: emit error
+            "response.failed" => {
+                let msg = v
+                    .get("response")
+                    .and_then(|r| r.get("error"))
+                    .and_then(|e| e.get("message"))
+                    .and_then(|m| m.as_str())
+                    .map(String::from)
+                    .unwrap_or_else(|| "upstream error".to_string());
+                ConvertedLine {
+                    lines: vec![],
+                    usage: None,
+                    error: Some(msg),
+                    done: true,
+                }
+            }
+            // All other events (response.created, response.in_progress,
+            // response.output_text.done, response.content_part.done, etc.)
+            _ => ConvertedLine {
+                lines: vec![],
+                usage: None,
+                error: None,
+                done: false,
+            },
+        }
+    }
+
+    // ====================================================================
     // Helpers
     // ====================================================================
 
@@ -544,5 +807,63 @@ mod tests {
         let r = conv.process(r#"data: {"choices":[]}"#, "M");
         assert_eq!(r.lines.len(), 1);
         assert!(r.lines[0].starts_with("data: "));
+    }
+
+    #[test]
+    fn test_openai_responses_stream() {
+        let lines = [
+            r#"data: {"type":"response.created","response":{"id":"resp_1"}}"#,
+            r#"data: {"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"Hello"}"#,
+            r#"data: {"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":" world"}"#,
+            r#"data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":{"input_tokens":12,"output_tokens":3}}}"#,
+        ];
+        let mut conv = NativeStreamConverter::new("openai_responses");
+        let out = collect(&mut conv, &lines, "My Pool");
+        let joined = out.join("");
+        assert!(joined.contains(r#""content":"Hello""#), "text delta missing");
+        assert!(joined.contains(r#""content":" world""#), "2nd delta missing");
+        assert!(joined.contains("data: [DONE]"), "DONE missing");
+        assert!(joined.contains(r#""model":"My Pool""#), "model replace missing");
+        // usage captured
+        let mut conv2 = NativeStreamConverter::new("openai_responses");
+        let mut captured = None;
+        for l in &lines {
+            let r = conv2.process(l, "M");
+            if r.usage.is_some() {
+                captured = r.usage;
+            }
+        }
+        assert_eq!(captured, Some((12, 3, 15)));
+        assert_eq!(conv2.final_usage(), (12, 3, 15));
+    }
+
+    #[test]
+    fn test_openai_responses_reasoning_and_tool_stream() {
+        let lines = [
+            r#"data: {"type":"response.reasoning_summary_text.delta","output_index":0,"content_index":0,"delta":"let me think"}"#,
+            r#"data: {"type":"response.output_item.added","output_index":1,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"get_weather","arguments":"","status":"in_progress"}}"#,
+            r#"data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","output_index":1,"delta":"{\"city\":"}"#,
+            r#"data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","output_index":1,"delta":"\"SF\"}"}"#,
+            r#"data: {"type":"response.function_call_arguments.done","item_id":"fc_1","output_index":1,"arguments":"{\"city\":\"SF\"}"}"#,
+            r#"data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":{"input_tokens":2,"output_tokens":4}}}"#,
+        ];
+        let mut conv = NativeStreamConverter::new("openai_responses");
+        let out = collect(&mut conv, &lines, "M");
+        let joined = out.join("");
+        assert!(joined.contains(r#""reasoning_content":"let me think""#), "reasoning missing");
+        assert!(joined.contains(r#""tool_calls""#), "tool calls missing");
+        assert!(joined.contains(r#""arguments":"{\"city\":\"SF\"}""#), "args accumulate");
+        assert!(joined.contains(r#""name":"get_weather""#), "name missing");
+    }
+
+    #[test]
+    fn test_openai_responses_failed_event() {
+        let mut conv = NativeStreamConverter::new("openai_responses");
+        let r = conv.process(
+            r#"data: {"type":"response.failed","response":{"id":"resp_1","error":{"message":"boom"}}}"#,
+            "M",
+        );
+        assert_eq!(r.error.as_deref(), Some("boom"));
+        assert!(r.done);
     }
 }

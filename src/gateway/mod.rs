@@ -211,6 +211,36 @@ fn extract_usage(resp: &serde_json::Value) -> (i64, i64, i64) {
     }
 }
 
+/// Extract token usage from a **native** upstream response (used in passthrough
+/// mode where the body is Responses/Anthropic/Gemini, not Chat). Uses the same
+/// 0,0,0 fallback as `extract_usage` when no usage is present.
+fn extract_native_usage(resp: &serde_json::Value, upstream_format: &str) -> (i64, i64, i64) {
+    match upstream_format {
+        // Responses / Anthropic both report `usage.input_tokens` / `output_tokens`.
+        convert::FORMAT_OPENAI_RESPONSES | convert::FORMAT_ANTHROPIC => {
+            if let Some(usage) = resp.get("usage") {
+                let prompt = usage.get("input_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+                let completion = usage.get("output_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+                let total = usage.get("total_tokens").and_then(|v| v.as_i64()).unwrap_or(prompt + completion);
+                (prompt, completion, total)
+            } else {
+                (0, 0, 0)
+            }
+        }
+        // Gemini native embeds usage under `usageMetadata`.
+        convert::FORMAT_GEMINI_NATIVE => {
+            if let Some(meta) = resp.get("usageMetadata") {
+                let prompt = meta.get("promptTokenCount").and_then(|v| v.as_i64()).unwrap_or(0);
+                let completion = meta.get("candidatesTokenCount").and_then(|v| v.as_i64()).unwrap_or(0);
+                (prompt, completion, prompt + completion)
+            } else {
+                (0, 0, 0)
+            }
+        }
+        _ => extract_usage(resp),
+    }
+}
+
 /// POST /v1/chat/completions 鈥?Forward to upstream pool with round-robin + failover.
 ///
 /// Routing logic:
@@ -305,6 +335,18 @@ enum ResponseFormat {
     GeminiNative,
 }
 
+impl ResponseFormat {
+    /// The wire format name this endpoint speaks (matches upstream `api_format`).
+    fn api_format(&self) -> &'static str {
+        match self {
+            ResponseFormat::Chat => convert::FORMAT_OPENAI_CHAT,
+            ResponseFormat::Responses => convert::FORMAT_OPENAI_RESPONSES,
+            ResponseFormat::Anthropic => convert::FORMAT_ANTHROPIC,
+            ResponseFormat::GeminiNative => convert::FORMAT_GEMINI_NATIVE,
+        }
+    }
+}
+
 /// Shared core handler for chat-style completion requests.
 async fn process_completion(
     state: GatewayState,
@@ -313,6 +355,10 @@ async fn process_completion(
     response_format: ResponseFormat,
 ) -> impl IntoResponse {
     let start_time = Instant::now();
+
+    // Keep the raw client body. When a client endpoint's wire format matches
+    // the upstream's api_format we pass it through untouched (no Chat round-trip).
+    let client_body = body.clone();
 
     // Generate trace ID for end-to-end request tracing.
     // This ID is: (a) sent to upstream as X-Request-Id header,
@@ -547,7 +593,16 @@ async fn process_completion(
         // Build a fresh request body for this upstream attempt.
         // We clone from the original `body` each time to avoid stale
         // thinking params or model overrides from a previous iteration.
-        let mut request_body = body.clone();
+        //
+        // When the client endpoint's wire format matches the upstream's
+        // api_format, forward the raw client body (no Chat round-trip).
+        let upstream_format = upstream.api_format.as_str();
+        let passthrough = response_format.api_format() == upstream_format;
+        let mut request_body = if passthrough {
+            client_body.clone()
+        } else {
+            body.clone()
+        };
 
         // Override model with the pool-specific model for this upstream.
         // The model field may contain comma-separated values (multi-select);
@@ -593,11 +648,20 @@ async fn process_completion(
                 &upstream_level,
                 &pool.thinking_custom_params,
             );
-            thinking::merge_thinking_params(&mut request_body, &thinking_params);
+            // In passthrough mode the params must be expressed in the
+            // client wire format (Responses/Anthropic/Gemini native).
+            let params = if passthrough {
+                thinking::map_thinking_params_for_client_format(&thinking_params, upstream_format)
+            } else {
+                thinking_params
+            };
+            thinking::merge_thinking_params(&mut request_body, &params);
         }
 
-        // For streaming requests, ensure we get usage info in the final chunk
+        // For streaming requests, ensure we get usage info in the final chunk.
+        // (Only relevant for Chat-based upstreams; Conversations first pass-through uses native usage.)
         if is_stream
+            && upstream_format == convert::FORMAT_OPENAI_CHAT
             && let Some(obj) = request_body.as_object_mut()
         {
             obj.insert(
@@ -607,8 +671,9 @@ async fn process_completion(
         }
 
         // Convert request body to the upstream's native API format if needed.
-        let upstream_format = upstream.api_format.as_str();
-        if convert::needs_request_conversion(upstream_format) {
+        // In passthrough mode (client wire format == upstream format), the raw
+        // client body is already in the correct format, so no conversion.
+        if !passthrough && convert::needs_request_conversion(upstream_format) {
             match convert::convert_request_to_upstream(&request_body, upstream_format) {
                 Ok(converted) => request_body = converted,
                 Err(e) => {
@@ -693,6 +758,7 @@ async fn process_completion(
                     let tu_upstream = upstream.id.clone();
                     let tu_model = model_str.to_string();
                     let tu_request_id = request_id.clone();
+                    let passthrough_flag = passthrough;
                     let (tx, rx) =
                         tokio::sync::mpsc::channel::<Result<Bytes, std::convert::Infallible>>(64);
 
@@ -708,8 +774,27 @@ async fn process_completion(
                         let mut lines = reader.lines();
                         let mut last_usage: Option<(i64, i64, i64)> = None;
                         let mut stream_error: Option<String> = None;
-                        let use_native_converter = convert::needs_request_conversion(&upstream_format);
-                        let mut native_converter = convert::NativeStreamConverter::new(&upstream_format);
+                        // Passthrough: forward the native stream verbatim (model/usage/error only).
+                        // Only applies to native client formats; Chat client + Chat upstream
+                        // uses the existing Chat chunk path (model replace via process_sse_chunk).
+                        let use_passthrough_stream =
+                            passthrough_flag && upstream_format != convert::FORMAT_OPENAI_CHAT;
+                        let use_native_converter = !use_passthrough_stream
+                            && convert::needs_request_conversion(&upstream_format);
+                        let mut passthrough_converter =
+                            convert::PassthroughStreamConverter::new(&upstream_format);
+                        let mut native_converter =
+                            convert::NativeStreamConverter::new(&upstream_format);
+                        // Client-side converters for native response formats.
+                        // Stateful so the final completion event can be deferred
+                        // until the trailing usage chunk arrives, and streaming
+                        // tool calls can be accumulated across chunks.
+                        let mut responses_conv =
+                            convert::openai_responses::ResponsesStreamConverter::new(&display_name);
+                        let mut anthropic_conv =
+                            convert::AnthropicStreamConverter::new(&display_name);
+                        let mut gemini_conv =
+                            convert::GeminiStreamConverter::new(&display_name);
                         let responses_stream = response_format == ResponseFormat::Responses;
                         let anthropic_client_stream = response_format == ResponseFormat::Anthropic;
                         let gemini_client_stream = response_format == ResponseFormat::GeminiNative;
@@ -721,8 +806,9 @@ async fn process_completion(
                             match tokio::time::timeout(idle_timeout, lines.next_line()).await {
                                 Ok(Ok(Some(line))) => {
                                     let mut outputs: Vec<String> = Vec::new();
-                                    if use_native_converter {
-                                        let converted = native_converter.process(&line, &display_name);
+                                    if use_passthrough_stream {
+                                        let converted =
+                                            passthrough_converter.process(&line, &display_name);
                                         if let Some(u) = converted.usage {
                                             last_usage = Some(u);
                                         }
@@ -738,17 +824,96 @@ async fn process_completion(
                                             }
                                             break;
                                         }
+                                    } else if use_native_converter {
+                                        let converted = native_converter.process(&line, &display_name);
+                                        if let Some(u) = converted.usage {
+                                            last_usage = Some(u);
+                                        }
+                                        if stream_error.is_none() && converted.error.is_some() {
+                                            stream_error = converted.error.clone();
+                                        }
+                                        // The native upstream was translated to Chat
+                                        // format. If the CLIENT also speaks a native
+                                        // format (different from the upstream's), the
+                                        // Chat chunks must be converted a second time
+                                        // into the client's native events instead of
+                                        // being forwarded raw.
+                                        if responses_stream || anthropic_client_stream || gemini_client_stream {
+                                            let mut native_done = converted.done;
+                                            for out in converted.lines {
+                                                if let Some(payload) =
+                                                    out.strip_prefix("data: ").map(|s| s.trim())
+                                                {
+                                                    if payload == "[DONE]" {
+                                                        native_done = true;
+                                                        continue;
+                                                    }
+                                                    let (c_lines, c_usage, c_err) =
+                                                        if responses_stream {
+                                                            responses_conv.process(payload)
+                                                        } else if anthropic_client_stream {
+                                                            anthropic_conv.process(payload)
+                                                        } else {
+                                                            gemini_conv.process(payload)
+                                                        };
+                                                    if let Some(u) = c_usage {
+                                                        last_usage = Some(u);
+                                                    }
+                                                    if stream_error.is_none()
+                                                        && let Some(msg) = c_err
+                                                    {
+                                                        stream_error = Some(msg);
+                                                    }
+                                                    outputs.extend(c_lines);
+                                                }
+                                            }
+                                            if native_done {
+                                                let tail = if responses_stream {
+                                                    responses_conv.finish()
+                                                } else if anthropic_client_stream {
+                                                    anthropic_conv.finish()
+                                                } else {
+                                                    gemini_conv.finish()
+                                                };
+                                                outputs.extend(tail);
+                                                for out in outputs {
+                                                    if tx.send(Ok(Bytes::from(out))).await.is_err() {
+                                                        break;
+                                                    }
+                                                }
+                                                break;
+                                            }
+                                        } else {
+                                            outputs = converted.lines;
+                                            if converted.done {
+                                                for out in outputs {
+                                                    if tx.send(Ok(Bytes::from(out))).await.is_err() {
+                                                        break;
+                                                    }
+                                                }
+                                                break;
+                                            }
+                                        }
                                     } else if let Some(json_str) = line.strip_prefix("data: ") {
                                         let trimmed = json_str.trim();
                                         if trimmed == "[DONE]" {
-                                            outputs.push("data: [DONE]\n\n".to_string());
+                                            // Native client streams: the converter
+                                            // emits its own terminal `[DONE]` after the
+                                            // deferred completion event — flush it here
+                                            // and do NOT forward the raw marker again.
+                                            if responses_stream {
+                                                outputs.extend(responses_conv.finish());
+                                            } else if anthropic_client_stream {
+                                                outputs.extend(anthropic_conv.finish());
+                                            } else if gemini_client_stream {
+                                                outputs.extend(gemini_conv.finish());
+                                            } else {
+                                                outputs.push("data: [DONE]\n\n".to_string());
+                                            }
                                         } else if responses_stream {
                                             // Convert OpenAI Chat chunk -> Responses events
                                             let (resp_lines, usage, error_msg) =
-                                                convert::openai_responses::chat_sse_chunk_to_responses(
-                                                    trimmed,
-                                                    &display_name,
-                                                );
+                                                responses_conv.process(trimmed);
                                             if let Some(u) = usage {
                                                 last_usage = Some(u);
                                             }
@@ -761,7 +926,7 @@ async fn process_completion(
                                         } else if anthropic_client_stream {
                                             // Convert OpenAI Chat chunk -> Anthropic SSE events
                                             let (anth_lines, usage, error_msg) =
-                                                convert::chat_sse_to_anthropic(trimmed, &display_name);
+                                                anthropic_conv.process(trimmed);
                                             if let Some(u) = usage {
                                                 last_usage = Some(u);
                                             }
@@ -774,7 +939,7 @@ async fn process_completion(
                                         } else if gemini_client_stream {
                                             // Convert OpenAI Chat chunk -> Gemini SSE data
                                             let (gem_lines, usage, error_msg) =
-                                                convert::chat_sse_to_gemini(trimmed, &display_name);
+                                                gemini_conv.process(trimmed);
                                             if let Some(u) = usage {
                                                 last_usage = Some(u);
                                             }
@@ -811,7 +976,30 @@ async fn process_completion(
                                         }
                                     }
                                 }
-                                Ok(Ok(None)) => break, // stream ended
+                                Ok(Ok(None)) => {
+                                    // Stream ended without a `[DONE]` marker: flush
+                                    // any deferred completion event for native clients.
+                                    if responses_stream {
+                                        for out in responses_conv.finish() {
+                                            if tx.send(Ok(Bytes::from(out))).await.is_err() {
+                                                break;
+                                            }
+                                        }
+                                    } else if anthropic_client_stream {
+                                        for out in anthropic_conv.finish() {
+                                            if tx.send(Ok(Bytes::from(out))).await.is_err() {
+                                                break;
+                                            }
+                                        }
+                                    } else if gemini_client_stream {
+                                        for out in gemini_conv.finish() {
+                                            if tx.send(Ok(Bytes::from(out))).await.is_err() {
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    break; // stream ended
+                                }
                                 Ok(Err(e)) => {
                                     warn!(
                                         trace_id = %trace_id_clone,
@@ -833,6 +1021,12 @@ async fn process_completion(
 
                         // Fall back to converter-accumulated usage if the chunk-based
                         // extraction missed it (native formats report usage in control events).
+                        if last_usage.is_none() && use_passthrough_stream {
+                            let (p, c, t) = passthrough_converter.final_usage();
+                            if p > 0 || c > 0 {
+                                last_usage = Some((p, c, t));
+                            }
+                        }
                         if last_usage.is_none() && use_native_converter {
                             let (p, c, t) = native_converter.final_usage();
                             if p > 0 || c > 0 {
@@ -974,8 +1168,12 @@ async fn process_completion(
                 Ok(response) => {
                     let elapsed = start_time.elapsed().as_millis() as i32;
 
-                    // Convert native upstream response back to OpenAI Chat format
-                    let mut resp_body = if convert::needs_response_conversion(&upstream.api_format) {
+                    // Convert native upstream response back to OpenAI Chat format.
+                    // In passthrough mode the response is already in the client
+                    // format, so keep it verbatim.
+                    let mut resp_body = if passthrough {
+                        response.body
+                    } else if convert::needs_response_conversion(&upstream.api_format) {
                         convert::convert_response_to_client(
                             &response.body,
                             &upstream.api_format,
@@ -984,8 +1182,23 @@ async fn process_completion(
                     } else {
                         response.body
                     };
-                    // Replace model name in response with the pool's display name
-                    if let Some(obj) = resp_body.as_object_mut() {
+                    // Replace model name in response with the pool's display name.
+                    // Native formats carry a top-level model field (except Gemini);
+                    // Chat responses must always carry one.
+                    let add_model = passthrough
+                        && upstream_format == convert::FORMAT_OPENAI_CHAT
+                        || !passthrough;
+                    if add_model
+                        && let Some(obj) = resp_body.as_object_mut()
+                    {
+                        obj.insert(
+                            "model".to_string(),
+                            Value::String(pool.display_name.clone()),
+                        );
+                    } else if passthrough
+                        && let Some(obj) = resp_body.as_object_mut()
+                        && obj.get("model").is_some()
+                    {
                         obj.insert(
                             "model".to_string(),
                             Value::String(pool.display_name.clone()),
@@ -994,17 +1207,21 @@ async fn process_completion(
 
                     // Convert the OpenAI Chat response to the client's native
                     // format when the client called a native endpoint.
-                    match response_format {
-                        ResponseFormat::Responses => {
-                            resp_body = convert::normalize_responses_output(&resp_body, &pool.display_name);
+                    // Skipped in passthrough mode: the response is already in the
+                    // client's format.
+                    if !passthrough {
+                        match response_format {
+                            ResponseFormat::Responses => {
+                                resp_body = convert::normalize_responses_output(&resp_body, &pool.display_name);
+                            }
+                            ResponseFormat::Anthropic => {
+                                resp_body = convert::normalize_anthropic_output(&resp_body, &pool.display_name);
+                            }
+                            ResponseFormat::GeminiNative => {
+                                resp_body = convert::normalize_gemini_output(&resp_body, &pool.display_name);
+                            }
+                            ResponseFormat::Chat => {}
                         }
-                        ResponseFormat::Anthropic => {
-                            resp_body = convert::normalize_anthropic_output(&resp_body, &pool.display_name);
-                        }
-                        ResponseFormat::GeminiNative => {
-                            resp_body = convert::normalize_gemini_output(&resp_body, &pool.display_name);
-                        }
-                        ResponseFormat::Chat => {}
                     }
 
                     // Check if the response body contains an error field.
@@ -1036,8 +1253,12 @@ async fn process_completion(
                         continue;
                     }
 
-                    // Extract token usage from response
-                    let (prompt_tokens, completion_tokens, total_tokens) = extract_usage(&resp_body);
+                    // Extract token usage from response (native keys in passthrough mode)
+                    let (prompt_tokens, completion_tokens, total_tokens) = if passthrough {
+                        extract_native_usage(&resp_body, upstream_format)
+                    } else {
+                        extract_usage(&resp_body)
+                    };
 
                     // Update upstream health: successful non-streaming response
                     if let Err(e) = state.db.update_upstream_health(&upstream.id, true, None, UPSTREAM_FAILURE_THRESHOLD) {
@@ -1205,7 +1426,7 @@ async fn process_completion(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::http::{HeaderName, HeaderValue};
+    use axum::http::HeaderValue;
 
     // 鈹€鈹€ filter_passthrough_headers 娴嬭瘯 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 

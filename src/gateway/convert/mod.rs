@@ -2,11 +2,20 @@ pub mod anthropic;
 pub mod capabilities;
 pub mod gemini;
 pub mod openai_responses;
+pub mod passthrough;
 pub mod stream;
 
+pub use anthropic::AnthropicStreamConverter;
+pub use gemini::GeminiStreamConverter;
+pub use openai_responses::ResponsesStreamConverter;
+pub use passthrough::PassthroughStreamConverter;
 pub use stream::NativeStreamConverter;
 
 use serde_json::Value;
+
+/// Result of converting one Chat SSE chunk into client-native SSE events:
+/// `(output_lines, usage, error)`.
+pub type SseChunkResult = (Vec<String>, Option<(i64, i64, i64)>, Option<String>);
 
 /// Supported upstream API formats.
 pub const FORMAT_OPENAI_CHAT: &str = "openai_chat";
@@ -17,7 +26,10 @@ pub const FORMAT_GEMINI_NATIVE: &str = "gemini_native";
 /// Returns true if the given api_format requires any request conversion
 /// (i.e. is not the internal OpenAI Chat canonical format).
 pub fn needs_request_conversion(api_format: &str) -> bool {
-    matches!(api_format, FORMAT_ANTHROPIC | FORMAT_GEMINI_NATIVE)
+    matches!(
+        api_format,
+        FORMAT_ANTHROPIC | FORMAT_GEMINI_NATIVE | FORMAT_OPENAI_RESPONSES
+    )
 }
 
 /// Returns true if the given api_format requires response conversion.
@@ -36,7 +48,8 @@ pub fn convert_request_to_upstream(
     match api_format {
         FORMAT_ANTHROPIC => anthropic::chat_to_anthropic(body),
         FORMAT_GEMINI_NATIVE => gemini::chat_to_gemini(body),
-        FORMAT_OPENAI_CHAT | FORMAT_OPENAI_RESPONSES | "" => Ok(body.clone()),
+        FORMAT_OPENAI_RESPONSES => openai_responses::chat_to_responses_request(body),
+        FORMAT_OPENAI_CHAT | "" => Ok(body.clone()),
         other => Err(format!("unsupported api_format: {}", other)),
     }
 }
@@ -52,6 +65,7 @@ pub fn convert_response_to_client(
     match api_format {
         FORMAT_ANTHROPIC => anthropic::anthropic_to_chat(body, model_display),
         FORMAT_GEMINI_NATIVE => gemini::gemini_to_chat(body, model_display),
+        FORMAT_OPENAI_RESPONSES => openai_responses::responses_response_to_chat(body, model_display),
         _ => body.clone(),
     }
 }
@@ -91,8 +105,9 @@ pub fn normalize_anthropic_output(body: &Value, model_display: &str) -> Value {
 pub fn chat_sse_to_anthropic(
     json_str: &str,
     display_name: &str,
-) -> (Vec<String>, Option<(i64, i64, i64)>, Option<String>) {
-    anthropic::chat_sse_chunk_to_anthropic(json_str, display_name)
+) -> SseChunkResult {
+    let mut converter = anthropic::AnthropicStreamConverter::new(display_name);
+    converter.process(json_str)
 }
 
 /// Normalize a Gemini Native request body into internal Chat format.
@@ -109,8 +124,9 @@ pub fn normalize_gemini_output(body: &Value, model_display: &str) -> Value {
 pub fn chat_sse_to_gemini(
     json_str: &str,
     display_name: &str,
-) -> (Vec<String>, Option<(i64, i64, i64)>, Option<String>) {
-    gemini::chat_sse_chunk_to_gemini(json_str, display_name)
+) -> SseChunkResult {
+    let mut converter = gemini::GeminiStreamConverter::new(display_name);
+    converter.process(json_str)
 }
 
 #[cfg(test)]
@@ -124,7 +140,9 @@ mod tests {
         assert!(!needs_request_conversion(""));
         assert!(needs_request_conversion("anthropic"));
         assert!(needs_request_conversion("gemini_native"));
+        assert!(needs_request_conversion("openai_responses"));
         assert!(needs_response_conversion("anthropic"));
+        assert!(needs_response_conversion("openai_responses"));
     }
 
     #[test]
@@ -139,6 +157,69 @@ mod tests {
         let body = json!({"model": "m"});
         let err = convert_request_to_upstream(&body, "bogus").unwrap_err();
         assert!(err.contains("unsupported api_format"));
+    }
+
+    #[test]
+    fn test_convert_request_and_response_openai_responses() {
+        let chat_req = json!({
+            "model": "gpt-5",
+            "messages": [
+                {"role": "system", "content": "Be helpful"},
+                {"role": "user", "content": "Hi"}
+            ],
+            "max_tokens": 100,
+            "reasoning_effort": "high"
+        });
+        let resp_req = convert_request_to_upstream(&chat_req, "openai_responses").unwrap();
+        assert_eq!(resp_req["model"], "gpt-5");
+        assert_eq!(resp_req["instructions"], "Be helpful");
+        assert_eq!(resp_req["max_output_tokens"], 100);
+        assert_eq!(resp_req["reasoning"]["effort"], "high");
+        let input = resp_req["input"].as_array().unwrap();
+        assert_eq!(input[0]["role"], "user");
+        assert_eq!(input[0]["content"][0]["text"], "Hi");
+
+        let responses_resp = json!({
+            "id": "resp_1",
+            "object": "response",
+            "status": "completed",
+            "output": [{
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "Hello"}]
+            }],
+            "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
+        });
+        let chat_resp = convert_response_to_client(&responses_resp, "openai_responses", "Display");
+        assert_eq!(chat_resp["object"], "chat.completion");
+        assert_eq!(chat_resp["model"], "Display");
+        assert_eq!(chat_resp["choices"][0]["message"]["content"], "Hello");
+        assert_eq!(chat_resp["choices"][0]["finish_reason"], "stop");
+        assert_eq!(chat_resp["usage"]["prompt_tokens"], 10);
+        assert_eq!(chat_resp["usage"]["completion_tokens"], 5);
+    }
+
+    #[test]
+    fn test_responses_response_with_tool_and_reasoning() {
+        let responses_resp = json!({
+            "id": "resp_2",
+            "object": "response",
+            "status": "completed",
+            "output": [
+                {"type": "reasoning", "summary": [{"type": "summary_text", "text": "think hard"}]},
+                {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": ""}]},
+                {"type": "function_call", "call_id": "call_1", "name": "get_weather", "arguments": "{\"city\":\"SF\"}"}
+            ],
+            "usage": {"input_tokens": 3, "output_tokens": 4, "total_tokens": 7}
+        });
+        let chat = convert_response_to_client(&responses_resp, "openai_responses", "M");
+        let msg = &chat["choices"][0]["message"];
+        assert_eq!(msg["reasoning_content"], "think hard");
+        assert_eq!(msg["content"], "");
+        let tc = msg["tool_calls"].as_array().unwrap();
+        assert_eq!(tc[0]["function"]["name"], "get_weather");
+        assert_eq!(tc[0]["function"]["arguments"], "{\"city\":\"SF\"}");
+        assert_eq!(chat["choices"][0]["finish_reason"], "stop");
     }
 
     #[test]

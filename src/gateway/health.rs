@@ -173,6 +173,6 @@ mod tests {
         let t1 = uptime_seconds();
         std::thread::sleep(std::time::Duration::from_millis(1100));
         let t2 = uptime_seconds();
-        assert!(t2 >= t1 + 1, "uptime should increase by at least 1 second");
+        assert!(t2 > t1, "uptime should increase by at least 1 second");
     }
 }

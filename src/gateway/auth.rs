@@ -96,10 +96,10 @@ pub fn validate_api_key(
         }
 
         // Check if key has expired
-        if let Some(ref expires_at) = api_key.expires_at {
-            if is_expired(expires_at) {
-                return Err(json!({ "error": "API key has expired" }));
-            }
+        if let Some(ref expires_at) = api_key.expires_at
+            && is_expired(expires_at)
+        {
+            return Err(json!({ "error": "API key has expired" }));
         }
 
         // Parse allowed pools from JSON
@@ -148,10 +148,10 @@ pub fn validate_api_key(
 /// - `x-goog-api-key: <key>` (Gemini Native)
 fn extract_api_key(headers: &HeaderMap) -> Option<&str> {
     // 1. Authorization: Bearer
-    if let Some(auth) = headers.get("Authorization").and_then(|v| v.to_str().ok()) {
-        if let Some(key) = auth.strip_prefix("Bearer ") {
-            return Some(key.trim());
-        }
+    if let Some(auth) = headers.get("Authorization").and_then(|v| v.to_str().ok())
+        && let Some(key) = auth.strip_prefix("Bearer ")
+    {
+        return Some(key.trim());
     }
     // 2. x-api-key (Anthropic)
     if let Some(key) = headers.get("x-api-key").and_then(|v| v.to_str().ok()) {
