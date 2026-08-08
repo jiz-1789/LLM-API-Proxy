@@ -677,6 +677,10 @@ async fn process_completion(
     let mut last_error: Option<String> = None;
     let mut failed_upstreams_json: Vec<Value> = Vec::new();
     let mut attempted_any = false;
+    // Last upstream 429 (rate limit) response, kept so that when every
+    // upstream is rate-limited the client gets the 429 back instead of a
+    // generic 502 (failover already tried, but all exhausted).
+    let mut last_ratelimit: Option<(u16, Value)> = None;
 
     for attempt in 0..max_attempts {
         let idx = (start_idx + attempt) % n;
@@ -1259,7 +1263,9 @@ async fn process_completion(
                         "Stream upstream failed"
                     );
                     // 4xx锛氬鎴风璇锋眰鏈韩鐨勯棶棰橈紝鍘熸牱閫忎紶涓婃父閿欒缁欏鎴风
-                    if let Some((passthrough_status, passthrough_body)) = e.passthrough_response() {
+                    if let Some((passthrough_status, passthrough_body)) = e.passthrough_response()
+                        && !matches!(e, UpstreamError::RateLimited { .. })
+                    {
                         let elapsed = start_time.elapsed().as_millis() as i32;
                         let log_id = format!("log_{}", uuid::Uuid::new_v4().simple());
                         if let Err(le) = state.db.insert_request_log(
@@ -1300,6 +1306,11 @@ async fn process_completion(
                         "error": e.error_summary()
                     }));
                     last_error = Some(e.error_summary());
+                    // Keep the last 429 so that if every upstream is
+                    // rate-limited we can pass it through instead of a 502.
+                    if let UpstreamError::RateLimited { status, body, .. } = &e {
+                        last_ratelimit = Some((*status, body.clone().unwrap_or_else(|| json!({}))));
+                    }
                     if !e.should_failover() {
                         break;
                     }
@@ -1488,7 +1499,9 @@ async fn process_completion(
                     );
                     // 4xx锛氬鎴风璇锋眰鏈韩鐨勯棶棰橈紝鍘熸牱閫忎紶涓婃父閿欒缁欏鎴风锛?
                     // 涓嶅仛鏁呴殰杞Щ锛堟崲涓€涓笂娓镐篃浼氬緱鍒板悓鏍风粨鏋滐級銆?
-                    if let Some((passthrough_status, passthrough_body)) = e.passthrough_response() {
+                    if let Some((passthrough_status, passthrough_body)) = e.passthrough_response()
+                        && !matches!(e, UpstreamError::RateLimited { .. })
+                    {
                         // 璁板綍璇锋眰鏃ュ織锛岀姸鎬佺爜涓轰笂娓哥湡瀹?4xx 鐘舵€佺爜
                         let elapsed = start_time.elapsed().as_millis() as i32;
                         let log_id = format!("log_{}", uuid::Uuid::new_v4().simple());
@@ -1532,6 +1545,11 @@ async fn process_completion(
                         "error": e.error_summary()
                     }));
                     last_error = Some(e.error_summary());
+                    // Keep the last 429 so that if every upstream is
+                    // rate-limited we can pass it through instead of a 502.
+                    if let UpstreamError::RateLimited { status, body, .. } = &e {
+                        last_ratelimit = Some((*status, body.clone().unwrap_or_else(|| json!({}))));
+                    }
                     if !e.should_failover() {
                         break;
                     }
@@ -1568,6 +1586,16 @@ async fn process_completion(
     if !attempted_any {
         return with_request_id(
             error_response::no_available_upstream("all upstreams are disabled"),
+            &trace_id,
+        );
+    }
+
+    // Every upstream failed. If the last failure was a 429 (rate limit),
+    // pass it through so the client can back off — the real status carries
+    // more meaning than a generic 502.
+    if let Some((status, body)) = last_ratelimit {
+        return with_request_id(
+            error_response::passthrough_upstream_error(status, &body, None),
             &trace_id,
         );
     }
