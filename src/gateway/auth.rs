@@ -135,7 +135,25 @@ pub fn validate_api_key(
             allowed_pools: Vec::new(),
         })
     } else {
-        Err(json!({ "error": "invalid API key" }))
+        // ── Tool gateway token ────────────────────────────────────────
+        // Tool configs write a dedicated token (generated on first tool
+        // enable) instead of the primary gateway key, so the primary key is
+        // never embedded in a tool's config file. Accept it here.
+        let tool_token = db
+            .get_setting(crate::tool_config::gateway::TOOL_TOKEN_SETTING_KEY)
+            .map_err(|e| json!({ "error": format!("failed to load tool token: {}", e) }))?
+            .unwrap_or_default();
+        if !tool_token.is_empty()
+            && constant_time_eq(provided_key.as_bytes(), tool_token.as_bytes())
+        {
+            Ok(AuthResult {
+                key: provided_key.to_string(),
+                all_pools_allowed: true,
+                allowed_pools: Vec::new(),
+            })
+        } else {
+            Err(json!({ "error": "invalid API key" }))
+        }
     }
 }
 
@@ -310,6 +328,35 @@ mod tests {
         let auth = result.unwrap();
         assert!(auth.all_pools_allowed);
         assert!(auth.allowed_pools.is_empty());
+    }
+
+    #[test]
+    fn test_validate_api_key_tool_token_success() {
+        let db = Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+        let token = crate::tool_config::gateway::get_or_create_tool_token(&db).unwrap();
+        let db = Arc::new(db);
+
+        let mut headers = HeaderMap::new();
+        headers.insert("Authorization", format!("Bearer {token}").parse().unwrap());
+        let result = validate_api_key(&headers, &db);
+        assert!(result.is_ok());
+        assert!(result.unwrap().all_pools_allowed);
+    }
+
+    #[test]
+    fn test_validate_api_key_tool_token_wrong() {
+        let db = Database::open_in_memory().unwrap();
+        db.initialize().unwrap();
+        // A random non-matching token must be rejected even if the tool token
+        // setting exists.
+        db.save_setting(crate::tool_config::gateway::TOOL_TOKEN_SETTING_KEY, "llm-proxy-abc").unwrap();
+        let db = Arc::new(db);
+
+        let mut headers = HeaderMap::new();
+        headers.insert("Authorization", "Bearer llm-proxy-xyz".parse().unwrap());
+        let result = validate_api_key(&headers, &db);
+        assert!(result.is_err());
     }
 
     #[test]

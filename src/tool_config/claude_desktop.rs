@@ -41,6 +41,33 @@ pub const ROLE_ROUTE_IDS: &[(&str, &str)] = &[
     ("haiku", "claude-haiku-4-5"),
 ];
 
+/// A pool whose real context window is at least this many tokens is treated
+/// as 1M-capable for `supports1m` declarations on `pool-{name}` routes and
+/// `inferenceModels` entries (the pool's inferred window, not a hardcode).
+const ONE_M_THRESHOLD: i32 = 1_000_000;
+
+/// Whether a model id is one Claude Desktop recognises as a native Claude
+/// model. Such ids may appear in `inferenceModels` and be requested directly.
+///
+/// Rules (mirror cc-switch): must be `claude-` or `anthropic/claude-` prefixed,
+/// followed by a role word (`sonnet-`/`opus-`/`haiku-`/`fable-`) plus a
+/// non-empty tail; a `[1m]` marker is never a safe id.
+fn is_claude_safe_model_id(model: &str) -> bool {
+    let normalized = model.trim().to_ascii_lowercase();
+    if normalized.contains("[1m]") {
+        return false;
+    }
+    let tail = normalized
+        .strip_prefix("anthropic/claude-")
+        .or_else(|| normalized.strip_prefix("claude-"));
+    let Some(tail) = tail else {
+        return false;
+    };
+    ["sonnet-", "opus-", "haiku-", "fable-"]
+        .iter()
+        .any(|prefix| tail.strip_prefix(prefix).is_some_and(|rest| !rest.is_empty()))
+}
+
 impl ToolConfigWriter for ClaudeDesktopWriter {
     fn app_id(&self) -> &'static str {
         APP_ID
@@ -194,10 +221,14 @@ impl ToolConfigWriter for ClaudeDesktopWriter {
             if pool.name == default_pool_name || covered.contains(&pool.name) {
                 continue;
             }
+            // A `pool-{name}` route declares 1M when the pool's real context
+            // window reaches the 1M threshold (or the default 1M flag makes
+            // the whole default pool 1M-capable).
+            let supports_1m = pool_declares_1m(pool, default_pool_name, model_roles, roles_1m);
             routes.push(json!({
                 "routeId": format!("pool-{}", pool.name),
                 "upstreamModel": pool.name,
-                "supports1m": false,
+                "supports1m": supports_1m,
             }));
         }
         obj.insert("modelRoutes".to_string(), Value::Array(routes));
@@ -224,6 +255,31 @@ impl ToolConfigWriter for ClaudeDesktopWriter {
     }
 }
 
+/// Whether the 1M flag applies to a given pool.
+///
+/// A pool declares 1M when: it is the explicit target of a 1M-flagged role,
+/// OR it is the default pool with the default 1M flag set, OR its real
+/// context window (inferred from capabilities) reaches the 1M threshold.
+fn pool_declares_1m(
+    pool: &ToolPool,
+    default_pool_name: &str,
+    model_roles: &[(String, String)],
+    roles_1m: &[String],
+) -> bool {
+    let role_mapped = model_roles
+        .iter()
+        .any(|(role, mapped)| mapped == &pool.name && roles_1m.iter().any(|r| r == role));
+    if role_mapped {
+        return true;
+    }
+    if roles_1m.iter().any(|r| r == "default") && pool.name == default_pool_name {
+        return true;
+    }
+    // Real window fallback: a pool whose inferred window reaches 1M declares
+    // it even without an explicit role/default flag.
+    pool.context_window.is_some_and(|w| w >= ONE_M_THRESHOLD)
+}
+
 /// Build the `inferenceModels` array Claude Desktop's model picker reads.
 ///
 /// One entry per pool: `name` = pool name, `labelOverride` = real display name
@@ -241,23 +297,29 @@ fn build_inference_models(
             .map(|p| p.display_name.clone())
             .unwrap_or_else(|| name.to_string())
     };
-    let pool_supports_1m = |pool: &str| -> bool {
-        model_roles
-            .iter()
-            .any(|(role, mapped)| mapped == pool && roles_1m.iter().any(|r| r == role))
-            || (pool == default_pool_name && roles_1m.iter().any(|r| r == "default"))
-    };
     let models: Vec<Value> = all_pools
         .iter()
         .map(|pool| {
+            let supports_1m = pool_declares_1m(pool, default_pool_name, model_roles, roles_1m);
+            // A pool name that looks like a Claude id but isn't safe (e.g.
+            // `claude-custom-thing`) must be exposed through our `pool-{name}`
+            // proxy route, otherwise Claude Desktop treats it as a native
+            // model and requests it directly (bypassing our gateway).
+            let name = if pool.name.starts_with("claude-")
+                && !is_claude_safe_model_id(&pool.name)
+            {
+                format!("pool-{}", pool.name)
+            } else {
+                pool.name.clone()
+            };
             let mut item = json!({
-                "name": pool.name,
+                "name": name,
                 "labelOverride": display_of(&pool.name),
-                "supports1m": pool_supports_1m(&pool.name),
+                "supports1m": supports_1m,
             });
             // Bare names for plain pools keep the list readable; only pools
             // with a display override or 1M flag need the rich object shape.
-            if !pool_supports_1m(&pool.name) && pool.display_name == pool.name {
+            if !supports_1m && pool.display_name == pool.name && name == pool.name {
                 item = Value::String(pool.name.clone());
             }
             item
@@ -402,6 +464,55 @@ mod tests {
     }
 
     #[test]
+    fn test_claude_desktop_pool_window_declares_1m() {
+        let dir = TempDir::new().unwrap();
+        let cfg = dir.path().join("claude_desktop_config.json");
+        let writer = ClaudeDesktopWriter;
+        let original = vec![(cfg.clone(), None)];
+
+        writer
+            .merge_and_write_config_with_roles_1m(
+                &original,
+                "http://x",
+                "k",
+                &[
+                    ToolPool::new("pool-a", "Pool A"),
+                    ToolPool::with_window("pool-1m", "Pool 1M", 1_000_000),
+                    ToolPool::with_window("pool-200k", "Pool 200K", 200_000),
+                ],
+                "pool-a",
+                "Pool A",
+                "LLM-API-Proxy",
+                &[],
+                &[],
+            )
+            .unwrap();
+
+        let written: Value = serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
+        let routes = written["modelRoutes"].as_array().unwrap();
+        // pool-{name} routes: real 1M-window pool declares supports1m, others don't.
+        let route_1m = routes.iter().find(|r| r["routeId"] == "pool-pool-1m").unwrap();
+        assert_eq!(route_1m["supports1m"], true);
+        let route_200k = routes.iter().find(|r| r["routeId"] == "pool-pool-200k").unwrap();
+        assert_eq!(route_200k["supports1m"], false);
+        // inferenceModels: the 1M-window pool gets the rich object with
+        // supports1m; the 200K pool with a display override keeps the rich
+        // object but declares no 1M.
+        let models = written["inferenceModels"].as_array().unwrap();
+        let m_1m = models.iter().find(|m| m.get("name").and_then(Value::as_str) == Some("pool-1m")).unwrap();
+        assert_eq!(m_1m["supports1m"], true);
+        assert_eq!(m_1m["labelOverride"], "Pool 1M");
+        let m_200k = models.iter().find(|m| m.get("name").and_then(Value::as_str) == Some("pool-200k")).unwrap();
+        assert_eq!(m_200k["supports1m"], false);
+        assert_eq!(m_200k["labelOverride"], "Pool 200K");
+        // Default pool "pool-a" (display override, no 1M) keeps the rich
+        // object shape but declares no 1M.
+        let m_a = models.iter().find(|m| m.get("name").and_then(Value::as_str) == Some("pool-a")).unwrap();
+        assert_eq!(m_a["supports1m"], false);
+        assert_eq!(m_a["labelOverride"], "Pool A");
+    }
+
+    #[test]
     fn test_claude_desktop_creates_new() {
         let dir = TempDir::new().unwrap();
         let cfg = dir.path().join("claude_desktop_config.json");
@@ -424,5 +535,54 @@ mod tests {
         let original = vec![(cfg.clone(), Some(r#"{"original":true}"#.to_string()))];
         writer.restore_original_config(&original).unwrap();
         assert_eq!(std::fs::read_to_string(&cfg).unwrap(), r#"{"original":true}"#);
+    }
+
+    #[test]
+    fn test_is_claude_safe_model_id() {
+        // Recognised native Claude model ids.
+        assert!(is_claude_safe_model_id("claude-sonnet-4-6"));
+        assert!(is_claude_safe_model_id("claude-opus-4-8"));
+        assert!(is_claude_safe_model_id("claude-haiku-4-5-20251001"));
+        assert!(is_claude_safe_model_id("anthropic/claude-sonnet-5"));
+        // 1M marker never safe.
+        assert!(!is_claude_safe_model_id("claude-sonnet-4-6 [1m]"));
+        // Degenerate / non-Claude ids rejected.
+        assert!(!is_claude_safe_model_id("claude-sonnet-"));
+        assert!(!is_claude_safe_model_id("claude-custom-thing"));
+        assert!(!is_claude_safe_model_id("deepseek-v4-pro"));
+        assert!(!is_claude_safe_model_id("gpt-4o"));
+    }
+
+    #[test]
+    fn test_claude_desktop_unsafe_claude_pool_rewritten_to_route() {
+        let dir = TempDir::new().unwrap();
+        let cfg = dir.path().join("claude_desktop_config.json");
+        let writer = ClaudeDesktopWriter;
+        let original = vec![(cfg.clone(), None)];
+
+        // A pool literally named `claude-custom-thing` looks like a native
+        // Claude model but isn't safe; it must be exposed via pool-{name}.
+        writer
+            .merge_and_write_config_with_roles_1m(
+                &original,
+                "http://x",
+                "k",
+                &[ToolPool::new("claude-custom-thing", "Custom")],
+                "claude-custom-thing",
+                "Custom",
+                "LLM-API-Proxy",
+                &[],
+                &[],
+            )
+            .unwrap();
+
+        let written: Value = serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
+        let models = written["inferenceModels"].as_array().unwrap();
+        let entry = models.iter().find(|m| {
+            m.get("name").and_then(Value::as_str) == Some("pool-claude-custom-thing")
+        }).unwrap();
+        assert_eq!(entry["labelOverride"], "Custom");
+        // No raw unsafe claude- pool name in the list.
+        assert!(models.iter().all(|m| m.get("name").and_then(Value::as_str) != Some("claude-custom-thing")));
     }
 }

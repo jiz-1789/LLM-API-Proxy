@@ -131,6 +131,11 @@ impl ToolConfigWriter for ClaudeCodeWriter {
         if let Some(env_obj) = env.as_object_mut() {
             env_obj.insert("ANTHROPIC_BASE_URL".to_string(), Value::String(proxy_base_url.to_string()));
             env_obj.insert("ANTHROPIC_AUTH_TOKEN".to_string(), Value::String(proxy_api_key.to_string()));
+            // Claude Code warns when both AUTH_TOKEN and API_KEY are set
+            // ("Both ANTHROPIC_AUTH_TOKEN and ANTHROPIC_API_KEY set").
+            // We take over auth via AUTH_TOKEN, so drop any stale API_KEY to
+            // keep exactly one credential active.
+            env_obj.remove("ANTHROPIC_API_KEY");
             env_obj.insert("ANTHROPIC_MODEL".to_string(), Value::String(default_pool_name.to_string()));
             // Role slots: any role without an explicit mapping falls back to
             // the default pool so /model always offers a working entry.
@@ -397,6 +402,41 @@ mod tests {
         assert!(env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW").is_none());
         // Suffix-free role values overwrite stale [1M] ones.
         assert_eq!(env["ANTHROPIC_DEFAULT_SONNET_MODEL"], "deepseek-v4-pro");
+    }
+
+    #[test]
+    fn test_claude_auth_conflict_removes_stale_api_key() {
+        let dir = TempDir::new().unwrap();
+        let settings = dir.path().join("settings.json");
+        // User previously configured ANTHROPIC_API_KEY; we take over auth via
+        // ANTHROPIC_AUTH_TOKEN and must drop the stale key to avoid the
+        // "Both AUTH_TOKEN and API_KEY set" warning.
+        std::fs::write(
+            &settings,
+            r#"{"env":{"ANTHROPIC_API_KEY":"sk-user","ANTHROPIC_BASE_URL":"https://user.com"}}"#,
+        )
+        .unwrap();
+
+        let writer = make_writer_with_home(&dir);
+        let original = vec![(settings.clone(), Some(std::fs::read_to_string(&settings).unwrap()))];
+
+        writer
+            .merge_and_write_config(
+                &original,
+                "http://127.0.0.1:47339",
+                "sk-gw-test",
+                &[ToolPool::new("gpt-4", "GPT-4")],
+                "gpt-4",
+                "GPT-4",
+                "LLM-API-Proxy",
+            )
+            .unwrap();
+
+        let written: Value = serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
+        let env = &written["env"];
+        assert_eq!(env["ANTHROPIC_AUTH_TOKEN"], "sk-gw-test");
+        assert!(env.get("ANTHROPIC_API_KEY").is_none(), "stale API_KEY must be removed");
+        assert_eq!(env["ANTHROPIC_BASE_URL"], "http://127.0.0.1:47339");
     }
 
     #[test]

@@ -45,7 +45,7 @@ impl ToolConfigWriter for GrokWriter {
         &self,
         original_configs: &[BackupEntry],
         proxy_base_url: &str,
-        _proxy_api_key: &str,
+        proxy_api_key: &str,
         all_pools: &[ToolPool],
         default_pool_name: &str,
         default_pool_display_name: &str,
@@ -92,6 +92,10 @@ impl ToolConfigWriter for GrokWriter {
         provider["base_url"] = toml_edit::value(proxy_base_url);
         provider["wire_api"] = toml_edit::value("responses");
         provider["requires_openai_auth"] = toml_edit::value(true);
+        // Bearer token for the newer Grok desktop/build auth path — without it
+        // the CLI has no credential once XAI_* env vars are cleaned up. Written
+        // on the provider section like Codex's experimental_bearer_token.
+        provider["experimental_bearer_token"] = toml_edit::value(proxy_api_key);
 
         // Register every pool as a switchable model under this provider so
         // Grok can switch between all proxy pools (not just the default one).
@@ -154,6 +158,7 @@ mod tests {
         assert!(toml.contains("model_provider = \"LLM-API-Proxy\""));
         assert!(toml.contains("model = \"grok-pool\""));
         assert!(toml.contains("base_url = \"http://127.0.0.1:47339\""));
+        assert!(toml.contains("experimental_bearer_token = \"sk-k\""));
     }
 
     #[test]

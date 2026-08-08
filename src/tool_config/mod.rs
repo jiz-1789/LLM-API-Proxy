@@ -7,6 +7,7 @@ pub mod claude_desktop;
 pub mod codex;
 pub mod detector;
 pub mod env_check;
+pub mod gateway;
 pub mod gemini;
 pub mod grok;
 pub mod hermes;
@@ -606,7 +607,12 @@ impl ToolSwitchManager {
         Ok(())
     }
 
-    /// Resolve the gateway API key (by API key record ID, else the primary key).
+    /// Resolve the credential to write into a tool config.
+    ///
+    /// Explicit API key records take precedence. Otherwise fall back to the
+    /// dedicated tool gateway token (generated on first use) instead of the
+    /// primary `gateway_api_key`, so the primary key is never embedded in a
+    /// tool's config file.
     fn resolve_gateway_api_key(&self, api_key_id: Option<&str>) -> Result<String, AppError> {
         if let Some(kid) = api_key_id
             && let Ok(Some(record)) = self.db.get_api_key_by_id(kid)
@@ -614,10 +620,7 @@ impl ToolSwitchManager {
         {
             return Ok(record.key);
         }
-        // Fall back to the primary gateway key setting.
-        self.db
-            .get_setting("gateway_api_key")?
-            .ok_or_else(|| AppError::Config("未配置 Gateway API Key".to_string()))
+        crate::tool_config::gateway::get_or_create_tool_token(&self.db)
     }
 
     /// The gateway base URL written into tool configs.
@@ -884,7 +887,12 @@ mod tests {
         let written = std::fs::read_to_string(&target).unwrap();
         let v: serde_json::Value = serde_json::from_str(&written).unwrap();
         assert_eq!(v["model"], "vision-pool");
-        assert_eq!(v["api_key"], "sk-gw-test-key");
+        // No explicit API key record → the dedicated tool gateway token is
+        // written instead of the primary gateway_api_key.
+        assert_eq!(
+            v["api_key"],
+            crate::tool_config::gateway::get_or_create_tool_token(&db).unwrap()
+        );
 
         // State persisted
         let cfg = db.get_tool_config("test-tool").unwrap().unwrap();

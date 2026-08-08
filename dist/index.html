@@ -2379,7 +2379,7 @@ print(response.choices[0].message.content)</code></pre>
                 <div class="form-group">
                     <label class="form-label" data-i18n="tool_config_api_key">API Key</label>
                     <select class="form-input" id="tool-api-key-select"></select>
-                    <div class="form-hint" data-i18n="tool_config_api_key_hint">留空使用默认 Gateway API Key</div>
+                    <div class="form-hint" data-i18n="tool_config_api_key_hint">留空使用专用的工具网关 Token（独立于默认 Gateway API Key）</div>
                 </div>
                 <div class="form-group">
                     <label class="form-label" data-i18n="tool_config_provider_name">供应商标签名</label>
@@ -2954,7 +2954,7 @@ settings_import_full: { zh: '全量导入', en: 'Import (Full)' },
         tool_config_paths_label: { zh: '配置文件位置', en: 'Config File Locations' },
         tool_config_not_installed_hint: { zh: '该工具尚未安装，请先下载安装后再进行配置', en: 'This tool is not installed yet. Download and install it first, then configure.' },
         tool_config_api_key: { zh: 'API Key', en: 'API Key' },
-        tool_config_api_key_hint: { zh: '留空使用默认 Gateway API Key', en: 'Leave empty to use the default Gateway API Key' },
+        tool_config_api_key_hint: { zh: '留空使用专用的工具网关 Token（独立于默认 Gateway API Key）', en: 'Leave empty to use a dedicated tool gateway token (separate from the default Gateway API Key)' },
         tool_config_provider_name: { zh: '供应商标签名', en: 'Provider Label' },
         tool_config_provider_name_ph: { zh: '写入配置中的供应商名称', en: 'Provider name written into config' },
         tool_config_warning_not_installed: { zh: '未检测到 {tool}，请先下载安装', en: '{tool} not detected, please download and install first' },
@@ -2963,7 +2963,7 @@ settings_import_full: { zh: '全量导入', en: 'Import (Full)' },
         tool_config_confirm_disable: { zh: '关闭', en: 'Disable' },
         tool_config_disable_warning: { zh: '关闭后将恢复 {tool} 的原始配置文件。确定继续？', en: 'This will restore {tool}\'s original config file. Continue?' },
         tool_config_rewrite: { zh: '重新写入', en: 'Rewrite' },
-        tool_config_default_key: { zh: '(默认 Gateway Key)', en: '(Default Gateway Key)' },
+        tool_config_default_key: { zh: '(工具网关 Token)', en: '(Tool Gateway Token)' },
         tool_config_roles_title: { zh: '模型角色映射', en: 'Model Role Mapping' },
         tool_config_roles_hint: { zh: '为各工具的角色槽位指定模型池，未指定的角色自动沿用默认模型池', en: 'Assign a pool to each role slot. Roles left unset fall back to the default pool.' },
         tool_config_role_sonnet: { zh: 'Sonnet', en: 'Sonnet' },

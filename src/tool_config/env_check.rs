@@ -15,7 +15,24 @@ use crate::error::AppError;
 use std::path::PathBuf;
 
 /// Prefixes of environment variables that can override an injected proxy config.
-pub const CONFLICT_PREFIXES: &[&str] = &["ANTHROPIC_", "OPENAI_", "GEMINI_", "GOOGLE_", "XAI_"];
+///
+/// Injected values that these can clobber:
+/// - `ANTHROPIC_*` / `GOOGLE_*`/`GEMINI_*` / `XAI_*`: auth + base URL for the
+///   Anthropic / Gemini / Grok tools.
+/// - `CLAUDE_CODE_*`: the context-window envs we write
+///   (`CLAUDE_CODE_MAX_CONTEXT_TOKENS` / `CLAUDE_CODE_AUTO_COMPACT_WINDOW`).
+/// - `OPENAI_*` / `CODEX_*`: Codex / OpenAI-compatible tool auth.
+/// - `GROK_*`: Grok CLI env vars (e.g. `GROK_DEFAULT_MODEL`).
+pub const CONFLICT_PREFIXES: &[&str] = &[
+    "ANTHROPIC_",
+    "CLAUDE_CODE_",
+    "OPENAI_",
+    "CODEX_",
+    "GEMINI_",
+    "GOOGLE_",
+    "XAI_",
+    "GROK_",
+];
 
 /// One detected conflicting environment variable.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -217,6 +234,25 @@ mod tests {
         );
         unsafe {
             std::env::remove_var("ANTHROPIC_BASE_URL_TEST_PROBE");
+        }
+    }
+
+    #[test]
+    fn test_detect_conflicts_scans_new_prefixes() {
+        // SAFETY: single-threaded test, setting probe vars is race-free here.
+        unsafe {
+            std::env::set_var("CLAUDE_CODE_MAX_CONTEXT_TOKENS_TEST_PROBE", "1000000");
+            std::env::set_var("GROK_DEFAULT_MODEL_TEST_PROBE", "grok-4");
+            std::env::set_var("CODEX_TEST_PROBE", "x");
+        }
+        let found = detect_conflicts();
+        assert!(found.iter().any(|c| c.name == "CLAUDE_CODE_MAX_CONTEXT_TOKENS_TEST_PROBE"));
+        assert!(found.iter().any(|c| c.name == "GROK_DEFAULT_MODEL_TEST_PROBE"));
+        assert!(found.iter().any(|c| c.name == "CODEX_TEST_PROBE"));
+        unsafe {
+            std::env::remove_var("CLAUDE_CODE_MAX_CONTEXT_TOKENS_TEST_PROBE");
+            std::env::remove_var("GROK_DEFAULT_MODEL_TEST_PROBE");
+            std::env::remove_var("CODEX_TEST_PROBE");
         }
     }
 

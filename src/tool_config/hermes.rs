@@ -86,14 +86,6 @@ impl ToolConfigWriter for HermesWriter {
             .first()
             .ok_or_else(|| AppError::Config("缺少原始配置".to_string()))?;
 
-        let mut yaml = original.clone().unwrap_or_default().trim_end().to_string();
-        if yaml.is_empty() {
-            yaml = String::new();
-        }
-        if !yaml.ends_with('\n') && !yaml.is_empty() {
-            yaml.push('\n');
-        }
-
         let provider_label = if provider_name.trim().is_empty() {
             "LLM-API-Proxy"
         } else {
@@ -132,12 +124,14 @@ impl ToolConfigWriter for HermesWriter {
             ));
         }
 
-        // Append a custom provider section with the full model list + default model.
+        // Inject a custom provider section with the full model list + default
+        // model. Existing top-level `custom_providers:` / `model:` sections are
+        // replaced in place (not duplicated) so an existing Hermes config with
+        // those keys stays valid YAML — mirroring cc-switch's section replace.
         let block = format!(
-            "\ncustom_providers:\n  {PROVIDER_ID}:\n    base_url: \"{proxy_base_url}\"\n    api_key: \"{proxy_api_key}\"\n    name: \"{provider_label}\"\n    models:\n{models_yaml}model:\n  default: \"{default_pool_name}\"\n"
+            "custom_providers:\n  {PROVIDER_ID}:\n    base_url: \"{proxy_base_url}\"\n    api_key: \"{proxy_api_key}\"\n    name: \"{provider_label}\"\n    models:\n{models_yaml}model:\n  default: \"{default_pool_name}\"\n"
         );
-        yaml.push_str(&block);
-
+        let yaml = replace_top_level_sections(&original.clone().unwrap_or_default(), &block);
         atomic_write(path, yaml.as_bytes())
     }
 
@@ -153,10 +147,92 @@ impl ToolConfigWriter for HermesWriter {
     }
 }
 
+/// Replace the top-level `custom_providers:` and `model:` YAML sections in an
+/// existing config with freshly generated ones, preserving every other section
+/// verbatim.
+///
+/// The generated block ends with the `model:` section (the last top-level key),
+/// so we drop any existing top-level `custom_providers` / `model` sections
+/// (each runs from its header line to the next top-level key), keep the rest
+/// of the document, then append the new block.
+fn replace_top_level_sections(existing: &str, block: &str) -> String {
+    // Top-level keys we own. `model` must be last because block ends with it.
+    let owned: &[&str] = &["custom_providers", "model"];
+    // A top-level YAML key must start at column 0. Indented keys (children)
+    // are part of the parent section and never treated as section boundaries.
+    let is_top_level_key = |line: &str| -> bool {
+        let line = line.trim_end_matches('\r');
+        !line.is_empty()
+            && !line.starts_with(' ')
+            && !line.starts_with('#')
+            && !line.starts_with('-')
+            && !line.starts_with('"')
+            && !line.starts_with('\'')
+            && line.contains(':')
+    };
+    let is_owned_key = |line: &str| -> bool {
+        let line = line.trim_end_matches('\r');
+        owned.iter().any(|key| line == *key || line.starts_with(&format!("{key}:")))
+    };
+
+    let mut kept: Vec<String> = Vec::new();
+    let lines: Vec<&str> = existing.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        if is_owned_key(lines[i]) {
+            // Skip this section: from its header until the next top-level key.
+            i += 1;
+            while i < lines.len() && !is_top_level_key(lines[i]) {
+                i += 1;
+            }
+        } else {
+            kept.push(lines[i].to_string());
+            i += 1;
+        }
+    }
+
+    let mut out = kept.join("\n");
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
+    }
+    // Ensure a blank line separates preserved content from the new sections.
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    out.push_str(block);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn test_replace_top_level_sections_dedups_existing() {
+        let existing = "settings:\n  theme: dark\ncustom_providers:\n  old:\n    base_url: x\nmodel:\n  default: old\nother:\n  keep: true\n";
+        let block = "custom_providers:\n  llm-api-proxy:\n    base_url: new\nmodel:\n  default: new-model\n";
+        let out = replace_top_level_sections(existing, block);
+        // Settings + other preserved, duplicate custom_providers/model removed.
+        assert!(out.contains("settings:\n  theme: dark\n"), "got: {out}");
+        assert!(out.contains("other:\n  keep: true\n"), "got: {out}");
+        assert!(out.contains("base_url: new"), "got: {out}");
+        assert!(out.contains("default: new-model"), "got: {out}");
+        assert!(!out.contains("old:"), "got: {out}");
+        assert!(!out.contains("default: old"), "got: {out}");
+        // Exactly one custom_providers / one model top-level key.
+        assert_eq!(out.matches("\ncustom_providers:").count() + usize::from(out.starts_with("custom_providers:")), 1);
+        assert_eq!(out.matches("\nmodel:").count() + usize::from(out.starts_with("model:")), 1);
+    }
+
+    #[test]
+    fn test_replace_top_level_sections_keeps_other_sections_when_empty() {
+        let existing = "agent:\n  memory: on\n";
+        let block = "custom_providers:\n  x:\n    base_url: y\nmodel:\n  default: z\n";
+        let out = replace_top_level_sections(existing, block);
+        assert!(out.contains("agent:\n  memory: on\n"), "got: {out}");
+        assert!(out.contains("default: z"), "got: {out}");
+    }
 
     #[test]
     fn test_hermes_merge_creates_yaml() {

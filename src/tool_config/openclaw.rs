@@ -46,7 +46,7 @@ impl ToolConfigWriter for OpenClawWriter {
         original_configs: &[BackupEntry],
         proxy_base_url: &str,
         proxy_api_key: &str,
-        _all_pools: &[ToolPool],
+        all_pools: &[ToolPool],
         default_pool_name: &str,
         _default_pool_display_name: &str,
         provider_name: &str,
@@ -77,24 +77,48 @@ impl ToolConfigWriter for OpenClawWriter {
         if let Some(mobj) = models.as_object_mut() {
             let providers = mobj.entry("providers").or_insert_with(|| json!({}));
             if let Some(pobj) = providers.as_object_mut() {
+                // Register every pool as a switchable model so OpenClaw can pick
+                // any proxy pool. Each entry carries its real context window.
+                let model_list: Vec<Value> = all_pools
+                    .iter()
+                    .map(|pool| {
+                        let mut entry = json!({
+                            "id": pool.name,
+                            "name": if pool.display_name.is_empty() {
+                                pool.name.clone()
+                            } else {
+                                pool.display_name.clone()
+                            },
+                        });
+                        if let Some(window) = pool.context_window {
+                            entry["contextWindow"] = json!(window);
+                        }
+                        entry
+                    })
+                    .collect();
                 pobj.insert(
                     provider_key.clone(),
                     json!({
-                        "baseURL": proxy_base_url,
-                        "apiKey": proxy_api_key,
+                        "base_url": proxy_base_url,
+                        "api_key": proxy_api_key,
+                        "api": "openai-completions",
+                        "models": model_list,
                     }),
                 );
             }
         }
-        // agents.defaults.model -> "{provider_key}/{default_pool}" so the
-        // agent resolves the pool through the injected provider.
+        // agents.defaults.model -> {primary: "{provider_key}/{default_pool}"}
+        // so the agent resolves the default pool through the injected provider.
         let agents = obj.entry("agents").or_insert_with(|| json!({}));
         if let Some(aobj) = agents.as_object_mut() {
             let defaults = aobj.entry("defaults").or_insert_with(|| json!({}));
             if let Some(dobj) = defaults.as_object_mut() {
                 dobj.insert(
                     "model".to_string(),
-                    Value::String(format!("{}/{}", provider_key, default_pool_name)),
+                    json!({
+                        "primary": format!("{}/{}", provider_key, default_pool_name),
+                        "fallbacks": [],
+                    }),
                 );
             }
         }
@@ -129,10 +153,47 @@ mod tests {
             .merge_and_write_config(&original, "http://127.0.0.1:47339", "sk-gw", &[], "grok-4.5", "Grok 4.5", "proxy")
             .unwrap();
         let written: Value = serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
-        assert_eq!(written["models"]["providers"]["proxy"]["baseURL"], "http://127.0.0.1:47339");
-        assert_eq!(written["models"]["providers"]["proxy"]["apiKey"], "sk-gw");
-        // Default model references the provider key + pool name.
-        assert_eq!(written["agents"]["defaults"]["model"], "proxy/grok-4.5");
+        assert_eq!(written["models"]["providers"]["proxy"]["base_url"], "http://127.0.0.1:47339");
+        assert_eq!(written["models"]["providers"]["proxy"]["api_key"], "sk-gw");
+        assert_eq!(written["models"]["providers"]["proxy"]["api"], "openai-completions");
+        // No pools → empty model list; default model references provider + pool.
+        assert!(written["models"]["providers"]["proxy"]["models"].as_array().unwrap().is_empty());
+        assert_eq!(
+            written["agents"]["defaults"]["model"]["primary"],
+            "proxy/grok-4.5"
+        );
+        assert!(written["agents"]["defaults"]["model"]["fallbacks"].is_array());
+    }
+
+    #[test]
+    fn test_openclaw_writes_all_pool_models_with_context_window() {
+        let dir = TempDir::new().unwrap();
+        let cfg = dir.path().join("openclaw.json");
+        let writer = OpenClawWriter;
+        let original = vec![(cfg.clone(), None)];
+        writer
+            .merge_and_write_config(
+                &original,
+                "http://127.0.0.1:47339/v1",
+                "sk-gw",
+                &[
+                    ToolPool::new("deepseek-v4-pro", "DeepSeek V4 Pro"),
+                    ToolPool::with_window("deepseek-v4-flash", "DeepSeek V4 Flash", 128000),
+                ],
+                "deepseek-v4-pro",
+                "DeepSeek V4 Pro",
+                "LLM-API-Proxy",
+            )
+            .unwrap();
+        let written: Value = serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
+        let models = written["models"]["providers"]["LLM-API-Proxy"]["models"].as_array().unwrap();
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0]["id"], "deepseek-v4-pro");
+        assert_eq!(models[0]["name"], "DeepSeek V4 Pro");
+        // Pool without a known window has no contextWindow; the other does.
+        assert!(models[0].get("contextWindow").is_none());
+        assert_eq!(models[1]["id"], "deepseek-v4-flash");
+        assert_eq!(models[1]["contextWindow"], 128000);
     }
 
     #[test]
@@ -150,6 +211,6 @@ mod tests {
             .unwrap();
         let written: Value = serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
         assert_eq!(written["agents"]["defaults"]["temperature"], 0.7);
-        assert_eq!(written["agents"]["defaults"]["model"], "proxy/pool");
+        assert_eq!(written["agents"]["defaults"]["model"]["primary"], "proxy/pool");
     }
 }
