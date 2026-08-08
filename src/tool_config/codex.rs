@@ -1,4 +1,4 @@
-//! Codex CLI config writer (`~/.codex/auth.json` + `~/.codex/config.toml`).
+﻿//! Codex CLI config writer (`~/.codex/auth.json` + `~/.codex/config.toml`).
 //!
 //! Codex uses two files:
 //! - `auth.json`: stores `OPENAI_API_KEY`
@@ -9,6 +9,7 @@ use crate::tool_config::detector;
 use crate::tool_config::writer::{atomic_write, atomic_write_multi};
 use crate::tool_config::backup::BackupEntry;
 use crate::tool_config::ToolConfigWriter;
+use crate::tool_config::ToolPool;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
@@ -147,31 +148,28 @@ fn load_catalog_template(codex_dir: &Path) -> Value {
 /// template with `slug` = pool name and `display_name` = pool display name.
 fn build_model_catalog(
     codex_dir: &Path,
-    all_pools: &[(String, String)],
+    all_pools: &[ToolPool],
     default_pool_name: &str,
     default_pool_display_name: &str,
 ) -> Value {
     let template = load_catalog_template(codex_dir);
-    let pools: Vec<(String, String)> = if all_pools.is_empty() {
-        vec![(
-            default_pool_name.to_string(),
-            default_pool_display_name.to_string(),
-        )]
+    let pools: Vec<ToolPool> = if all_pools.is_empty() {
+        vec![ToolPool::new(default_pool_name, default_pool_display_name)]
     } else {
         all_pools.to_vec()
     };
     let entries: Vec<Value> = pools
         .iter()
         .enumerate()
-        .map(|(index, (name, display))| {
+        .map(|(index, pool)| {
             let mut entry = template.clone();
-            let display_name = if display.is_empty() {
-                name.clone()
+            let display_name = if pool.display_name.is_empty() {
+                pool.name.clone()
             } else {
-                display.clone()
+                pool.display_name.clone()
             };
             if let Some(obj) = entry.as_object_mut() {
-                obj.insert("slug".to_string(), json!(name));
+                obj.insert("slug".to_string(), json!(pool.name));
                 obj.insert("display_name".to_string(), json!(display_name));
                 obj.insert("description".to_string(), json!(display_name));
                 obj.insert("priority".to_string(), json!(1000 + index));
@@ -179,6 +177,13 @@ fn build_model_catalog(
                 obj.insert("service_tiers".to_string(), json!([]));
                 obj.insert("availability_nux".to_string(), Value::Null);
                 obj.insert("upgrade".to_string(), Value::Null);
+                // Real context window from pool capabilities (fallback), so
+                // Codex compacts at the pool's true window instead of the
+                // static template's gpt-5.5 272K placeholder.
+                if let Some(window) = pool.context_window {
+                    obj.insert("context_window".to_string(), json!(window));
+                    obj.insert("max_context_window".to_string(), json!(window));
+                }
             }
             entry
         })
@@ -238,7 +243,7 @@ impl ToolConfigWriter for CodexWriter {
         original_configs: &[BackupEntry],
         proxy_base_url: &str,
         proxy_api_key: &str,
-        all_pools: &[(String, String)],
+        all_pools: &[ToolPool],
         default_pool_name: &str,
         default_pool_display_name: &str,
         provider_name: &str,
@@ -305,10 +310,10 @@ impl ToolConfigWriter for CodexWriter {
             .get_mut("models")
             .and_then(toml_edit::Item::as_table_mut)
             .ok_or_else(|| AppError::Config("model_providers.custom.models 必须是 TOML 表".to_string()))?;
-        for (name, display) in all_pools {
+        for pool in all_pools {
             let mut desc = toml_edit::Table::new();
-            desc.insert("name", toml_edit::value(display.clone()));
-            models.insert(name.as_str(), toml_edit::Item::Table(desc));
+            desc.insert("name", toml_edit::value(pool.display_name.clone()));
+            models.insert(pool.name.as_str(), toml_edit::Item::Table(desc));
         }
         if all_pools.is_empty() {
             let mut desc = toml_edit::Table::new();
@@ -524,8 +529,8 @@ base_url = "http://127.0.0.1:57321/v1"
                 "http://127.0.0.1:47339/v1",
                 "sk-gw-test",
                 &[
-                    ("deepseek-v4-pro".to_string(), "DeepSeek V4 Pro".to_string()),
-                    ("deepseek-v4-flash".to_string(), "DeepSeek V4 Flash".to_string()),
+                    ToolPool::new("deepseek-v4-pro", "DeepSeek V4 Pro"),
+                    ToolPool::new("deepseek-v4-flash", "DeepSeek V4 Flash"),
                 ],
                 "deepseek-v4-pro",
                 "DeepSeek V4 Pro",
@@ -605,8 +610,8 @@ base_url = "http://127.0.0.1:57321/v1"
                 "http://127.0.0.1:47339/v1",
                 "sk-gw-test",
                 &[
-                    ("deepseek-v4-pro".to_string(), "DeepSeek V4 Pro".to_string()),
-                    ("deepseek-v4-flash".to_string(), "DeepSeek V4 Flash".to_string()),
+                    ToolPool::new("deepseek-v4-pro", "DeepSeek V4 Pro"),
+                    ToolPool::new("deepseek-v4-flash", "DeepSeek V4 Flash"),
                 ],
                 "deepseek-v4-pro",
                 "DeepSeek V4 Pro",
@@ -689,7 +694,7 @@ base_url = "http://127.0.0.1:57321/v1"
                 &original,
                 "http://127.0.0.1:47339/v1",
                 "sk-gw-test",
-                &[("my-pool".to_string(), "My Pool".to_string())],
+                &[ToolPool::new("my-pool", "My Pool")],
                 "my-pool",
                 "My Pool",
                 "LLM-API-Proxy",
@@ -720,6 +725,26 @@ base_url = "http://127.0.0.1:57321/v1"
         // Freeform custom-tool keys stripped
         assert!(entry.get("apply_patch_tool_type").is_none());
         assert_eq!(entry["shell_type"], "shell_command");
+    }
+
+    #[test]
+    fn test_codex_catalog_uses_real_pool_context_window() {
+        let dir = TempDir::new().unwrap();
+        let catalog = build_model_catalog(
+            dir.path(),
+            &[
+                ToolPool::new("deepseek-v4-flash", "DeepSeek V4 Flash"),
+                ToolPool::with_window("gpt-5.2", "GPT 5.2", 131072),
+            ],
+            "gpt-5.2",
+            "GPT 5.2",
+        );
+        let models = catalog["models"].as_array().unwrap();
+        // Pool with a real context window overrides the template's 272K
+        // placeholder; pools without one keep using the template value.
+        assert_eq!(models[0]["context_window"], 272000);
+        assert_eq!(models[1]["context_window"], 131072);
+        assert_eq!(models[1]["max_context_window"], 131072);
     }
 
     #[test]

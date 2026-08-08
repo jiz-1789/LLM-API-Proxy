@@ -1,4 +1,4 @@
-//! Tool configuration module: inject the proxy address/API key/model pools
+﻿//! Tool configuration module: inject the proxy address/API key/model pools
 //! into installed AI coding tools' config files.
 
 pub mod backup;
@@ -33,6 +33,35 @@ pub struct ModelRequirements {
     pub prefer_large_context: bool,
 }
 
+/// A pool as seen by tool config writers: real pool name, display name, and
+/// the pool's inferred real context window (from `pool.capabilities`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ToolPool {
+    pub name: String,
+    pub display_name: String,
+    pub context_window: Option<i32>,
+}
+
+impl ToolPool {
+    /// A pool without a known context window.
+    pub fn new(name: &str, display_name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            display_name: display_name.to_string(),
+            context_window: None,
+        }
+    }
+
+    /// A pool with its inferred real context window.
+    pub fn with_window(name: &str, display_name: &str, context_window: i32) -> Self {
+        Self {
+            name: name.to_string(),
+            display_name: display_name.to_string(),
+            context_window: Some(context_window),
+        }
+    }
+}
+
 /// A tool configuration writer.
 pub trait ToolConfigWriter: Send + Sync {
     /// Tool identifier (claude, codex, gemini, ...).
@@ -54,7 +83,7 @@ pub trait ToolConfigWriter: Send + Sync {
         original_configs: &[(PathBuf, Option<String>)],
         proxy_base_url: &str,
         proxy_api_key: &str,
-        all_pools: &[(String, String)],
+        all_pools: &[ToolPool],
         default_pool_name: &str,
         default_pool_display_name: &str,
         provider_name: &str,
@@ -70,7 +99,7 @@ pub trait ToolConfigWriter: Send + Sync {
         original_configs: &[(PathBuf, Option<String>)],
         proxy_base_url: &str,
         proxy_api_key: &str,
-        all_pools: &[(String, String)],
+        all_pools: &[ToolPool],
         default_pool_name: &str,
         default_pool_display_name: &str,
         provider_name: &str,
@@ -84,6 +113,35 @@ pub trait ToolConfigWriter: Send + Sync {
             default_pool_name,
             default_pool_display_name,
             provider_name,
+        )
+    }
+    /// Merge proxy config with an explicit role→pool mapping AND 1M-context
+    /// role flags (Claude Code / Claude Desktop declare 1M per role).
+    ///
+    /// `roles_1m` lists the roles that must declare a 1M context window. Tools
+    /// without 1M support ignore it via the default implementation.
+    #[allow(clippy::too_many_arguments)]
+    fn merge_and_write_config_with_roles_1m(
+        &self,
+        original_configs: &[(PathBuf, Option<String>)],
+        proxy_base_url: &str,
+        proxy_api_key: &str,
+        all_pools: &[ToolPool],
+        default_pool_name: &str,
+        default_pool_display_name: &str,
+        provider_name: &str,
+        model_roles: &[(String, String)],
+        _roles_1m: &[String],
+    ) -> Result<(), AppError> {
+        self.merge_and_write_config_with_roles(
+            original_configs,
+            proxy_base_url,
+            proxy_api_key,
+            all_pools,
+            default_pool_name,
+            default_pool_display_name,
+            provider_name,
+            model_roles,
         )
     }
     /// Restore original config files from backup.
@@ -200,6 +258,18 @@ impl ToolSwitchManager {
                         })
                 })
                 .unwrap_or_default();
+            // Restore the persisted 1M-context role flags (Claude Code / Desktop).
+            let model_roles_1m: Vec<String> = cfg
+                .as_ref()
+                .and_then(|c| {
+                    serde_json::from_str::<serde_json::Value>(&c.config_snapshot)
+                        .ok()
+                        .and_then(|v| {
+                            v.get("roles_1m")
+                                .and_then(|r| serde_json::from_value(r.clone()).ok())
+                        })
+                })
+                .unwrap_or_default();
             out.push(crate::db::ToolSwitchStatus {
                 app_id: w.app_id().to_string(),
                 display_name: w.display_name().to_string(),
@@ -210,6 +280,7 @@ impl ToolSwitchManager {
                 api_key_id: cfg.as_ref().and_then(|c| c.api_key_id.clone()),
                 provider_name: cfg.map(|c| c.provider_name.clone()).unwrap_or_default(),
                 model_roles,
+                model_roles_1m,
                 last_written_at: cfg.as_ref().and_then(|c| c.last_written_at.clone()),
             });
         }
@@ -220,6 +291,7 @@ impl ToolSwitchManager {
     ///
     /// `model_roles` is an optional `(role, pool_name)` mapping for tools with
     /// role slots (e.g. Claude Code); empty for tools without them.
+    /// `roles_1m` lists the roles with 1M-context enabled (Claude Code/Desktop).
     pub fn enable_tool(
         &self,
         app_id: &str,
@@ -227,6 +299,7 @@ impl ToolSwitchManager {
         api_key_id: Option<&str>,
         provider_name: &str,
         model_roles: &[(String, String)],
+        roles_1m: &[String],
     ) -> Result<EnableResult, AppError> {
         let writer = self
             .writers
@@ -249,13 +322,22 @@ impl ToolSwitchManager {
         let api_key = self.resolve_gateway_api_key(api_key_id)?;
         let base_url = self.gateway_base_url_for_tool(app_id);
 
-        // Gather all pools for multi-model tools.
-        let all_pools: Vec<(String, String)> = self
+        // Gather all pools for multi-model tools. Each pool carries its
+        // inferred real context window (from pool.capabilities) so writers can
+        // declare the true window instead of a hardcoded value.
+        let all_pools: Vec<ToolPool> = self
             .db
             .get_pools()
             .unwrap_or_default()
             .into_iter()
-            .map(|p| (p.name, p.display_name))
+            .map(|p| {
+                let ctx = ModelCapabilities::from_json_str(&p.capabilities)
+                    .and_then(|c| c.context_window);
+                match ctx {
+                    Some(window) => ToolPool::with_window(&p.name, &p.display_name, window),
+                    None => ToolPool::new(&p.name, &p.display_name),
+                }
+            })
             .collect();
 
         // Backup original config.
@@ -268,7 +350,7 @@ impl ToolSwitchManager {
             }
         }
 
-        writer.merge_and_write_config_with_roles(
+        writer.merge_and_write_config_with_roles_1m(
             &original,
             &base_url,
             &api_key,
@@ -277,7 +359,15 @@ impl ToolSwitchManager {
             &pool.display_name,
             provider_name,
             model_roles,
+            roles_1m,
         )?;
+
+        // Claude Desktop: persist the route→pool map so the gateway can
+        // resolve the fixed route IDs (claude-sonnet-5, ...) Claude Desktop
+        // sends back to the correct pool.
+        if app_id == crate::tool_config::claude_desktop::APP_ID {
+            self.save_claude_desktop_route_map(model_roles, &pool.name)?;
+        }
 
         let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
         let original_json = serde_json::to_string(&original)
@@ -287,6 +377,7 @@ impl ToolSwitchManager {
             "default_pool": pool.name,
             "provider_name": provider_name,
             "model_roles": model_roles,
+            "roles_1m": roles_1m,
         })
         .to_string();
 
@@ -334,6 +425,13 @@ impl ToolSwitchManager {
         }
 
         self.db.delete_tool_config(app_id)?;
+        // Claude Desktop: clear the persisted route map so the gateway stops
+        // advertising/resolving the fixed route IDs once the switch is off.
+        if app_id == crate::tool_config::claude_desktop::APP_ID {
+            let _ = self
+                .db
+                .delete_setting(crate::tool_config::claude_desktop::ROUTE_MAP_SETTING_KEY);
+        }
         info!(tool = app_id, "Tool config disabled, original restored");
         Ok(())
     }
@@ -407,12 +505,19 @@ impl ToolSwitchManager {
             .ok_or_else(|| AppError::Config("关联模型池不存在".to_string()))?;
         let api_key = self.resolve_gateway_api_key(config.api_key_id.as_deref())?;
         let base_url = self.gateway_base_url_for_tool(&config.tool_app_id);
-        let all_pools: Vec<(String, String)> = self
+        let all_pools: Vec<ToolPool> = self
             .db
             .get_pools()
             .unwrap_or_default()
             .into_iter()
-            .map(|p| (p.name, p.display_name))
+            .map(|p| {
+                let ctx = ModelCapabilities::from_json_str(&p.capabilities)
+                    .and_then(|c| c.context_window);
+                match ctx {
+                    Some(window) => ToolPool::with_window(&p.name, &p.display_name, window),
+                    None => ToolPool::new(&p.name, &p.display_name),
+                }
+            })
             .collect();
         let original: Vec<(PathBuf, Option<String>)> =
             serde_json::from_str(&config.original_config).unwrap_or_default();
@@ -424,7 +529,15 @@ impl ToolSwitchManager {
                     .and_then(|r| serde_json::from_value(r.clone()).ok())
             })
             .unwrap_or_default();
-        writer.merge_and_write_config_with_roles(
+        // Restore the 1M-context role flags persisted in the snapshot (if any).
+        let roles_1m: Vec<String> = serde_json::from_str(&config.config_snapshot)
+            .ok()
+            .and_then(|v: serde_json::Value| {
+                v.get("roles_1m")
+                    .and_then(|r| serde_json::from_value(r.clone()).ok())
+            })
+            .unwrap_or_default();
+        writer.merge_and_write_config_with_roles_1m(
             &original,
             &base_url,
             &api_key,
@@ -433,12 +546,20 @@ impl ToolSwitchManager {
             &pool.display_name,
             &config.provider_name,
             &model_roles,
-        )
+            &roles_1m,
+        )?;
+
+        // Claude Desktop: re-persist the route→pool map after a rewrite.
+        if config.tool_app_id == crate::tool_config::claude_desktop::APP_ID {
+            self.save_claude_desktop_route_map(&model_roles, &pool.name)?;
+        }
+        Ok(())
     }
 
     /// Update a persisted ON tool's pool/api key and rewrite config.
     ///
     /// `model_roles` replaces the persisted role→pool mapping when provided.
+    /// `roles_1m` replaces the persisted 1M-context role flags when provided.
     pub fn update_tool_config(
         &self,
         app_id: &str,
@@ -446,6 +567,7 @@ impl ToolSwitchManager {
         api_key_id: Option<&str>,
         provider_name: Option<&str>,
         model_roles: Option<&[(String, String)]>,
+        roles_1m: Option<&[String]>,
     ) -> Result<(), AppError> {
         let mut config = self
             .db
@@ -458,16 +580,19 @@ impl ToolSwitchManager {
         if let Some(p) = provider_name {
             config.provider_name = p.to_string();
         }
-        if let Some(roles) = model_roles {
-            // Persist the new role mapping into the snapshot so startup
-            // rewrites keep using it.
-            if let Ok(mut snapshot) =
-                serde_json::from_str::<serde_json::Value>(&config.config_snapshot)
-                && let Some(obj) = snapshot.as_object_mut()
-            {
+        if let Ok(mut snapshot) = serde_json::from_str::<serde_json::Value>(&config.config_snapshot)
+            && let Some(obj) = snapshot.as_object_mut()
+        {
+            if let Some(roles) = model_roles {
+                // Persist the new role mapping into the snapshot so startup
+                // rewrites keep using it.
                 obj.insert("model_roles".to_string(), serde_json::json!(roles));
-                config.config_snapshot = snapshot.to_string();
             }
+            if let Some(roles) = roles_1m {
+                // Persist the new 1M-context role flags.
+                obj.insert("roles_1m".to_string(), serde_json::json!(roles));
+            }
+            config.config_snapshot = snapshot.to_string();
         }
         config.switch_enabled = true;
         let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
@@ -527,6 +652,32 @@ impl ToolSwitchManager {
             "claude" | "claude-desktop" | "gemini" => origin,
             _ => format!("{origin}/v1"),
         }
+    }
+
+    /// Persist the Claude Desktop route→pool map as a setting.
+    ///
+    /// Maps the fixed role route IDs Claude Desktop sends
+    /// (`claude-sonnet-5`, `claude-opus-5`, ...) to their mapped pool, falling
+    /// back to the default pool for unmapped roles. The gateway reads this to
+    /// resolve route-alias requests and to advertise route IDs in `/v1/models`.
+    fn save_claude_desktop_route_map(
+        &self,
+        model_roles: &[(String, String)],
+        default_pool_name: &str,
+    ) -> Result<(), AppError> {
+        use crate::tool_config::claude_desktop;
+        let mut map = serde_json::Map::new();
+        for (role, route_id) in claude_desktop::ROLE_ROUTE_IDS {
+            let pool = model_roles
+                .iter()
+                .find(|(r, _)| r == role)
+                .map(|(_, m)| m.as_str())
+                .unwrap_or(default_pool_name);
+            map.insert(route_id.to_string(), serde_json::Value::String(pool.to_string()));
+        }
+        let json = serde_json::to_string(&map).unwrap_or_else(|_| "{}".to_string());
+        self.db.save_setting(claude_desktop::ROUTE_MAP_SETTING_KEY, &json)?;
+        Ok(())
     }
 }
 
@@ -669,7 +820,7 @@ mod tests {
             _original: &[BackupEntry],
             proxy_base_url: &str,
             proxy_api_key: &str,
-            _all_pools: &[(String, String)],
+            _all_pools: &[ToolPool],
             default_pool_name: &str,
             _default_display: &str,
             _provider: &str,
@@ -728,7 +879,7 @@ mod tests {
         let (db, manager, target) = setup_manager_with_temp_tool(&dir);
 
         // Enable
-        let result = manager.enable_tool("test-tool", "pool_v", None, "LLM-API-Proxy", &[]).unwrap();
+        let result = manager.enable_tool("test-tool", "pool_v", None, "LLM-API-Proxy", &[], &[]).unwrap();
         assert!(matches!(result, EnableResult::Ok { .. }));
         let written = std::fs::read_to_string(&target).unwrap();
         let v: serde_json::Value = serde_json::from_str(&written).unwrap();
@@ -773,7 +924,7 @@ mod tests {
                 _: &[BackupEntry],
                 _: &str,
                 _: &str,
-                _: &[(String, String)],
+                _: &[ToolPool],
                 _: &str,
                 _: &str,
                 _: &str,
@@ -792,7 +943,7 @@ mod tests {
         let mut manager = ToolSwitchManager::new(db.clone());
         manager.register(Box::new(NotInstalledWriter));
 
-        let result = manager.enable_tool("not-installed", "pool_x", None, "P", &[]).unwrap();
+        let result = manager.enable_tool("not-installed", "pool_x", None, "P", &[], &[]).unwrap();
         assert!(matches!(result, EnableResult::NotInstalled { .. }));
     }
 
@@ -882,7 +1033,7 @@ mod tests {
 
         // Enable writes secondary backup + injected config.
         let (db, manager, target) = setup_manager_with_temp_tool(&dir);
-        manager.enable_tool("test-tool", "pool_v", None, "LLM-API-Proxy", &[]).unwrap();
+        manager.enable_tool("test-tool", "pool_v", None, "LLM-API-Proxy", &[], &[]).unwrap();
         let backup_path = backup::secondary_backup_path(&target);
         assert!(backup_path.exists());
         assert_eq!(std::fs::read_to_string(&backup_path).unwrap(), r#"{"user":true}"#);
@@ -905,7 +1056,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (db, manager, target) = setup_manager_with_temp_tool(&dir);
         // Original config did NOT exist.
-        manager.enable_tool("test-tool", "pool_v", None, "LLM-API-Proxy", &[]).unwrap();
+        manager.enable_tool("test-tool", "pool_v", None, "LLM-API-Proxy", &[], &[]).unwrap();
         assert!(target.exists());
         let backup_path = backup::secondary_backup_path(&target);
         assert_eq!(
@@ -929,7 +1080,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("tool-config.json"), r#"{"user":true}"#).unwrap();
         let (_db, manager, target) = setup_manager_with_temp_tool(&dir);
-        manager.enable_tool("test-tool", "pool_v", None, "LLM-API-Proxy", &[]).unwrap();
+        manager.enable_tool("test-tool", "pool_v", None, "LLM-API-Proxy", &[], &[]).unwrap();
         let backup_path = backup::secondary_backup_path(&target);
         assert!(backup_path.exists());
 
@@ -970,7 +1121,7 @@ mod tests {
             _original: &[BackupEntry],
             _proxy_base_url: &str,
             _proxy_api_key: &str,
-            _all_pools: &[(String, String)],
+            _all_pools: &[ToolPool],
             default_pool_name: &str,
             _default_display: &str,
             _provider: &str,
@@ -985,7 +1136,7 @@ mod tests {
             original: &[BackupEntry],
             proxy_base_url: &str,
             proxy_api_key: &str,
-            all_pools: &[(String, String)],
+            all_pools: &[ToolPool],
             default_pool_name: &str,
             default_display: &str,
             provider: &str,
@@ -1038,6 +1189,7 @@ mod tests {
                 None,
                 "LLM-API-Proxy",
                 &[("sonnet".to_string(), "vision-pool".to_string())],
+                &["sonnet".to_string()],
             )
             .unwrap();
         assert_eq!(
@@ -1061,7 +1213,7 @@ mod tests {
 
         // update_tool_config with no new roles keeps the persisted mapping.
         manager2
-            .update_tool_config("role-tool", None, None, None, None)
+            .update_tool_config("role-tool", None, None, None, None, None)
             .unwrap();
         assert_eq!(
             *roles.lock().unwrap(),
@@ -1077,6 +1229,7 @@ mod tests {
                 None,
                 None,
                 Some(&[("opus".to_string(), "vision-pool".to_string())]),
+                None,
             )
             .unwrap();
         assert_eq!(

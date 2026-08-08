@@ -2371,7 +2371,10 @@ print(response.choices[0].message.content)</code></pre>
             <div id="tool-pool-modal-form">
                 <div class="form-group">
                     <label class="form-label" data-i18n="tool_config_default_pool">默认模型池</label>
-                    <select class="form-input" id="tool-pool-select"></select>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <select class="form-input" id="tool-pool-select" style="flex:1;"></select>
+                        <label id="tool-default-1m-wrap" style="display:none;align-items:center;gap:4px;font-size:12px;color:var(--text-secondary);white-space:nowrap;cursor:pointer;"><input type="checkbox" id="tool-default-1m" style="margin:0;accent-color:var(--primary);"><span data-i18n="tool_config_role_1m">1M 上下文</span></label>                    </div>
+                    <div class="form-hint" id="tool-default-1m-hint" style="display:none;">未指定角色的模型将声明支持 1M 上下文</div>
                 </div>
                 <div class="form-group">
                     <label class="form-label" data-i18n="tool_config_api_key">API Key</label>
@@ -2962,13 +2965,15 @@ settings_import_full: { zh: '全量导入', en: 'Import (Full)' },
         tool_config_rewrite: { zh: '重新写入', en: 'Rewrite' },
         tool_config_default_key: { zh: '(默认 Gateway Key)', en: '(Default Gateway Key)' },
         tool_config_roles_title: { zh: '模型角色映射', en: 'Model Role Mapping' },
-        tool_config_roles_hint: { zh: '为 Claude Code 的各个角色指定模型池，/model 菜单中可查看并切换；未指定的角色自动沿用默认模型池', en: 'Assign a pool to each Claude Code role. Visible and switchable in the /model menu; roles left unset fall back to the default pool.' },
+        tool_config_roles_hint: { zh: '为各工具的角色槽位指定模型池，未指定的角色自动沿用默认模型池', en: 'Assign a pool to each role slot. Roles left unset fall back to the default pool.' },
         tool_config_role_sonnet: { zh: 'Sonnet', en: 'Sonnet' },
         tool_config_role_opus: { zh: 'Opus', en: 'Opus' },
         tool_config_role_fable: { zh: 'Fable', en: 'Fable' },
         tool_config_role_haiku: { zh: 'Haiku', en: 'Haiku' },
         tool_config_role_subagent: { zh: 'Subagent', en: 'Subagent' },
+        tool_config_role_1m: { zh: '1M 上下文', en: '1M context' },
         tool_config_roles_default: { zh: '(跟随默认模型池)', en: '(follow default pool)' },
+        tool_config_default_1m_hint: { zh: '默认模型池声明支持 1M 上下文', en: 'The default pool declares 1M context support' },
         env_conflict_warn: { zh: '检测到 {count} 个系统环境变量会覆盖注入的代理配置，可能导致配置不生效', en: '{count} system environment variable(s) will override the injected proxy config' },
         env_conflict_cleanup: { zh: '一键清理', en: 'Clean Up' },
         env_conflict_cleanup_done: { zh: '已清理冲突环境变量，备份已保存', en: 'Conflicting env vars cleaned, backup saved' },
@@ -4703,34 +4708,75 @@ const TOOL_MONO_ICONS = new Set(['codex', 'grokbuild']);
         if (sw.pool_id) sel.value = sw.pool_id;
         saveBtn.textContent = isOn ? t('tool_config_rewrite') : t('modal_save');
 
-        // Role mapping table (only Claude Code has role slots).
+        // 1M checkbox for the default pool: roles that follow the default pool
+        // inherit this 1M declaration (Claude Code / Desktop); Hermes, Gemini
+        // and OpenCode declare it on their default model entry.
+        const default1mWrap = document.getElementById('tool-default-1m-wrap');
+        const default1mHint = document.getElementById('tool-default-1m-hint');
+        const default1m = document.getElementById('tool-default-1m');
+        const oneMApps = ['claude', 'claude-desktop', 'gemini', 'hermes', 'opencode'];
+        if (oneMApps.indexOf(appId) !== -1) {
+            default1mWrap.style.display = 'flex';
+            default1mHint.style.display = '';
+            const saved1m = (sw.model_roles_1m) || [];
+            if (appId === 'claude' || appId === 'claude-desktop') {
+                const allRoles = appId === 'claude'
+                    ? ['sonnet', 'opus', 'fable', 'haiku', 'subagent']
+                    : ['sonnet', 'opus', 'fable', 'haiku'];
+                const mappedKeys = new Set((sw.model_roles || []).map(r => r[0]));
+                const unmapped = allRoles.filter(k => !mappedKeys.has(k));
+                default1m.checked = unmapped.length > 0 && unmapped.every(k => saved1m.indexOf(k) !== -1);
+            } else {
+                default1m.checked = saved1m.indexOf('default') !== -1;
+            }
+        } else {
+            default1mWrap.style.display = 'none';
+            default1mHint.style.display = 'none';
+            default1m.checked = false;
+        }
+
+        // Role mapping table (Claude Code / Claude Desktop have role slots).
         const roleMapWrap = document.getElementById('tool-role-map');
         const roleRowsWrap = document.getElementById('tool-role-rows');
-        if (appId === 'claude') {
-            const roles = [
-                ['sonnet', t('tool_config_role_sonnet')],
-                ['opus', t('tool_config_role_opus')],
-                ['fable', t('tool_config_role_fable')],
-                ['haiku', t('tool_config_role_haiku')],
-                ['subagent', t('tool_config_role_subagent')]
-            ];
+        if (appId === 'claude' || appId === 'claude-desktop') {
+            const roles = appId === 'claude'
+                ? [
+                    ['sonnet', t('tool_config_role_sonnet')],
+                    ['opus', t('tool_config_role_opus')],
+                    ['fable', t('tool_config_role_fable')],
+                    ['haiku', t('tool_config_role_haiku')],
+                    ['subagent', t('tool_config_role_subagent')]
+                ]
+                : [
+                    ['sonnet', t('tool_config_role_sonnet')],
+                    ['opus', t('tool_config_role_opus')],
+                    ['fable', t('tool_config_role_fable')],
+                    ['haiku', t('tool_config_role_haiku')]
+                ];
             // Persisted mapping from a previous write (restored from snapshot).
             const savedRoles = (sw && sw.model_roles) || [];
+            // Persisted 1M-context role flags (Claude Code / Claude Desktop).
+            const savedRoles1m = (sw && sw.model_roles_1m) || [];
+            const with1m = appId === 'claude' || appId === 'claude-desktop';
             const poolOptions = pools.map(p => '<option value="' + jsEsc(p.id) + '">' + esc(p.display_name) + ' (' + esc(p.name) + ')</option>').join('');
             roleRowsWrap.innerHTML = roles.map(([key, label]) => {
                 // Map saved role→pool by pool name so edits round-trip.
                 const savedPool = savedRoles.find(r => r[0] === key);
                 const savedPoolId = savedPool ? (pools.find(p => p.name === savedPool[1]) || {}).id || '' : '';
+                const supports1m = savedRoles1m.indexOf(key) !== -1;
                 return '<div style="display:flex;align-items:center;gap:8px;">'
                     + '<span style="width:84px;flex-shrink:0;font-size:13px;color:var(--text-secondary);">' + esc(label) + '</span>'
                     + '<select class="form-input" data-role="' + jsEsc(key) + '" style="flex:1;">'
                     + '<option value="">' + t('tool_config_roles_default') + '</option>'
                     + poolOptions
                     + '</select>'
+                    + (with1m
+                        ? '<label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-secondary);white-space:nowrap;cursor:pointer;"><input type="checkbox" data-role-1m="' + jsEsc(key) + '"' + (supports1m ? ' checked' : '') + ' style="margin:0;accent-color:var(--primary);">' + esc(t('tool_config_role_1m')) + '</label>'
+                        : '')
                     + '</div>';
             }).join('');
             // Pre-select persisted pool ids.
-            roleRowsWrap.querySelectorAll('select').forEach((selEl) => {
+            roleRowsWrap.querySelectorAll('select[data-role]').forEach((selEl) => {
                 const savedPool = savedRoles.find(r => r[0] === selEl.dataset.role);
                 if (savedPool) {
                     const pid = (pools.find(p => p.name === savedPool[1]) || {}).id;
@@ -4763,9 +4809,11 @@ const TOOL_MONO_ICONS = new Set(['codex', 'grokbuild']);
         const providerName = document.getElementById('tool-provider-name').value.trim() || 'LLM-API-Proxy';
         const poolId = sel.value;
         if (!poolId) { toast(t('toast_select_pool'), 'error'); return; }
-        // Collect role→pool mapping for Claude Code (only non-default selections).
+        // Collect role→pool mapping for Claude Code / Claude Desktop
+        // (only non-default selections) plus 1M-context flags (Desktop).
         const modelRoles = [];
-        if (toolPoolPickerTarget === 'claude') {
+        const modelRoles1m = [];
+        if (toolPoolPickerTarget === 'claude' || toolPoolPickerTarget === 'claude-desktop') {
             const roleRows = document.querySelectorAll('#tool-role-rows select[data-role]');
             const pools = await (cmd('list_pools') || []);
             roleRows.forEach((rowEl) => {
@@ -4774,17 +4822,43 @@ const TOOL_MONO_ICONS = new Set(['codex', 'grokbuild']);
                 const pool = pools.find(p => p.id === pid);
                 if (pool) modelRoles.push([rowEl.dataset.role, pool.name]);
             });
+            const oneMApps = ['claude', 'claude-desktop', 'gemini', 'hermes', 'opencode'];
+            if (oneMApps.indexOf(toolPoolPickerTarget) !== -1) {
+                if (toolPoolPickerTarget === 'claude' || toolPoolPickerTarget === 'claude-desktop') {
+                    document.querySelectorAll('#tool-role-rows input[data-role-1m]').forEach((cb) => {
+                        // NB: `data-role-1m` does NOT camelCase in dataset (digit
+                        // after "-"), so `cb.dataset.role1m` is undefined; use
+                        // getAttribute instead.
+                        const key = cb.getAttribute('data-role-1m');
+                        if (cb.checked && key) modelRoles1m.push(key);
+                    });
+                    // The default pool's 1M checkbox applies to every unmapped
+                    // role (they follow the default pool).
+                    if (document.getElementById('tool-default-1m').checked) {
+                        roleRows.forEach((rowEl) => {
+                            if (!rowEl.value && rowEl.dataset.role) modelRoles1m.push(rowEl.dataset.role);
+                        });
+                    }
+                } else if (document.getElementById('tool-default-1m').checked) {
+                    // Tools without role slots declare 1M on their default model.
+                    modelRoles1m.push('default');
+                }
+            }
         }
+        let payload = null;
         try {
+            payload = { roles: modelRoles };
+            if (['claude', 'claude-desktop', 'gemini', 'hermes', 'opencode'].indexOf(toolPoolPickerTarget) !== -1) payload.roles_1m = modelRoles1m;
             if (mode === 'enable') {
-                await cmd('enable_tool_switch', { appId: toolPoolPickerTarget, poolId, apiKeyId, providerName, modelRoles: { roles: modelRoles } });
+                await cmd('enable_tool_switch', { appId: toolPoolPickerTarget, poolId, apiKeyId, providerName, modelRoles: payload });
             } else {
-                await cmd('update_tool_config', { appId: toolPoolPickerTarget, poolId, apiKeyId, providerName, modelRoles: { roles: modelRoles } });
+                await cmd('update_tool_config', { appId: toolPoolPickerTarget, poolId, apiKeyId, providerName, modelRoles: payload });
             }
             closeToolPoolPicker();
             toast(t('toast_tool_config_written'), 'success');
             loadToolConfig();
         } catch (e) {
+            console.error('[tool-config] save failed:', e, JSON.stringify({ appId: toolPoolPickerTarget, poolId, apiKeyId, providerName, modelRoles: payload }));
             toast(t('toast_save_fail') + e, 'error');
         }
     }

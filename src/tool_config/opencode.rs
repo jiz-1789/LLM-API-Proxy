@@ -8,6 +8,7 @@ use crate::tool_config::backup::BackupEntry;
 use crate::tool_config::detector;
 use crate::tool_config::writer::atomic_write;
 use crate::tool_config::ToolConfigWriter;
+use crate::tool_config::ToolPool;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 
@@ -53,10 +54,35 @@ impl ToolConfigWriter for OpenCodeWriter {
         original_configs: &[BackupEntry],
         proxy_base_url: &str,
         proxy_api_key: &str,
-        all_pools: &[(String, String)],
+        all_pools: &[ToolPool],
         default_pool_name: &str,
         default_pool_display_name: &str,
         provider_name: &str,
+    ) -> Result<(), AppError> {
+        self.merge_and_write_config_with_roles_1m(
+            original_configs,
+            proxy_base_url,
+            proxy_api_key,
+            all_pools,
+            default_pool_name,
+            default_pool_display_name,
+            provider_name,
+            &[],
+            &[],
+        )
+    }
+
+    fn merge_and_write_config_with_roles_1m(
+        &self,
+        original_configs: &[BackupEntry],
+        proxy_base_url: &str,
+        proxy_api_key: &str,
+        all_pools: &[ToolPool],
+        default_pool_name: &str,
+        default_pool_display_name: &str,
+        provider_name: &str,
+        _model_roles: &[(String, String)],
+        roles_1m: &[String],
     ) -> Result<(), AppError> {
         let (path, original) = original_configs
             .first()
@@ -75,18 +101,36 @@ impl ToolConfigWriter for OpenCodeWriter {
             provider_key.to_string()
         };
 
-        // Build model list from all pools.
+        // Build model list from all pools. Each pool carries its inferred real
+        // context window (limit.context) when known; the default pool is forced
+        // to 1M when the default-pool 1M flag is set.
+        let default_1m = roles_1m.iter().any(|r| r == "default");
+        let model_entry = |name_opt: Option<&str>, display: &str, pool_ctx: Option<i32>| -> Value {
+            let mut entry = json!({"name": display});
+            // The default pool is forced to 1M when the default-pool 1M flag is
+            // set; otherwise each pool declares its real context window.
+            let ctx = if default_1m && name_opt == Some(default_pool_name) {
+                Some(1000000)
+            } else {
+                pool_ctx
+            };
+            if let Some(ctx) = ctx {
+                entry["limit"] = json!({"context": ctx});
+            }
+            entry
+        };
         let mut models = serde_json::Map::new();
-        for (name, display) in all_pools {
+        for pool in all_pools {
+            let name_opt = Some(pool.name.as_str());
             models.insert(
-                name.clone(),
-                json!({"name": display.clone()}),
+                pool.name.clone(),
+                model_entry(name_opt, &pool.display_name, pool.context_window),
             );
         }
         if models.is_empty() {
             models.insert(
                 default_pool_name.to_string(),
-                json!({"name": default_pool_display_name}),
+                model_entry(Some(default_pool_name), default_pool_display_name, None),
             );
         }
 
@@ -145,7 +189,7 @@ mod tests {
                 &original,
                 "http://127.0.0.1:47339",
                 "sk-gw-test",
-                &[("gpt-4".to_string(), "GPT-4".to_string()), ("claude-sonnet".to_string(), "Sonnet".to_string())],
+                &[ToolPool::new("gpt-4", "GPT-4"), ToolPool::new("claude-sonnet", "Sonnet")],
                 "gpt-4",
                 "GPT-4",
                 "llm-api-proxy",
@@ -175,6 +219,33 @@ mod tests {
             .unwrap();
         let written: Value = serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
         assert_eq!(written["provider"]["llm-api-proxy"]["models"]["pool"]["name"], "Pool");
+    }
+
+    #[test]
+    fn test_opencode_default_pool_1m_sets_limit_context() {
+        let dir = TempDir::new().unwrap();
+        let cfg = dir.path().join("opencode.json");
+        let writer = OpenCodeWriter;
+        let original = vec![(cfg.clone(), None)];
+        writer
+            .merge_and_write_config_with_roles_1m(
+                &original,
+                "http://127.0.0.1:47339",
+                "sk-gw-test",
+                &[ToolPool::new("gpt-4", "GPT-4"), ToolPool::new("claude-sonnet", "Sonnet")],
+                "gpt-4",
+                "GPT-4",
+                "llm-api-proxy",
+                &[],
+                &["default".to_string()],
+            )
+            .unwrap();
+        let written: Value = serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
+        let models = &written["provider"]["llm-api-proxy"]["models"];
+        // Default pool declares the 1M context window (cc-switch's limit editor).
+        assert_eq!(models["gpt-4"]["limit"]["context"], 1000000);
+        // Other pools keep no window declaration.
+        assert!(models["claude-sonnet"].get("limit").is_none());
     }
 
     #[test]

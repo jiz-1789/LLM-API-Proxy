@@ -46,6 +46,9 @@ pub struct ToolSwitchStatus {
     /// Persisted role→pool mapping (from config_snapshot), if any.
     #[serde(default)]
     pub model_roles: Vec<(String, String)>,
+    /// Persisted roles with 1M-context enabled (from config_snapshot), if any.
+    #[serde(default)]
+    pub model_roles_1m: Vec<String>,
     pub last_written_at: Option<String>,
 }
 

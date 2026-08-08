@@ -6,6 +6,7 @@ use crate::tool_config::backup::BackupEntry;
 use crate::tool_config::detector;
 use crate::tool_config::writer::atomic_write;
 use crate::tool_config::ToolConfigWriter;
+use crate::tool_config::ToolPool;
 use std::path::PathBuf;
 
 pub struct GrokWriter;
@@ -45,7 +46,7 @@ impl ToolConfigWriter for GrokWriter {
         original_configs: &[BackupEntry],
         proxy_base_url: &str,
         _proxy_api_key: &str,
-        all_pools: &[(String, String)],
+        all_pools: &[ToolPool],
         default_pool_name: &str,
         default_pool_display_name: &str,
         provider_name: &str,
@@ -101,10 +102,10 @@ impl ToolConfigWriter for GrokWriter {
             .get_mut("models")
             .and_then(toml_edit::Item::as_table_mut)
             .ok_or_else(|| AppError::Config(format!("model_providers.{provider_key}.models 必须是 TOML 表")))?;
-        for (name, display) in all_pools {
+        for pool in all_pools {
             let mut desc = toml_edit::Table::new();
-            desc.insert("name", toml_edit::value(display.clone()));
-            models.insert(name.as_str(), toml_edit::Item::Table(desc));
+            desc.insert("name", toml_edit::value(pool.display_name.clone()));
+            models.insert(pool.name.as_str(), toml_edit::Item::Table(desc));
         }
         if all_pools.is_empty() {
             let mut desc = toml_edit::Table::new();
@@ -167,8 +168,8 @@ mod tests {
                 "http://127.0.0.1:47339/v1",
                 "sk-k",
                 &[
-                    ("deepseek-v4-pro".to_string(), "DeepSeek V4 Pro".to_string()),
-                    ("deepseek-v4-flash".to_string(), "DeepSeek V4 Flash".to_string()),
+                    ToolPool::new("deepseek-v4-pro", "DeepSeek V4 Pro"),
+                    ToolPool::new("deepseek-v4-flash", "DeepSeek V4 Flash"),
                 ],
                 "deepseek-v4-pro",
                 "DeepSeek V4 Pro",

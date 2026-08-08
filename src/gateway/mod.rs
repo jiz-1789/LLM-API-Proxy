@@ -16,7 +16,7 @@ use axum::{
 };
 use bytes::Bytes;
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -25,6 +25,7 @@ use tracing::{info, warn};
 
 use crate::crypto::KeyManager;
 use crate::db::Database;
+use crate::error::AppError;
 use crate::pool::thinking;
 use crate::pool::thinking::ThinkingLevel;
 use crate::proxy::error::UpstreamError;
@@ -176,24 +177,155 @@ async fn handle_health(State(state): State<GatewayState>) -> impl IntoResponse {
 }
 
 /// GET /v1/models 鈥?Return all pools as available models.
+///
+/// While the Claude Desktop switch is ON, the route IDs written into the 3P
+/// profile are listed first, enriched with the fields Claude Desktop reads
+/// (`type` / `created_at` / `supports1m`, Anthropic model-list format) so it
+/// can show the 1M-context option. OpenAI clients ignore the extra fields.
 async fn handle_models(State(state): State<GatewayState>) -> impl IntoResponse {
     match state.db.get_pools() {
         Ok(pools) => {
-            let data: Vec<Value> = pools
-                .iter()
-                .map(|pool| {
-                    json!({
-                        "id": pool.name,
-                        "object": "model",
-                        "owned_by": "llm-api-proxy"
-                    })
-                })
-                .collect();
+            let mut data: Vec<Value> = Vec::new();
+            // Roles with 1M-context enabled, persisted in the tool config
+            // snapshot when the Desktop switch was saved.
+            let mut one_m_roles: Vec<String> = Vec::new();
+            if let Ok(Some(cfg)) =
+                state
+                    .db
+                    .get_tool_config(crate::tool_config::claude_desktop::APP_ID)
+                && let Ok(snapshot) =
+                    serde_json::from_str::<Value>(&cfg.config_snapshot)
+                && let Some(roles) = snapshot.get("roles_1m").and_then(|v| v.as_array())
+            {
+                one_m_roles = roles
+                    .iter()
+                    .filter_map(|r| r.as_str().map(str::to_string))
+                    .collect();
+            }
+            // Claude Desktop route IDs first (while the Desktop switch is ON),
+            // then every pool as a plain model. Pools mapped to a 1M-enabled
+            // role also carry `supports1m` — Claude Desktop issues requests
+            // with the plain pool id it picked from the model list, so the
+            // pool entry itself must declare the 1M capability.
+            if let Ok(Some(map_json)) = state
+                .db
+                .get_setting(crate::tool_config::claude_desktop::ROUTE_MAP_SETTING_KEY)
+                && let Ok(map) = serde_json::from_str::<serde_json::Map<String, Value>>(&map_json)
+            {
+                for route_id in map.keys() {
+                    let role = crate::tool_config::claude_desktop::ROLE_ROUTE_IDS
+                        .iter()
+                        .find(|(_, rid)| rid == route_id)
+                        .map(|(role, _)| *role);
+                    let one_m = role
+                        .map(|r| one_m_roles.iter().any(|x| x == r))
+                        .unwrap_or(false);
+                    data.push(desktop_model_item(route_id, one_m));
+                }
+            }
+            // Pools behind a 1M-enabled role mapping.
+            let mut one_m_pools: HashSet<String> = HashSet::new();
+            if let Ok(Some(cfg)) =
+                state
+                    .db
+                    .get_tool_config(crate::tool_config::claude_desktop::APP_ID)
+                && let Ok(snapshot) =
+                    serde_json::from_str::<Value>(&cfg.config_snapshot)
+                && let Some(roles) = snapshot.get("model_roles").and_then(|v| v.as_array())
+            {
+                for pair in roles {
+                    let Some(role) = pair.get(0).and_then(|v| v.as_str()) else {
+                        continue;
+                    };
+                    let Some(pool) = pair.get(1).and_then(|v| v.as_str()) else {
+                        continue;
+                    };
+                    if one_m_roles.iter().any(|r| r == role) {
+                        one_m_pools.insert(pool.to_string());
+                    }
+                }
+            }
+            data.extend(pools.iter().map(|pool| {
+                let mut item = json!({
+                    "id": pool.name,
+                    "object": "model",
+                    "owned_by": "llm-api-proxy"
+                });
+                if one_m_pools.contains(&pool.name) {
+                    item["type"] = json!("model");
+                    item["created_at"] = json!("2024-01-01T00:00:00Z");
+                    item["supports1m"] = json!(true);
+                }
+                item
+            }));
 
-            Json(json!({ "data": data })).into_response()
+            let first_id = data
+                .first()
+                .and_then(|m| m.get("id"))
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            let last_id = data
+                .last()
+                .and_then(|m| m.get("id"))
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            Json(json!({
+                "data": data,
+                "has_more": false,
+                "first_id": first_id,
+                "last_id": last_id,
+            }))
+            .into_response()
         }
         Err(e) => error_response::internal_error(&format!("database error: {}", e)),
     }
+}
+
+/// One model entry for the `/v1/models` list in Anthropic-compatible shape
+/// (what Claude Desktop reads), keeping OpenAI fields (`object`) harmless.
+fn desktop_model_item(route_id: &str, supports_1m: bool) -> Value {
+    json!({
+        "id": route_id,
+        "object": "model",
+        "owned_by": "llm-api-proxy",
+        "type": "model",
+        "created_at": "2024-01-01T00:00:00Z",
+        "supports1m": supports_1m,
+    })
+}
+
+/// Resolve a Claude Desktop route ID (`claude-sonnet-5`, ...) to its mapped
+/// pool via the persisted route map setting. Returns `(pool_name, route_id)`.
+/// `Ok(None)` when no map is active or the model is not a route ID.
+fn resolve_claude_desktop_route(
+    db: &Database,
+    model: &str,
+) -> Result<Option<(String, String)>, AppError> {
+    let Some(map_json) = db.get_setting(crate::tool_config::claude_desktop::ROUTE_MAP_SETTING_KEY)?
+    else {
+        return Ok(None);
+    };
+    let Ok(map) = serde_json::from_str::<serde_json::Map<String, Value>>(&map_json) else {
+        return Ok(None);
+    };
+    let Some(pool_name) = map.get(model).and_then(|v| v.as_str()) else {
+        return Ok(None);
+    };
+    Ok(Some((pool_name.to_string(), model.to_string())))
+}
+
+/// Strip the Claude Desktop 1M-context marker (`[1m]`, case-insensitive, with
+/// optional surrounding whitespace) from a model name. Returns the trimmed
+/// base name when the marker is present, otherwise the input unchanged.
+fn strip_one_m_marker(model: &str) -> String {
+    let trimmed = model.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if let Some(pos) = lower.rfind("[1m]") {
+        let prefix = &trimmed[..pos];
+        let tail = &trimmed[pos + 4..];
+        return format!("{prefix}{tail}").trim().to_string();
+    }
+    trimmed.to_string()
 }
 
 /// Extract token usage from an OpenAI-compatible response body.
@@ -415,7 +547,7 @@ async fn process_completion(
         ResponseFormat::Chat => {}
     }
 
-    let model = match body.get("model").and_then(|m| m.as_str()) {
+    let model_raw = match body.get("model").and_then(|m| m.as_str()) {
         Some(m) => m.to_string(),
         None => {
             return with_request_id(
@@ -425,6 +557,11 @@ async fn process_completion(
         }
     };
 
+    // Claude Desktop appends a `[1m]` marker to the model name while its
+    // 1M-context beta is active (e.g. `claude-sonnet-5[1m]`). Strip it before
+    // route/pool lookup so the request resolves like its base model.
+    let model = strip_one_m_marker(&model_raw);
+
     let is_stream = body.get("stream").and_then(|s| s.as_bool()).unwrap_or(false);
     info!(
         trace_id = %trace_id,
@@ -433,8 +570,19 @@ async fn process_completion(
         "Received chat completion request"
     );
 
+    // Claude Desktop route alias: while the Desktop switch is ON, clients
+    // (Claude Desktop) send fixed route IDs (`claude-sonnet-5`, ...) instead
+    // of pool names. Resolve the route back to its mapped pool; the route ID
+    // is echoed back to the client in place of the pool's display name.
+    let route_alias = resolve_claude_desktop_route(&state.db, &model).ok().flatten();
+
     // Find matching pool by model name
-    let pool = match state.db.get_pool_by_name(&model) {
+    let pool = match state.db.get_pool_by_name(
+        route_alias
+            .as_ref()
+            .map(|(pool_name, _)| pool_name.as_str())
+            .unwrap_or(&model),
+    ) {
         Ok(Some(p)) => p,
         Ok(None) => {
             return with_request_id(error_response::model_not_found(&model), &trace_id);
@@ -446,6 +594,13 @@ async fn process_completion(
             );
         }
     };
+
+    // Model name returned to the client: the route ID for Claude Desktop
+    // alias requests, otherwise the pool's display name.
+    let response_model = route_alias
+        .as_ref()
+        .map(|(_, route_id)| route_id.clone())
+        .unwrap_or_else(|| pool.display_name.clone());
 
     // Get upstreams for this pool (ordered by sort_order)
     let pool_upstreams = match state.db.get_pool_upstreams(&pool.id) {
@@ -749,7 +904,7 @@ async fn process_completion(
                     // Build byte stream from upstream response
                     let tu_status = upstream_response.status().as_u16() as i32;
                     let byte_stream = upstream_response.bytes_stream();
-                    let display_name = pool.display_name.clone();
+                    let display_name = response_model.clone();
                     let upstream_format = upstream.api_format.clone();
                     let db_clone = state.db.clone();
                     let log_id_clone = log_id.clone();
@@ -1177,7 +1332,7 @@ async fn process_completion(
                         convert::convert_response_to_client(
                             &response.body,
                             &upstream.api_format,
-                            &pool.display_name,
+                            &response_model,
                         )
                     } else {
                         response.body
@@ -1193,7 +1348,7 @@ async fn process_completion(
                     {
                         obj.insert(
                             "model".to_string(),
-                            Value::String(pool.display_name.clone()),
+                            Value::String(response_model.clone()),
                         );
                     } else if passthrough
                         && let Some(obj) = resp_body.as_object_mut()
@@ -1201,7 +1356,7 @@ async fn process_completion(
                     {
                         obj.insert(
                             "model".to_string(),
-                            Value::String(pool.display_name.clone()),
+                            Value::String(response_model.clone()),
                         );
                     }
 
@@ -1212,13 +1367,13 @@ async fn process_completion(
                     if !passthrough {
                         match response_format {
                             ResponseFormat::Responses => {
-                                resp_body = convert::normalize_responses_output(&resp_body, &pool.display_name);
+                                resp_body = convert::normalize_responses_output(&resp_body, &response_model);
                             }
                             ResponseFormat::Anthropic => {
-                                resp_body = convert::normalize_anthropic_output(&resp_body, &pool.display_name);
+                                resp_body = convert::normalize_anthropic_output(&resp_body, &response_model);
                             }
                             ResponseFormat::GeminiNative => {
-                                resp_body = convert::normalize_gemini_output(&resp_body, &pool.display_name);
+                                resp_body = convert::normalize_gemini_output(&resp_body, &response_model);
                             }
                             ResponseFormat::Chat => {}
                         }
@@ -1431,6 +1586,34 @@ mod tests {
     // 鈹€鈹€ filter_passthrough_headers 娴嬭瘯 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
     #[test]
+    fn test_desktop_model_item_anthropic_shape() {
+        let item = desktop_model_item("claude-sonnet-5", true);
+        assert_eq!(item["id"], json!("claude-sonnet-5"));
+        assert_eq!(item["type"], json!("model"));
+        assert_eq!(item["created_at"], json!("2024-01-01T00:00:00Z"));
+        assert_eq!(item["supports1m"], json!(true));
+        let no_1m = desktop_model_item("claude-haiku-4-5", false);
+        assert_eq!(no_1m["supports1m"], json!(false));
+    }
+
+    #[test]
+    fn test_desktop_model_item_keeps_openai_fields() {
+        let item = desktop_model_item("claude-opus-5", false);
+        assert_eq!(item["object"], json!("model"));
+        assert_eq!(item["owned_by"], json!("llm-api-proxy"));
+    }
+
+    #[test]
+    fn test_strip_one_m_marker_variants() {
+        assert_eq!(strip_one_m_marker("claude-sonnet-5[1m]"), "claude-sonnet-5");
+        assert_eq!(strip_one_m_marker("claude-opus-4-8 [1M]"), "claude-opus-4-8");
+        assert_eq!(strip_one_m_marker("claude-haiku-4-5[1m] "), "claude-haiku-4-5");
+        assert_eq!(strip_one_m_marker("claude-sonnet-5"), "claude-sonnet-5");
+        assert_eq!(strip_one_m_marker("deepseek-v4-flash-free"), "deepseek-v4-flash-free");
+        assert_eq!(strip_one_m_marker("gpt-5[1m]"), "gpt-5");
+    }
+
+    #[test]
     fn test_passthrough_x_ratelimit_headers() {
         let mut headers = HeaderMap::new();
         headers.insert("x-ratelimit-limit-requests", HeaderValue::from_static("60"));
@@ -1548,5 +1731,102 @@ mod tests {
         assert!(PASSTHROUGH_HEADER_PREFIXES.contains(&"x-ratelimit-"));
         assert!(PASSTHROUGH_HEADER_PREFIXES.contains(&"openai-"));
         assert!(PASSTHROUGH_HEADER_PREFIXES.contains(&"anthropic-"));
+    }
+
+    // 鈹€鈹€ Claude Desktop route alias resolution 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+
+    fn test_db_with_pool() -> (Arc<Database>, String) {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        db.initialize().unwrap();
+        let crypto = crate::crypto::KeyManager::initialize(&std::env::temp_dir()).unwrap();
+        let enc = crypto.encrypt_api_key("sk-test").unwrap();
+        db.create_upstream("up_a", "OpenAI", "https://a.com", &enc, "gpt-4o", "[]", true, "", "", "openai_chat")
+            .unwrap();
+        db.create_pool("pool_a", "pool-a", "Pool A", 5, false, "off", "", "")
+            .unwrap();
+        db.add_upstream_to_pool("pool_a", "up_a", 0, "gpt-4o").unwrap();
+        (db, "pool-a".to_string())
+    }
+
+    #[test]
+    fn test_resolve_route_no_map_returns_none() {
+        let (db, _) = test_db_with_pool();
+        let resolved = resolve_claude_desktop_route(&db, "claude-sonnet-5").unwrap();
+        assert!(resolved.is_none());
+    }
+
+    #[test]
+    fn test_resolve_route_active_map_translates_to_pool() {
+        let (db, _) = test_db_with_pool();
+        db.save_setting(
+            crate::tool_config::claude_desktop::ROUTE_MAP_SETTING_KEY,
+            r#"{"claude-sonnet-5":"pool-a","claude-opus-5":"pool-a"}"#,
+        )
+        .unwrap();
+        let resolved = resolve_claude_desktop_route(&db, "claude-sonnet-5").unwrap();
+        assert_eq!(resolved, Some(("pool-a".to_string(), "claude-sonnet-5".to_string())));
+        // Non-route models are untouched.
+        assert!(resolve_claude_desktop_route(&db, "gpt-4o").unwrap().is_none());
+        // Unknown route IDs are untouched.
+        assert!(resolve_claude_desktop_route(&db, "claude-sonnet-9").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_resolve_route_ignores_corrupt_map() {
+        let (db, _) = test_db_with_pool();
+        db.save_setting(
+            crate::tool_config::claude_desktop::ROUTE_MAP_SETTING_KEY,
+            "not-json",
+        )
+        .unwrap();
+        assert!(resolve_claude_desktop_route(&db, "claude-sonnet-5").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_handle_models_includes_route_ids_when_map_active() {
+        let (db, _) = test_db_with_pool();
+        let state = GatewayState {
+            db: db.clone(),
+            proxy_client: Arc::new(UpstreamClient::new()),
+            crypto: Arc::new(
+                crate::crypto::KeyManager::initialize(&std::env::temp_dir()).unwrap(),
+            ),
+            rr_counters: Arc::new(Mutex::new(HashMap::new())),
+            rate_limiter: RateLimiter::new(RateLimitConfig::default()),
+        };
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        // Without the map: pools only.
+        let resp = rt.block_on(handle_models(State(state.clone()))).into_response();
+        let body = rt
+            .block_on(axum::body::to_bytes(resp.into_body(), usize::MAX))
+            .unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+        let ids: Vec<&str> = json["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|m| m["id"].as_str())
+            .collect();
+        assert_eq!(ids, vec!["pool-a"]);
+
+        // With the map active: route IDs first, then pools.
+        db.save_setting(
+            crate::tool_config::claude_desktop::ROUTE_MAP_SETTING_KEY,
+            r#"{"claude-sonnet-5":"pool-a","claude-haiku-4-5":"pool-a"}"#,
+        )
+        .unwrap();
+        let resp = rt.block_on(handle_models(State(state))).into_response();
+        let body = rt
+            .block_on(axum::body::to_bytes(resp.into_body(), usize::MAX))
+            .unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+        let mut ids: Vec<&str> = json["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|m| m["id"].as_str())
+            .collect();
+        ids.sort_unstable();
+        assert_eq!(ids, vec!["claude-haiku-4-5", "claude-sonnet-5", "pool-a"]);
     }
 }

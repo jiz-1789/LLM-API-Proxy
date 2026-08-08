@@ -27,11 +27,14 @@ pub fn get_tool_switches(
         .map_err(|e| e.to_string())
 }
 
-/// Role→pool mapping for tools with role slots (e.g. Claude Code).
+/// Role→pool mapping for tools with role slots (e.g. Claude Code / Desktop).
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ModelRoleMapping {
     /// (role, pool_name) pairs, e.g. ("sonnet", "deepseek-v4-pro").
     pub roles: Vec<(String, String)>,
+    /// Roles with 1M-context enabled (Claude Desktop only).
+    #[serde(default)]
+    pub roles_1m: Vec<String>,
 }
 
 /// Enable a tool switch: backup + write proxy config.
@@ -45,7 +48,7 @@ pub fn enable_tool_switch(
     model_roles: Option<ModelRoleMapping>,
 ) -> Result<EnableResult, String> {
     // Keep the owned mapping alive while passing a slice into the manager.
-    let owned_roles = model_roles.map(|m| m.roles).unwrap_or_default();
+    let mapping = model_roles.unwrap_or_default();
     state
         .tool_switch_manager
         .enable_tool(
@@ -53,7 +56,8 @@ pub fn enable_tool_switch(
             &pool_id,
             api_key_id.as_deref(),
             provider_name.as_deref().unwrap_or("LLM-API-Proxy"),
-            owned_roles.as_slice(),
+            mapping.roles.as_slice(),
+            mapping.roles_1m.as_slice(),
         )
         .map_err(|e| e.to_string())
 }
@@ -78,9 +82,7 @@ pub fn update_tool_config(
     model_roles: Option<ModelRoleMapping>,
 ) -> Result<(), String> {
     // Keep the owned mapping alive while passing a slice into the manager.
-    let role_slice = model_roles
-        .as_ref()
-        .map(|m| m.roles.as_slice());
+    let mapping = model_roles.unwrap_or_default();
     state
         .tool_switch_manager
         .update_tool_config(
@@ -88,7 +90,8 @@ pub fn update_tool_config(
             pool_id.as_deref(),
             api_key_id.as_deref(),
             provider_name.as_deref(),
-            role_slice,
+            Some(mapping.roles.as_slice()),
+            Some(mapping.roles_1m.as_slice()),
         )
         .map_err(|e| e.to_string())
 }
@@ -147,4 +150,95 @@ pub fn suggest_pool(
         &state.db,
         requirements,
     ))
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::Deserialize;
+
+    /// Replica of Tauri's generated per-command args struct (camelCase keys),
+    /// mirroring `enable_tool_switch` / `update_tool_config`.
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ToolSwitchArgs {
+        app_id: String,
+        pool_id: Option<String>,
+        api_key_id: Option<String>,
+        provider_name: Option<String>,
+        model_roles: Option<ModelRoleMapping>,
+    }
+
+    #[test]
+    fn test_tool_switch_args_claude_desktop_payload() {
+        // Exact payload shape the frontend sends for Claude Desktop (roles +
+        // roles_1m, apiKeyId explicitly null).
+        let json = r#"{
+            "appId": "claude-desktop",
+            "poolId": "pool-abc",
+            "apiKeyId": null,
+            "providerName": "LLM-API-Proxy",
+            "modelRoles": {
+                "roles": [["sonnet", "vision-pool"]],
+                "roles_1m": ["sonnet"]
+            }
+        }"#;
+        let args: ToolSwitchArgs = serde_json::from_str(json).unwrap();
+        assert_eq!(args.app_id, "claude-desktop");
+        assert_eq!(args.pool_id.as_deref(), Some("pool-abc"));
+        assert!(args.api_key_id.is_none());
+        let mapping = args.model_roles.unwrap();
+        assert_eq!(mapping.roles, vec![("sonnet".to_string(), "vision-pool".to_string())]);
+        assert_eq!(mapping.roles_1m, vec!["sonnet".to_string()]);
+    }
+
+    #[test]
+    fn test_tool_switch_args_empty_roles_ok() {
+        let json = r#"{
+            "appId": "claude-desktop",
+            "poolId": "pool-abc",
+            "apiKeyId": null,
+            "providerName": "LLM-API-Proxy",
+            "modelRoles": {"roles": [], "roles_1m": []}
+        }"#;
+        let args: ToolSwitchArgs = serde_json::from_str(json).unwrap();
+        let mapping = args.model_roles.unwrap();
+        assert!(mapping.roles.is_empty());
+        assert!(mapping.roles_1m.is_empty());
+    }
+
+    #[test]
+    fn test_tool_switch_args_missing_model_roles_is_none() {
+        // Non-role tools send no modelRoles at all.
+        let json = r#"{
+            "appId": "codex",
+            "poolId": "pool-abc",
+            "apiKeyId": null,
+            "providerName": "LLM-API-Proxy"
+        }"#;
+        let args: ToolSwitchArgs = serde_json::from_str(json).unwrap();
+        assert!(args.model_roles.is_none());
+    }
+
+    #[test]
+    fn test_tool_switch_args_null_required_string_is_error() {
+        // Documents the failure mode the user hit: a null String arg must be
+        // rejected with "invalid type: null, expected a string".
+        let json = r#"{
+            "appId": null,
+            "poolId": "pool-abc",
+            "apiKeyId": null,
+            "providerName": "LLM-API-Proxy",
+            "modelRoles": null
+        }"#;
+        let err = serde_json::from_str::<ToolSwitchArgs>(json).unwrap_err();
+        assert!(
+            err.to_string().contains("invalid type: null, expected a string"),
+            "unexpected error: {err}"
+        );
+    }
 }

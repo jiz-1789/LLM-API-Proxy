@@ -5,6 +5,7 @@ use crate::tool_config::backup::BackupEntry;
 use crate::tool_config::detector;
 use crate::tool_config::writer::atomic_write;
 use crate::tool_config::ToolConfigWriter;
+use crate::tool_config::ToolPool;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 
@@ -45,7 +46,7 @@ impl ToolConfigWriter for OpenClawWriter {
         original_configs: &[BackupEntry],
         proxy_base_url: &str,
         proxy_api_key: &str,
-        _all_pools: &[(String, String)],
+        _all_pools: &[ToolPool],
         default_pool_name: &str,
         _default_pool_display_name: &str,
         provider_name: &str,
