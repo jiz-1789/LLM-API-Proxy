@@ -670,7 +670,7 @@ pub fn chat_to_anthropic_client_response(response: &Value, model_display: &str) 
 /// Stateful converter turning an OpenAI Chat SSE stream into Anthropic
 /// Messages SSE events, chunk by chunk.
 ///
-/// Mirrors the reference implementation (cc-switch `streaming.rs`):
+/// Mirrors the reference implementation:
 /// 1. `message_start` is emitted once, before any content event
 /// 2. Content blocks are numbered from a shared counter (thinking/text/tool_use)
 /// 3. Switching block type (reasoning -> text, text -> tool_use) closes the

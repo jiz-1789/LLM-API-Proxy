@@ -1,8 +1,11 @@
 //! Hermes config writer (`~/.hermes/config.yaml` on Mac/Linux,
 //! `%LOCALAPPDATA%\hermes\config.yaml` on Windows).
 //!
-//! YAML manipulation is done via string-level section append to avoid adding
-//! a YAML dependency. Existing content is preserved verbatim.
+//! Hermes reads `custom_providers:` as a **sequence** of provider entries
+//! (each with `name`/`base_url`/`api_key`/`model`/`models`), plus a top-level
+//! `model:` section carrying `default` and `provider`. YAML manipulation is done
+//! via string-level section append to avoid adding a YAML dependency.
+//! Existing content is preserved verbatim.
 
 use crate::error::AppError;
 use crate::tool_config::backup::BackupEntry;
@@ -78,19 +81,13 @@ impl ToolConfigWriter for HermesWriter {
         all_pools: &[ToolPool],
         default_pool_name: &str,
         _default_pool_display_name: &str,
-        provider_name: &str,
+        _provider_name: &str,
         _model_roles: &[(String, String)],
         roles_1m: &[String],
     ) -> Result<(), AppError> {
         let (path, original) = original_configs
             .first()
             .ok_or_else(|| AppError::Config("缺少原始配置".to_string()))?;
-
-        let provider_label = if provider_name.trim().is_empty() {
-            "LLM-API-Proxy"
-        } else {
-            provider_name.trim()
-        };
 
         // Model list: one entry per pool. Each pool's context_length defaults
         // to its inferred real context window (fallback), else 200000; the
@@ -111,7 +108,10 @@ impl ToolConfigWriter for HermesWriter {
             } else {
                 window_of(&pool.name)
             };
-            models_yaml.push_str(&format!("      {}:\n        context_length: {ctx}\n", pool.name));
+            models_yaml.push_str(&format!(
+                "      {}:\n        context_length: {ctx}\n",
+                pool.name
+            ));
         }
         if models_yaml.is_empty() {
             let ctx = if default_1m {
@@ -124,12 +124,16 @@ impl ToolConfigWriter for HermesWriter {
             ));
         }
 
-        // Inject a custom provider section with the full model list + default
-        // model. Existing top-level `custom_providers:` / `model:` sections are
-        // replaced in place (not duplicated) so an existing Hermes config with
-        // those keys stays valid YAML — mirroring cc-switch's section replace.
+        // Inject a custom provider entry (sequence item) with the full model
+        // list, plus the top-level `model:` section pointing `default` and
+        // `provider` at the proxy. Existing top-level `custom_providers:` /
+        // `model:` sections are replaced in place (not duplicated) so an
+        // existing Hermes config with those keys stays valid YAML — mirroring
+// section replace. Replaces the whole provider entry whose
+// `name:` matches the proxy provider id — Hermes reads name-match to
+// pick the active provider.
         let block = format!(
-            "custom_providers:\n  {PROVIDER_ID}:\n    base_url: \"{proxy_base_url}\"\n    api_key: \"{proxy_api_key}\"\n    name: \"{provider_label}\"\n    models:\n{models_yaml}model:\n  default: \"{default_pool_name}\"\n"
+            "custom_providers:\n  - name: '{PROVIDER_ID}'\n    base_url: \"{proxy_base_url}\"\n    api_key: \"{proxy_api_key}\"\n    model: \"{default_pool_name}\"\n    models:\n{models_yaml}model:\n  default: \"{default_pool_name}\"\n  provider: \"{PROVIDER_ID}\"\n"
         );
         let yaml = replace_top_level_sections(&original.clone().unwrap_or_default(), &block);
         atomic_write(path, yaml.as_bytes())
@@ -210,15 +214,15 @@ mod tests {
 
     #[test]
     fn test_replace_top_level_sections_dedups_existing() {
-        let existing = "settings:\n  theme: dark\ncustom_providers:\n  old:\n    base_url: x\nmodel:\n  default: old\nother:\n  keep: true\n";
-        let block = "custom_providers:\n  llm-api-proxy:\n    base_url: new\nmodel:\n  default: new-model\n";
+        let existing = "settings:\n  theme: dark\ncustom_providers:\n  - name: old\n    base_url: x\nmodel:\n  default: old\nother:\n  keep: true\n";
+        let block = "custom_providers:\n  - name: llm-api-proxy\n    base_url: new\nmodel:\n  default: new-model\n  provider: llm-api-proxy\n";
         let out = replace_top_level_sections(existing, block);
         // Settings + other preserved, duplicate custom_providers/model removed.
         assert!(out.contains("settings:\n  theme: dark\n"), "got: {out}");
         assert!(out.contains("other:\n  keep: true\n"), "got: {out}");
         assert!(out.contains("base_url: new"), "got: {out}");
         assert!(out.contains("default: new-model"), "got: {out}");
-        assert!(!out.contains("old:"), "got: {out}");
+        assert!(!out.contains("name: old"), "got: {out}");
         assert!(!out.contains("default: old"), "got: {out}");
         // Exactly one custom_providers / one model top-level key.
         assert_eq!(out.matches("\ncustom_providers:").count() + usize::from(out.starts_with("custom_providers:")), 1);
@@ -228,27 +232,32 @@ mod tests {
     #[test]
     fn test_replace_top_level_sections_keeps_other_sections_when_empty() {
         let existing = "agent:\n  memory: on\n";
-        let block = "custom_providers:\n  x:\n    base_url: y\nmodel:\n  default: z\n";
+        let block = "custom_providers:\n  - name: x\n    base_url: y\nmodel:\n  default: z\n  provider: x\n";
         let out = replace_top_level_sections(existing, block);
         assert!(out.contains("agent:\n  memory: on\n"), "got: {out}");
         assert!(out.contains("default: z"), "got: {out}");
     }
 
     #[test]
-    fn test_hermes_merge_creates_yaml() {
+    fn test_hermes_merge_creates_yaml_with_provider_sequence() {
         let dir = TempDir::new().unwrap();
         let cfg = dir.path().join("config.yaml");
         let writer = HermesWriter;
         let original = vec![(cfg.clone(), None)];
         writer
-            .merge_and_write_config(&original, "http://127.0.0.1:47339", "sk-k", &[ToolPool::new("pool-x", "Pool X"), ToolPool::new("pool-y", "Pool Y")], "pool-x", "Pool X", "LLM-API-Proxy")
+            .merge_and_write_config(&original, "http://127.0.0.1:47339/v1", "sk-k", &[ToolPool::new("pool-x", "Pool X"), ToolPool::new("pool-y", "Pool Y")], "pool-x", "Pool X", "LLM-API-Proxy")
             .unwrap();
         let yaml = std::fs::read_to_string(&cfg).unwrap();
-        assert!(yaml.contains("custom_providers:"));
-        assert!(yaml.contains("base_url: \"http://127.0.0.1:47339\""));
-        assert!(yaml.contains("default: \"pool-x\""));
-        // Full model list: all pools written as models
-        assert!(yaml.contains("pool-x:\n        context_length: 200000"), "got: {yaml}");
+        assert!(yaml.contains("custom_providers:"), "got: {yaml}");
+        // Sequence item: provider entry starts with "- name: 'llm-api-proxy'".
+        assert!(yaml.contains("- name: 'llm-api-proxy'"), "got: {yaml}");
+        assert!(yaml.contains("base_url: \"http://127.0.0.1:47339/v1\""), "got: {yaml}");
+        assert!(yaml.contains("api_key: \"sk-k\""), "got: {yaml}");
+        assert!(yaml.contains("model: \"pool-x\""), "got: {yaml}");
+        // Top-level model section carries both default and provider.
+        assert!(yaml.contains("model:\n  default: \"pool-x\"\n  provider: \"llm-api-proxy\"\n"), "got: {yaml}");
+        // Full model list: all pools written as models dict.
+        assert!(yaml.contains("    models:\n      pool-x:\n        context_length: 200000"), "got: {yaml}");
         assert!(yaml.contains("pool-y:\n        context_length: 200000"), "got: {yaml}");
     }
 
@@ -302,7 +311,7 @@ mod tests {
         writer
             .merge_and_write_config_with_roles_1m(
                 &original,
-                "http://127.0.0.1:47339",
+                "http://127.0.0.1:47339/v1",
                 "sk-k",
                 &[ToolPool::new("pool-x", "Pool X")],
                 "pool-x",

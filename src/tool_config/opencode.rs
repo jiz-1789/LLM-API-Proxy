@@ -244,7 +244,7 @@ mod tests {
             .unwrap();
         let written: Value = serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
         let models = &written["provider"]["llm-api-proxy"]["models"];
-        // Default pool declares the 1M context window (cc-switch's limit editor).
+        // Default pool declares the 1M context window.
         assert_eq!(models["gpt-4"]["limit"]["context"], 1000000);
         // OpenCode 要求 limit.output 必填，缺 key 会触发配置校验失败。
         assert!(models["gpt-4"]["limit"]["output"].is_number());

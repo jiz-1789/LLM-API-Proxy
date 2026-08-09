@@ -1,4 +1,4 @@
-﻿//! Codex CLI config writer (`~/.codex/auth.json` + `~/.codex/config.toml`).
+﻿﻿//! Codex CLI config writer (`~/.codex/auth.json` + `~/.codex/config.toml`).
 //!
 //! Codex uses two files:
 //! - `auth.json`: stores `OPENAI_API_KEY`
@@ -30,8 +30,8 @@ const MODEL_CATALOG_FILENAME: &str = "llm-api-proxy-model-catalog.json";
 /// entries carry the exact field set of the user's Codex version.
 const MODEL_CATALOG_TEMPLATE_SLUG: &str = "gpt-5.5";
 
-/// Bundled fallback template. Field set mirrors the catalog shape cc-switch
-/// produces and Codex successfully loads (observed on Codex desktop 26.721:
+/// Bundled fallback template. Field set mirrors the catalog shape
+/// Codex successfully loads (observed on Codex desktop 26.721:
 /// an entry missing `model_messages` / `default_verbosity` / reasoning levels
 /// gets filtered from the `/model` picker while `model_catalog_json` is still
 /// honored — the picker ends up empty). Native `/responses` style: no
@@ -358,7 +358,7 @@ impl ToolConfigWriter for CodexWriter {
             }
         }
         // Remove the catalog file we generated (only our own, named file —
-        // third-party catalogs like cc-switch's stay untouched).
+        // third-party catalogs stay untouched).
         for (path, _) in original_configs {
             if path.file_name().and_then(|n| n.to_str()) == Some(CONFIG_REL)
                 && let Some(catalog_path) = catalog_path_for(path)
@@ -464,14 +464,14 @@ mod tests {
     #[test]
     fn test_codex_merge_reuses_existing_custom_section_no_duplicate() {
         // Simulate a real user config that already has [model_providers.custom]
-        // (e.g. written by cc-switch): the proxy must overwrite fields in place,
+        // (e.g. written by another tool): the proxy must overwrite fields in place,
         // not append a second identical section.
         let dir = TempDir::new().unwrap();
         let auth = dir.path().join("auth.json");
         let config = dir.path().join("config.toml");
         let existing = r#"model = "gpt-5.4"
 model_provider = "custom"
-model_catalog_json = "cc-switch-model-catalog.json"
+model_catalog_json = "third-party-model-catalog.json"
 
 [model_providers.custom]
 name = "custom"
@@ -756,7 +756,7 @@ base_url = "http://127.0.0.1:57321/v1"
         std::fs::write(&config, "model_provider = \"custom\"").unwrap();
 
         let own_catalog = dir.path().join("llm-api-proxy-model-catalog.json");
-        let third_party = dir.path().join("cc-switch-model-catalog.json");
+        let third_party = dir.path().join("third-party-model-catalog.json");
         std::fs::write(&own_catalog, "{\"models\":[]}").unwrap();
         std::fs::write(&third_party, "{\"models\":[]}").unwrap();
 

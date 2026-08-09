@@ -4,7 +4,7 @@
 //! env vars into the existing settings.json, preserving all other fields.
 //!
 //! 1M-context roles (via `roles_1m`) are declared the Claude Code way: the
-//! model value carries a `[1M]` suffix (see cc-switch `ONE_M_CONTEXT_MARKER`),
+//! model value carries a `[1M]` suffix,
 //! and when any role is marked 1M the client-side context window is raised
 //! with `CLAUDE_CODE_MAX_CONTEXT_TOKENS` / `CLAUDE_CODE_AUTO_COMPACT_WINDOW`
 //! — without those, Claude Code caps non-`claude-` model ids at 200K.
@@ -156,8 +156,7 @@ impl ToolConfigWriter for ClaudeCodeWriter {
                     .find(|p| p.name == pool)
                     .and_then(|p| p.context_window)
             };
-            // /model menu friendly name: the mapped pool's display name (cc-switch
-            // mirrors this with the ANTHROPIC_DEFAULT_*_MODEL_NAME env pair).
+            // /model menu friendly name: the mapped pool's display name.
             let display_for_role = |role: &str| -> String {
                 let pool = pool_for_role(role);
                 if pool == default_pool_name {
