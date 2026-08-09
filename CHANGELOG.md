@@ -5,6 +5,16 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.4.2] - 2026-08-09
+
+### 修复
+- 修复 OpenCode 配置 `limit` 缺少必填 `output` 字段导致 `ConfigInvalidError` 的问题——现在每个带 `context` 的模型条目自动补写 `output: 8192`
+- 修正各工具配置写入格式，确保与客户端实际读取的字段一致：
+  - **Gemini CLI**：改写 `~/.gemini/.env`（`GEMINI_API_KEY`/`GOOGLE_GEMINI_BASE_URL`/`GEMINI_MODEL`）而非 `settings.json` 的 `env` 对象，并在 `settings.json` 中设置 `security.auth.selectedType = "gemini-api-key"` 使 CLI 优先使用注入的 API Key
+  - **Grok**：改用官方 `[models]` + `[model."<name>"]` 表结构（`model`/`base_url`/`name`/`api_key`/`api_backend`/`context_window`），不再使用 Codex 风格的 `model_providers` 布局
+  - **Hermes**：`custom_providers` 改为序列格式（`- name:` 列表项），补充顶层 `model.provider` 字段
+  - **OpenClaw**：provider 字段改用 camelCase（`baseUrl`/`apiKey`），新建配置自动声明 `models.mode = "merge"` 使 provider 累加
+
 ## [0.4.1] - 2026-08-08
 
 ### 修复
@@ -324,7 +334,13 @@
 - **数据便携**：所有数据存储在程序同目录 `data/` 文件夹，U 盘携带即走
 - **开源治理**：AGPL-3.0 双轨许可、CLA 贡献者协议、CONTRIBUTING.md 贡献指南
 
-[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.4.2
+[0.4.1]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.4.1
+[0.4.0]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.4.0
+[0.3.4]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.3.4
+[0.3.3]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.3.3
+[0.3.2]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.3.2
 [0.3.1]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.3.1
 [0.3.0]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.3.0
 [0.2.2]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.2.2
