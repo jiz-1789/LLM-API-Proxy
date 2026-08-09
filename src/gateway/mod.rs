@@ -1,4 +1,4 @@
-﻿pub mod auth;
+pub mod auth;
 pub mod convert;
 pub mod error_response;
 pub mod health;

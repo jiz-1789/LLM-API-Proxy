@@ -1,4 +1,4 @@
-﻿﻿//! Codex CLI config writer (`~/.codex/auth.json` + `~/.codex/config.toml`).
+//! Codex CLI config writer (`~/.codex/auth.json` + `~/.codex/config.toml`).
 //!
 //! Codex uses two files:
 //! - `auth.json`: stores `OPENAI_API_KEY`

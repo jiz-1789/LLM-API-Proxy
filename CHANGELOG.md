@@ -15,6 +15,13 @@
   - **Hermes**：`custom_providers` 改为序列格式（`- name:` 列表项），补充顶层 `model.provider` 字段
   - **OpenClaw**：provider 字段改用 camelCase（`baseUrl`/`apiKey`），新建配置自动声明 `models.mode = "merge"` 使 provider 累加
 
+## [0.4.3] - 2026-08-09
+
+### 修复
+- 修复上游服务商表格点击小眼睛显示 API Key 后列变形的问题——API Key 列改用 flex 布局，span 设 `min-width:0` 允许收缩
+- 预防性加固故障转移事件表和请求日志表的列宽约束，避免长文本撑宽表格
+- 移除 4 个 Rust 源文件的 UTF-8 BOM，修复编译失败
+
 ## [0.4.1] - 2026-08-08
 
 ### 修复
@@ -334,7 +341,8 @@
 - **数据便携**：所有数据存储在程序同目录 `data/` 文件夹，U 盘携带即走
 - **开源治理**：AGPL-3.0 双轨许可、CLA 贡献者协议、CONTRIBUTING.md 贡献指南
 
-[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/jiz-1789/LLM-API-Proxy/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.4.3
 [0.4.2]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.4.2
 [0.4.1]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.4.1
 [0.4.0]: https://github.com/jiz-1789/LLM-API-Proxy/releases/tag/v0.4.0

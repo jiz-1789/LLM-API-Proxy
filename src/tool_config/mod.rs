@@ -1,4 +1,4 @@
-﻿//! Tool configuration module: inject the proxy address/API key/model pools
+//! Tool configuration module: inject the proxy address/API key/model pools
 //! into installed AI coding tools' config files.
 
 pub mod backup;
