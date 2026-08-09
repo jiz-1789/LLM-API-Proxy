@@ -49,7 +49,7 @@ const ONE_M_THRESHOLD: i32 = 1_000_000;
 /// Whether a model id is one Claude Desktop recognises as a native Claude
 /// model. Such ids may appear in `inferenceModels` and be requested directly.
 ///
-/// Rules (mirror cc-switch): must be `claude-` or `anthropic/claude-` prefixed,
+/// Rules: must be `claude-` or `anthropic/claude-` prefixed,
 /// followed by a role word (`sonnet-`/`opus-`/`haiku-`/`fable-`) plus a
 /// non-empty tail; a `[1m]` marker is never a safe id.
 fn is_claude_safe_model_id(model: &str) -> bool {

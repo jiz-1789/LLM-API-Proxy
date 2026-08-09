@@ -1,4 +1,9 @@
 //! OpenClaw config writer (`~/.openclaw/openclaw.json`).
+//!
+//! OpenClaw reads custom providers from `models.providers.<id>` with
+//! **camelCase** keys (`baseUrl`/`apiKey`/`api`, models as `id`/`name`/
+//! `contextWindow`).
+//! A fresh file must declare `models.mode = "merge"` so providers accumulate.
 
 use crate::error::AppError;
 use crate::tool_config::backup::BackupEntry;
@@ -51,6 +56,39 @@ impl ToolConfigWriter for OpenClawWriter {
         _default_pool_display_name: &str,
         provider_name: &str,
     ) -> Result<(), AppError> {
+        self.merge_and_write_config_full(
+            original_configs,
+            proxy_base_url,
+            proxy_api_key,
+            all_pools,
+            default_pool_name,
+            provider_name,
+        )
+    }
+
+    fn restore_original_config(&self, original_configs: &[BackupEntry]) -> Result<(), AppError> {
+        match original_configs.first() {
+            Some((path, Some(content))) => atomic_write(path, content.as_bytes()),
+            Some((path, None)) => {
+                let _ = std::fs::remove_file(path);
+                Ok(())
+            }
+            None => Ok(()),
+        }
+    }
+}
+
+impl OpenClawWriter {
+    /// Core write entry point shared by the trait method and tests.
+    fn merge_and_write_config_full(
+        &self,
+        original_configs: &[BackupEntry],
+        proxy_base_url: &str,
+        proxy_api_key: &str,
+        all_pools: &[ToolPool],
+        default_pool_name: &str,
+        provider_name: &str,
+    ) -> Result<(), AppError> {
         let (path, original) = original_configs
             .first()
             .ok_or_else(|| AppError::Config("缺少原始配置".to_string()))?;
@@ -71,10 +109,14 @@ impl ToolConfigWriter for OpenClawWriter {
         let obj = root
             .as_object_mut()
             .ok_or_else(|| AppError::Config("openclaw.json 根节点不是对象".to_string()))?;
-        let models = obj
-            .entry("models")
-            .or_insert_with(|| json!({}));
+        let models = obj.entry("models").or_insert_with(|| {
+            // Fresh configs must declare merge mode so providers accumulate.
+            json!({ "mode": "merge", "providers": {} })
+        });
         if let Some(mobj) = models.as_object_mut() {
+            // Ensure models.mode is present and "merge".
+            mobj.entry("mode")
+                .or_insert_with(|| Value::String("merge".to_string()));
             let providers = mobj.entry("providers").or_insert_with(|| json!({}));
             if let Some(pobj) = providers.as_object_mut() {
                 // Register every pool as a switchable model so OpenClaw can pick
@@ -96,11 +138,12 @@ impl ToolConfigWriter for OpenClawWriter {
                         entry
                     })
                     .collect();
+                // camelCase keys are what OpenClaw actually reads.
                 pobj.insert(
                     provider_key.clone(),
                     json!({
-                        "base_url": proxy_base_url,
-                        "api_key": proxy_api_key,
+                        "baseUrl": proxy_base_url,
+                        "apiKey": proxy_api_key,
                         "api": "openai-completions",
                         "models": model_list,
                     }),
@@ -125,17 +168,6 @@ impl ToolConfigWriter for OpenClawWriter {
 
         atomic_write(path, serde_json::to_string_pretty(&root).unwrap_or_default().as_bytes())
     }
-
-    fn restore_original_config(&self, original_configs: &[BackupEntry]) -> Result<(), AppError> {
-        match original_configs.first() {
-            Some((path, Some(content))) => atomic_write(path, content.as_bytes()),
-            Some((path, None)) => {
-                let _ = std::fs::remove_file(path);
-                Ok(())
-            }
-            None => Ok(()),
-        }
-    }
 }
 
 #[cfg(test)]
@@ -144,18 +176,23 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn test_openclaw_writes_provider_and_default_model() {
+    fn test_openclaw_writes_camelcase_provider_and_default_model() {
         let dir = TempDir::new().unwrap();
         let cfg = dir.path().join("openclaw.json");
         let writer = OpenClawWriter;
         let original = vec![(cfg.clone(), None)];
         writer
-            .merge_and_write_config(&original, "http://127.0.0.1:47339", "sk-gw", &[], "grok-4.5", "Grok 4.5", "proxy")
+            .merge_and_write_config(&original, "http://127.0.0.1:47339/v1", "sk-gw", &[], "grok-4.5", "Grok 4.5", "proxy")
             .unwrap();
         let written: Value = serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
-        assert_eq!(written["models"]["providers"]["proxy"]["base_url"], "http://127.0.0.1:47339");
-        assert_eq!(written["models"]["providers"]["proxy"]["api_key"], "sk-gw");
+        // camelCase keys are what OpenClaw reads; snake_case must not appear.
+        assert_eq!(written["models"]["providers"]["proxy"]["baseUrl"], "http://127.0.0.1:47339/v1");
+        assert_eq!(written["models"]["providers"]["proxy"]["apiKey"], "sk-gw");
         assert_eq!(written["models"]["providers"]["proxy"]["api"], "openai-completions");
+        assert!(written["models"]["providers"]["proxy"].get("base_url").is_none());
+        assert!(written["models"]["providers"]["proxy"].get("api_key").is_none());
+        // Fresh config declares merge mode so providers accumulate.
+        assert_eq!(written["models"]["mode"], "merge");
         // No pools → empty model list; default model references provider + pool.
         assert!(written["models"]["providers"]["proxy"]["models"].as_array().unwrap().is_empty());
         assert_eq!(
@@ -212,5 +249,7 @@ mod tests {
         let written: Value = serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
         assert_eq!(written["agents"]["defaults"]["temperature"], 0.7);
         assert_eq!(written["agents"]["defaults"]["model"]["primary"], "proxy/pool");
+        // Existing config without a mode stays merge-friendly too.
+        assert_eq!(written["models"]["mode"], "merge");
     }
 }

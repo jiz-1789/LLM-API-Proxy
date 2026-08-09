@@ -1,6 +1,6 @@
 //! Tool installation detection helpers.
 //!
-//! Detection is primarily based on **config file existence** (like cc-switch),
+//! Detection is primarily based on **config file existence**,
 //! with PATH executable lookup as a secondary signal. GUI tools (Claude
 //! Desktop) and tools installed via npm/pnpm/bun are often NOT on PATH, so
 //! checking config dirs is the reliable approach.
@@ -37,7 +37,7 @@ pub fn local_appdata_dir() -> Option<PathBuf> {
 }
 
 // ============================================================================
-// Per-tool config path resolution (cc-switch compatible)
+// Per-tool config path resolution
 // ============================================================================
 
 /// Claude Code settings path: `~/.claude/settings.json`.
@@ -47,7 +47,7 @@ pub fn claude_settings_path() -> Option<PathBuf> {
 
 /// Claude Desktop config path.
 ///
-/// Windows (cc-switch compatible): `%LOCALAPPDATA%\Claude\claude_desktop_config.json`
+/// Windows: `%LOCALAPPDATA%\Claude\claude_desktop_config.json`
 /// (also checks the 3p dir `%LOCALAPPDATA%\Claude-3p\`), falling back to
 /// `%APPDATA%\Claude\...` for older installs.
 /// macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`.
@@ -86,7 +86,7 @@ pub fn claude_desktop_config_paths() -> Vec<PathBuf> {
 
 /// Codex CLI config: `~/.codex/auth.json` + `~/.codex/config.toml`.
 ///
-/// Codex honors the `CODEX_HOME` environment variable (like CC-Switch does);
+/// Codex honors the `CODEX_HOME` environment variable;
 /// when set to an existing directory, that directory is used instead of
 /// `~/.codex`.
 pub fn codex_home_dir() -> Option<PathBuf> {
@@ -265,15 +265,14 @@ pub fn codex_installed() -> bool {
     if find_codex_executable_dir().is_some() {
         return true;
     }
-    // A config dir (CODEX_HOME or ~/.codex) is a reliable signal too — CC-Switch
-    // detects Codex purely by config-dir existence.
+    // A config dir (CODEX_HOME or ~/.codex) is a reliable signal too.
     codex_home_dir()
         .filter(|dir| dir.exists())
         .is_some()
 }
 
 // ============================================================================
-// Executable-first installation detection (cc-switch compatible dirs)
+// Executable-first installation detection
 // ============================================================================
 
 /// npm/pnpm/yarn/bun global bin directories commonly added to PATH.
@@ -573,7 +572,7 @@ mod tests {
     #[test]
     fn test_codex_installed_by_config_dir() {
         let _lock = CODEX_HOME_TEST_LOCK.lock().unwrap();
-        // A config dir alone (like CC-Switch's detection) counts as installed.
+        // A config dir alone counts as installed.
         let dir = tempfile::tempdir().unwrap();
         // SAFETY: single-threaded test environment.
         unsafe {

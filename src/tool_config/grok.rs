@@ -1,5 +1,10 @@
 //! Grok CLI config writer (`~/.grok/config.toml`).
-//! Uses the same Codex-style TOML layout (model_provider + [model_providers.X]).
+//!
+//! Grok Build reads a top-level `[models]` table plus one `[model."<name>"]`
+//! table per model profile (`models.default` + `model.<default>.{model,base_url,
+//! name,api_key,api_backend,context_window}`). One profile is generated per proxy pool so
+//! the CLI can switch between all pools; `models.default` points at the active
+//! pool.
 
 use crate::error::AppError;
 use crate::tool_config::backup::BackupEntry;
@@ -12,6 +17,8 @@ use std::path::PathBuf;
 pub struct GrokWriter;
 
 const APP_ID: &str = "grokbuild";
+const DEFAULT_API_BACKEND: &str = "responses";
+const DEFAULT_CONTEXT_WINDOW: i64 = 500_000;
 
 impl ToolConfigWriter for GrokWriter {
     fn app_id(&self) -> &'static str {
@@ -49,73 +56,81 @@ impl ToolConfigWriter for GrokWriter {
         all_pools: &[ToolPool],
         default_pool_name: &str,
         default_pool_display_name: &str,
-        provider_name: &str,
+        _provider_name: &str,
     ) -> Result<(), AppError> {
         let (path, original) = original_configs
             .first()
             .ok_or_else(|| AppError::Config("缺少原始配置".to_string()))?;
 
-        // Provider-scoped key so multiple profiles don't clobber each other.
-        let provider_key = provider_name.trim();
-        let provider_key = if provider_key.is_empty() {
-            "llm-api-proxy".to_string()
-        } else {
-            provider_key.to_string()
-        };
-
-        // Order-preserving upsert: reuse an existing `[model_providers.{key}]`
-        // table instead of appending a duplicate section.
+        // Order-preserving upsert: reuse an existing `[model."{pool}"]` table
+        // instead of appending a duplicate section.
         let mut doc = original
             .clone()
             .unwrap_or_default()
             .parse::<toml_edit::DocumentMut>()
             .unwrap_or_default();
 
-        doc["model_provider"] = toml_edit::value(&provider_key);
-        doc["model"] = toml_edit::value(default_pool_name);
+        // One profile per pool; fall back to the default pool when no pools
+        // are known (e.g. no pools registered yet).
+        let mut profiles: Vec<(String, String, Option<i32>)> = all_pools
+            .iter()
+            .map(|p| {
+                (
+                    p.name.clone(),
+                    if p.display_name.is_empty() {
+                        p.name.clone()
+                    } else {
+                        p.display_name.clone()
+                    },
+                    p.context_window,
+                )
+            })
+            .collect();
+        if profiles.is_empty() {
+            profiles.push((
+                default_pool_name.to_string(),
+                default_pool_display_name.to_string(),
+                None,
+            ));
+        }
 
-        if !doc.as_table().contains_key("model_providers") {
-            doc["model_providers"] = toml_edit::table();
+        if !doc.as_table().contains_key("models") {
+            doc["models"] = toml_edit::table();
         }
-        let providers = doc
-            .get_mut("model_providers")
-            .and_then(toml_edit::Item::as_table_mut)
-            .ok_or_else(|| AppError::Config("model_providers 必须是 TOML 表".to_string()))?;
-        if !providers.contains_key(&provider_key) {
-            providers.insert(&provider_key, toml_edit::table());
-        }
-        let provider = providers
-            .get_mut(&provider_key)
-            .and_then(toml_edit::Item::as_table_mut)
-            .ok_or_else(|| AppError::Config("model_providers.{provider_key} 必须是 TOML 表".to_string()))?;
-        provider["name"] = toml_edit::value(provider_name);
-        provider["base_url"] = toml_edit::value(proxy_base_url);
-        provider["wire_api"] = toml_edit::value("responses");
-        provider["requires_openai_auth"] = toml_edit::value(true);
-        // Bearer token for the newer Grok desktop/build auth path — without it
-        // the CLI has no credential once XAI_* env vars are cleaned up. Written
-        // on the provider section like Codex's experimental_bearer_token.
-        provider["experimental_bearer_token"] = toml_edit::value(proxy_api_key);
+        doc["models"]["default"] = toml_edit::value(&profiles[0].0);
+        // On existing configs, always point `default` at the currently
+        // selected pool even if a stale default still references a removed
+        // profile.
+        let profiles_len = profiles.len();
 
-        // Register every pool as a switchable model under this provider so
-        // Grok can switch between all proxy pools (not just the default one).
-        if !provider.contains_key("models") {
-            provider.insert("models", toml_edit::table());
+        // Models live under `[model."<profile>"]`.
+        if !doc.as_table().contains_key("model") {
+            doc["model"] = toml_edit::table();
         }
-        let models = provider
-            .get_mut("models")
+        let model_root = doc
+            .get_mut("model")
             .and_then(toml_edit::Item::as_table_mut)
-            .ok_or_else(|| AppError::Config(format!("model_providers.{provider_key}.models 必须是 TOML 表")))?;
-        for pool in all_pools {
-            let mut desc = toml_edit::Table::new();
-            desc.insert("name", toml_edit::value(pool.display_name.clone()));
-            models.insert(pool.name.as_str(), toml_edit::Item::Table(desc));
+            .ok_or_else(|| AppError::Config("model 必须是 TOML 表".to_string()))?;
+        for (name, display, window) in profiles {
+            if !model_root.contains_key(&name) {
+                model_root.insert(&name, toml_edit::Item::Table(toml_edit::Table::new()));
+            }
+            let table = model_root
+                .get_mut(&name)
+                .and_then(toml_edit::Item::as_table_mut)
+                .ok_or_else(|| AppError::Config("model.{name} 必须是 TOML 表".to_string()))?;
+            table.insert("model", toml_edit::value(&name));
+            table.insert("base_url", toml_edit::value(proxy_base_url));
+            table.insert("name", toml_edit::value(display));
+            table.insert("api_key", toml_edit::value(proxy_api_key));
+            table.insert("api_backend", toml_edit::value(DEFAULT_API_BACKEND));
+            let window = window
+                .map(i64::from)
+                .filter(|w| *w > 0)
+                .unwrap_or(DEFAULT_CONTEXT_WINDOW);
+            table.insert("context_window", toml_edit::value(window));
         }
-        if all_pools.is_empty() {
-            let mut desc = toml_edit::Table::new();
-            desc.insert("name", toml_edit::value(default_pool_display_name.to_string()));
-            models.insert(default_pool_name, toml_edit::Item::Table(desc));
-        }
+        debug_assert!(profiles_len > 0, "at least one profile must be written");
 
         atomic_write(path, doc.to_string().as_bytes())
     }
@@ -138,7 +153,7 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn test_grok_merge_creates_toml() {
+    fn test_grok_creates_official_model_table_shape() {
         let dir = TempDir::new().unwrap();
         let cfg = dir.path().join("config.toml");
         let writer = GrokWriter;
@@ -146,23 +161,33 @@ mod tests {
         writer
             .merge_and_write_config(
                 &original,
-                "http://127.0.0.1:47339",
+                "http://127.0.0.1:47339/v1",
                 "sk-k",
-                &[],
+                &[ToolPool::new("grok-pool", "Grok Pool")],
                 "grok-pool",
                 "Grok Pool",
                 "LLM-API-Proxy",
             )
             .unwrap();
         let toml = std::fs::read_to_string(&cfg).unwrap();
-        assert!(toml.contains("model_provider = \"LLM-API-Proxy\""));
-        assert!(toml.contains("model = \"grok-pool\""));
-        assert!(toml.contains("base_url = \"http://127.0.0.1:47339\""));
-        assert!(toml.contains("experimental_bearer_token = \"sk-k\""));
+        assert!(toml.contains("[models]"));
+        assert!(toml.contains("default = \"grok-pool\""));
+        let parsed = toml.parse::<toml_edit::DocumentMut>().unwrap();
+        let model = parsed["model"]["grok-pool"].as_table().expect("model profile");
+        assert_eq!(model["model"].as_str().unwrap(), "grok-pool");
+        assert_eq!(model["base_url"].as_str().unwrap(), "http://127.0.0.1:47339/v1");
+        assert_eq!(model["name"].as_str().unwrap(), "Grok Pool");
+        assert_eq!(model["api_key"].as_str().unwrap(), "sk-k");
+        assert_eq!(model["api_backend"].as_str().unwrap(), "responses");
+        assert_eq!(model["context_window"].as_integer().unwrap(), 500_000);
+        // Old Codex-style keys must NOT be written.
+        assert!(!toml.contains("model_provider"));
+        assert!(!toml.contains("wire_api"));
+        assert!(!toml.contains("experimental_bearer_token"));
     }
 
     #[test]
-    fn test_grok_writes_all_pool_models_for_switching() {
+    fn test_grok_writes_all_pool_profiles() {
         let dir = TempDir::new().unwrap();
         let cfg = dir.path().join("config.toml");
         let writer = GrokWriter;
@@ -174,7 +199,7 @@ mod tests {
                 "sk-k",
                 &[
                     ToolPool::new("deepseek-v4-pro", "DeepSeek V4 Pro"),
-                    ToolPool::new("deepseek-v4-flash", "DeepSeek V4 Flash"),
+                    ToolPool::with_window("deepseek-v4-flash", "DeepSeek V4 Flash", 128000),
                 ],
                 "deepseek-v4-pro",
                 "DeepSeek V4 Pro",
@@ -183,20 +208,18 @@ mod tests {
             .unwrap();
         let toml = std::fs::read_to_string(&cfg).unwrap();
         let parsed = toml.parse::<toml_edit::DocumentMut>().unwrap();
-        let models = parsed
-            .get("model_providers")
-            .and_then(|p| p.get("LLM-API-Proxy"))
-            .and_then(|p| p.get("models"))
-            .and_then(toml_edit::Item::as_table)
-            .expect("model_providers.LLM-API-Proxy.models must exist");
-        assert_eq!(models.len(), 2);
-        assert_eq!(models["deepseek-v4-pro"]["name"].as_str().unwrap(), "DeepSeek V4 Pro");
-        assert_eq!(models["deepseek-v4-flash"]["name"].as_str().unwrap(), "DeepSeek V4 Flash");
-        assert_eq!(parsed["model"].as_str().unwrap(), "deepseek-v4-pro");
+        let pro = parsed["model"]["deepseek-v4-pro"].as_table().unwrap();
+        assert_eq!(pro["model"].as_str().unwrap(), "deepseek-v4-pro");
+        assert_eq!(pro["name"].as_str().unwrap(), "DeepSeek V4 Pro");
+        let flash = parsed["model"]["deepseek-v4-flash"].as_table().unwrap();
+        assert_eq!(flash["name"].as_str().unwrap(), "DeepSeek V4 Flash");
+        // Known window is used; unknown falls back to the Grok default.
+        assert_eq!(flash["context_window"].as_integer().unwrap(), 128_000);
+        assert_eq!(pro["context_window"].as_integer().unwrap(), 500_000);
     }
 
     #[test]
-    fn test_grok_preserves_existing() {
+    fn test_grok_preserves_existing_other_sections() {
         let dir = TempDir::new().unwrap();
         let cfg = dir.path().join("config.toml");
         std::fs::write(&cfg, "disable_browser = true\n").unwrap();
@@ -207,24 +230,28 @@ mod tests {
             .unwrap();
         let toml = std::fs::read_to_string(&cfg).unwrap();
         assert!(toml.starts_with("disable_browser = true"));
-        assert!(toml.contains("[model_providers.P]"));
+        assert!(toml.contains("[model.m]") || toml.contains("[model.\"m\"]"));
     }
 
     #[test]
-    fn test_grok_reuses_existing_provider_section_no_duplicate() {
+    fn test_grok_reuses_existing_profile_table_no_duplicate() {
         let dir = TempDir::new().unwrap();
         let cfg = dir.path().join("config.toml");
-        let existing = "model_provider = \"llm-api-proxy\"\nmodel = \"old-model\"\n\n[model_providers.llm-api-proxy]\nname = \"llm-api-proxy\"\nbase_url = \"http://old:8080/v1\"\nwire_api = \"responses\"\n";
+        let existing = "[models]\ndefault = \"old-model\"\n\n[model.old-model]\nmodel = \"old-model\"\nbase_url = \"http://old:8080/v1\"\napi_key = \"old-key\"\napi_backend = \"responses\"\ncontext_window = 500000\n";
         std::fs::write(&cfg, existing).unwrap();
         let writer = GrokWriter;
         let original = vec![(cfg.clone(), Some(existing.to_string()))];
         writer
-            .merge_and_write_config(&original, "http://new:47339", "k", &[], "new-pool", "P", "llm-api-proxy")
+            .merge_and_write_config(&original, "http://new:47339", "k", &[], "new-pool", "P", "P")
             .unwrap();
         let toml = std::fs::read_to_string(&cfg).unwrap();
-        assert_eq!(toml.matches("[model_providers.llm-api-proxy]").count(), 1);
+        assert_eq!(
+            toml.matches("[model.\"new-pool\"]").count()
+                + toml.matches("[model.new-pool]").count(),
+            1
+        );
         assert!(toml.contains("base_url = \"http://new:47339\""));
-        assert!(toml.contains("model = \"new-pool\""));
+        assert!(toml.contains("default = \"new-pool\""));
         let parsed = toml.parse::<toml_edit::DocumentMut>();
         assert!(parsed.is_ok(), "invalid TOML after upsert: {toml}");
     }

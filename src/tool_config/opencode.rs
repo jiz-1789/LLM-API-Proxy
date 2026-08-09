@@ -115,7 +115,9 @@ impl ToolConfigWriter for OpenCodeWriter {
                 pool_ctx
             };
             if let Some(ctx) = ctx {
-                entry["limit"] = json!({"context": ctx});
+                // OpenCode 的 limit 结构中 context 与 output 均为必填，
+                // 缺 output 会导致配置校验失败（ConfigInvalidError）。
+                entry["limit"] = json!({"context": ctx, "output": 8192});
             }
             entry
         };
@@ -242,8 +244,11 @@ mod tests {
             .unwrap();
         let written: Value = serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
         let models = &written["provider"]["llm-api-proxy"]["models"];
-        // Default pool declares the 1M context window (cc-switch's limit editor).
+        // Default pool declares the 1M context window.
         assert_eq!(models["gpt-4"]["limit"]["context"], 1000000);
+        // OpenCode 要求 limit.output 必填，缺 key 会触发配置校验失败。
+        assert!(models["gpt-4"]["limit"]["output"].is_number());
+        assert!(models["gpt-4"]["limit"]["output"].as_i64().unwrap() > 0);
         // Other pools keep no window declaration.
         assert!(models["claude-sonnet"].get("limit").is_none());
     }
