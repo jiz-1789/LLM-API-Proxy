@@ -5306,7 +5306,7 @@ return `<tr>
 <td>${codeBadge}</td>
 <td>${l.response_time_ms}ms</td>
 <td style="font-family:'SF Mono','Cascadia Code',monospace;font-size:11px;color:var(--text-secondary);">${tokenDisplay}</td>
-<td style="font-size:11px;color:var(--text-muted);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(failDetail)}">${failDetail}</td>
+<td style="max-width:300px;overflow:hidden;"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--text-muted);" title="${esc(failDetail)}">${failDetail}</div></td>
 </tr>`;
 }).join('');
 updateLogPagination(logCurrentPage, pageLimit, logs.length === pageLimit);

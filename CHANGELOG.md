@@ -14,6 +14,8 @@
   - **Grok**：改用官方 `[models]` + `[model."<name>"]` 表结构（`model`/`base_url`/`name`/`api_key`/`api_backend`/`context_window`），不再使用 Codex 风格的 `model_providers` 布局
   - **Hermes**：`custom_providers` 改为序列格式（`- name:` 列表项），补充顶层 `model.provider` 字段
   - **OpenClaw**：provider 字段改用 camelCase（`baseUrl`/`apiKey`），新建配置自动声明 `models.mode = "merge"` 使 provider 累加
+- 修复上游服务商表格点击小眼睛显示 API Key 后列变形的问题——API Key 列改用 flex 布局，span 设 `min-width:0` 允许收缩
+- 预防性加固故障转移事件表和请求日志表的列宽约束，避免长文本撑宽表格
 
 ## [0.4.1] - 2026-08-08
 
